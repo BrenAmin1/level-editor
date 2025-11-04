@@ -1,0 +1,15 @@
+[gd_scene load_steps=4 format=3 uid="uid://3ivmfe06led4"]
+
+[ext_resource type="Shader" uid="uid://bymxu7o04nkbu" path="res://Shader/ray_marching.gdshader" id="1_orlna"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_8tm0q"]
+render_priority = 0
+shader = ExtResource("1_orlna")
+
+[sub_resource type="BoxMesh" id="BoxMesh_fq0f8"]
+material = SubResource("ShaderMaterial_8tm0q")
+
+[node name="Raymarch" type="Node3D"]
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("BoxMesh_fq0f8")
