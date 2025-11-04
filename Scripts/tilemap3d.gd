@@ -148,7 +148,7 @@ func extend_mesh_to_boundaries(tile_type: int, threshold: float = 0.15) -> bool:
 			v.x = s
 			
 		if v.y < threshold:
-			v.y = 0
+			v.y = -0.5
 		elif v.y > s - threshold:
 			v.y = s
 			
@@ -570,26 +570,90 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 	return mesh
 
 # Helper function to extend a vertex to boundary only if there's a neighbor in that direction
+# For corner vertices, only extend on axes where neighbors exist
 func extend_vertex_to_boundary_if_neighbor(v: Vector3, neighbors: Dictionary, threshold: float) -> Vector3:
 	var result = v
 	
-	# X-axis boundaries
-	if v.x < threshold and neighbors["west"] != -1:
-		result.x = 0
-	elif v.x > grid_size - threshold and neighbors["east"] != -1:
-		result.x = grid_size
+	# Determine which boundaries this vertex is near
+	var near_x_min = v.x < threshold
+	var near_x_max = v.x > grid_size - threshold
+	var near_y_min = v.y < threshold
+	var near_y_max = v.y > grid_size - threshold
+	var near_z_min = v.z < threshold
+	var near_z_max = v.z > grid_size - threshold
 	
-	# Y-axis boundaries
-	if v.y < threshold and neighbors["down"] != -1:
-		result.y = 0
-	elif v.y > grid_size - threshold and neighbors["up"] != -1:
-		result.y = grid_size
+	# For corner vertices, check if we should extend on each axis
+	# A corner vertex (e.g., at x_min and z_min) should only extend on an axis
+	# if there's a neighbor on that axis OR on both axes
 	
-	# Z-axis boundaries
-	if v.z < threshold and neighbors["north"] != -1:
-		result.z = 0
-	elif v.z > grid_size - threshold and neighbors["south"] != -1:
-		result.z = grid_size
+	# X-axis extension
+	if near_x_min:
+		# Check if there's a neighbor to the west
+		var has_west_neighbor = neighbors["west"] != -1
+		# For corner cases, also check if extending would help connect to a diagonal neighbor
+		if near_z_min and neighbors["north"] != -1 and not has_west_neighbor:
+			# Don't extend x if we only have a north neighbor at the x-min, z-min corner
+			pass
+		elif near_z_max and neighbors["south"] != -1 and not has_west_neighbor:
+			# Don't extend x if we only have a south neighbor at the x-min, z-max corner
+			pass
+		elif has_west_neighbor:
+			result.x = 0
+			
+	elif near_x_max:
+		var has_east_neighbor = neighbors["east"] != -1
+		if near_z_min and neighbors["north"] != -1 and not has_east_neighbor:
+			pass
+		elif near_z_max and neighbors["south"] != -1 and not has_east_neighbor:
+			pass
+		elif has_east_neighbor:
+			result.x = grid_size
+	
+	# Y-axis extension
+	if near_y_min:
+		var has_down_neighbor = neighbors["down"] != -1
+		if near_x_min and neighbors["west"] != -1 and not has_down_neighbor:
+			pass
+		elif near_x_max and neighbors["east"] != -1 and not has_down_neighbor:
+			pass
+		elif near_z_min and neighbors["north"] != -1 and not has_down_neighbor:
+			pass
+		elif near_z_max and neighbors["south"] != -1 and not has_down_neighbor:
+			pass
+		elif has_down_neighbor:
+			result.y = 0
+			
+	elif near_y_max:
+		var has_up_neighbor = neighbors["up"] != -1
+		if near_x_min and neighbors["west"] != -1 and not has_up_neighbor:
+			pass
+		elif near_x_max and neighbors["east"] != -1 and not has_up_neighbor:
+			pass
+		elif near_z_min and neighbors["north"] != -1 and not has_up_neighbor:
+			pass
+		elif near_z_max and neighbors["south"] != -1 and not has_up_neighbor:
+			pass
+		elif has_up_neighbor:
+			result.y = grid_size
+	
+	# Z-axis extension
+	if near_z_min:
+		var has_north_neighbor = neighbors["north"] != -1
+		if near_x_min and neighbors["west"] != -1 and not has_north_neighbor:
+			pass
+		elif near_x_max and neighbors["east"] != -1 and not has_north_neighbor:
+			pass
+		elif has_north_neighbor:
+			result.z = 0
+			
+	elif near_z_max:
+		var has_south_neighbor = neighbors["south"] != -1
+		if near_x_min and neighbors["west"] != -1 and not has_south_neighbor:
+			pass
+		elif near_x_max and neighbors["east"] != -1 and not has_south_neighbor:
+			pass
+		elif has_south_neighbor:
+			result.z = grid_size
 	
 	return result
 
