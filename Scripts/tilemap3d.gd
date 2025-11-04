@@ -135,7 +135,7 @@ func extend_mesh_to_boundaries(tile_type: int, threshold: float = 0.15) -> bool:
 	if mesh_data.is_empty():
 		return false
 	
-	var vertices = mesh_data.vertices.duplicate()
+	var vertices = mesh_data.vertices
 	var s = grid_size
 	
 	for i in range(vertices.size()):
