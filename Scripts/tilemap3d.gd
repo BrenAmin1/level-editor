@@ -460,7 +460,7 @@ func update_tile_mesh(pos: Vector3i):
 		parent_node.add_child(mesh_instance)
 		tile_meshes[pos] = mesh_instance
 
-# Generate mesh for custom tile types with neighbor culling
+# Generate mesh for custom tile types with neighbor culling and conditional boundary extension
 func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Dictionary) -> ArrayMesh:
 	if tile_type not in custom_meshes:
 		return ArrayMesh.new()
@@ -480,6 +480,7 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 	
 	var s = grid_size
 	var boundary_threshold = 0.02
+	var extend_threshold = 0.35  # Threshold for extending vertices to boundaries
 	
 	# Process each triangle
 	for i in range(0, indices.size(), 3):
@@ -527,6 +528,12 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 		if should_cull:
 			continue
 		
+		# Extend vertices to boundaries only if there's a neighboring tile
+		# This fixes gaps from bevels when tiles are adjacent
+		v0 = extend_vertex_to_boundary_if_neighbor(v0, neighbors, extend_threshold)
+		v1 = extend_vertex_to_boundary_if_neighbor(v1, neighbors, extend_threshold)
+		v2 = extend_vertex_to_boundary_if_neighbor(v2, neighbors, extend_threshold)
+		
 		# Add this triangle
 		var start_idx = new_verts.size()
 		new_verts.append(v0)
@@ -561,6 +568,30 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 		mesh.surface_set_material(0, base_mesh.surface_get_material(0))
 	
 	return mesh
+
+# Helper function to extend a vertex to boundary only if there's a neighbor in that direction
+func extend_vertex_to_boundary_if_neighbor(v: Vector3, neighbors: Dictionary, threshold: float) -> Vector3:
+	var result = v
+	
+	# X-axis boundaries
+	if v.x < threshold and neighbors["west"] != -1:
+		result.x = 0
+	elif v.x > grid_size - threshold and neighbors["east"] != -1:
+		result.x = grid_size
+	
+	# Y-axis boundaries
+	if v.y < threshold and neighbors["down"] != -1:
+		result.y = 0
+	elif v.y > grid_size - threshold and neighbors["up"] != -1:
+		result.y = grid_size
+	
+	# Z-axis boundaries
+	if v.z < threshold and neighbors["north"] != -1:
+		result.z = 0
+	elif v.z > grid_size - threshold and neighbors["south"] != -1:
+		result.z = grid_size
+	
+	return result
 
 
 

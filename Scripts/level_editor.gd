@@ -38,7 +38,6 @@ func _ready():
 	tilemap.set_parent(self)
 	tilemap.set_offset_provider(Callable(self, "get_y_level_offset"))
 	tilemap.load_obj_for_tile_type(3, "res://cube_bulge.obj")
-	tilemap.extend_mesh_to_boundaries(3,0.15)
 	# Create selection visualizer
 	create_selection_visualizer()
 	
