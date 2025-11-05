@@ -530,9 +530,9 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 		
 		# Extend vertices to boundaries only if there's a neighboring tile
 		# This fixes gaps from bevels when tiles are adjacent
-		v0 = extend_vertex_to_boundary_if_neighbor(v0, neighbors, extend_threshold)
-		v1 = extend_vertex_to_boundary_if_neighbor(v1, neighbors, extend_threshold)
-		v2 = extend_vertex_to_boundary_if_neighbor(v2, neighbors, extend_threshold)
+		v0 = extend_vertex_to_boundary_if_neighbor(v0, neighbors, extend_threshold, pos)
+		v1 = extend_vertex_to_boundary_if_neighbor(v1, neighbors, extend_threshold, pos)
+		v2 = extend_vertex_to_boundary_if_neighbor(v2, neighbors, extend_threshold, pos)
 		
 		# Add this triangle
 		var start_idx = new_verts.size()
@@ -571,13 +571,13 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 
 # Helper function to extend a vertex to boundary only if there's a neighbor in that direction
 # For corner vertices, only extend on axes where neighbors exist
-func extend_vertex_to_boundary_if_neighbor(v: Vector3, neighbors: Dictionary, threshold: float) -> Vector3:
+func extend_vertex_to_boundary_if_neighbor(v: Vector3, neighbors: Dictionary, threshold: float, pos: Vector3i) -> Vector3:
 	var result = v
 	
 	# Determine which boundaries this vertex is near
 	var near_x_min = v.x < threshold
 	var near_x_max = v.x > grid_size - threshold
-	var near_y_min = v.y < threshold
+	#var near_y_min = v.y < threshold
 	var near_y_max = v.y > grid_size - threshold
 	var near_z_min = v.z < threshold
 	var near_z_max = v.z > grid_size - threshold
@@ -585,26 +585,45 @@ func extend_vertex_to_boundary_if_neighbor(v: Vector3, neighbors: Dictionary, th
 	# Special case: if there's a block above, remove ALL bevels on the entire block
 	# This makes the block underneath a complete flat box
 	if neighbors["up"] != -1:
-		# Extend X-axis to boundaries
-		if v.x < grid_size * 0.5:
-			result.x = 0
-		else:
-			result.x = grid_size
+		var current_offset = get_offset_for_y(pos.y)
+		var neighbor_offset = get_offset_for_y(pos.y + 1)
 		
-		# Extend Y-axis to boundaries
-		if v.y < grid_size * 0.5:
-			result.y = 0
-		else:
-			result.y = grid_size
+		# Only flatten if offsets match (blocks are aligned)
+		if current_offset.is_equal_approx(neighbor_offset):
+			# Extend X-axis to boundaries
+			if v.x < grid_size * 0.5:
+				result.x = 0
+			else:
+				result.x = grid_size
+			
+			# Extend Y-axis to boundaries
+			if v.y < grid_size * 0.5:
+				result.y = 0
+			else:
+				result.y = grid_size
+			
+			# Extend Z-axis to boundaries
+			if v.z < grid_size * 0.5:
+				result.z = 0
+			else:
+				result.z = grid_size
+			
+			# Return early - we've handled this vertex completely
+			return result
+	
+	# If there's a tile below, extend ALL bottom bevel vertices down
+	# Account for offset differences by extending extra
+	var has_down_neighbor = neighbors["down"] != -1
+	if has_down_neighbor and v.y < grid_size * 0.5:
+		var current_offset = get_offset_for_y(pos.y)
+		var neighbor_offset = get_offset_for_y(pos.y - 1)
+		var offset_diff = current_offset - neighbor_offset
 		
-		# Extend Z-axis to boundaries
-		if v.z < grid_size * 0.5:
-			result.z = 0
-		else:
-			result.z = grid_size
+		# Calculate how much extra we need to extend based on Z-offset difference
+		# The Z-offset creates a vertical gap that needs to be filled
+		var extra_extension = abs(offset_diff.y)  # Z-offset affects vertical gap
 		
-		# Return early - we've handled this vertex completely
-		return result
+		result.y = -extra_extension
 	
 	# For corner vertices, check if we should extend on each axis
 	# A corner vertex (e.g., at x_min and z_min) should only extend on an axis
@@ -633,21 +652,8 @@ func extend_vertex_to_boundary_if_neighbor(v: Vector3, neighbors: Dictionary, th
 		elif has_east_neighbor:
 			result.x = grid_size
 	
-	# Y-axis extension
-	if near_y_min:
-		var has_down_neighbor = neighbors["down"] != -1
-		if near_x_min and neighbors["west"] != -1 and not has_down_neighbor:
-			pass
-		elif near_x_max and neighbors["east"] != -1 and not has_down_neighbor:
-			pass
-		elif near_z_min and neighbors["north"] != -1 and not has_down_neighbor:
-			pass
-		elif near_z_max and neighbors["south"] != -1 and not has_down_neighbor:
-			pass
-		elif has_down_neighbor:
-			result.y = 0
-			
-	elif near_y_max:
+	# Top face handling
+	if near_y_max:
 		var has_up_neighbor = neighbors["up"] != -1
 		if near_x_min and neighbors["west"] != -1 and not has_up_neighbor:
 			pass

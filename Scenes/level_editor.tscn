@@ -90,8 +90,10 @@ text = "X Offset"
 
 [node name="XSpin" type="SpinBox" parent="UI/RightSideMenu/OffsetFold/PanelContainer/OffsetVContain"]
 layout_mode = 2
+min_value = -0.999
 max_value = 0.999
 step = 0.01
+value = 0.0010000000000000009
 
 [node name="YOffsetLabel" type="Label" parent="UI/RightSideMenu/OffsetFold/PanelContainer/OffsetVContain"]
 layout_mode = 2
@@ -99,8 +101,10 @@ text = "Z Offset"
 
 [node name="ZSpin" type="SpinBox" parent="UI/RightSideMenu/OffsetFold/PanelContainer/OffsetVContain"]
 layout_mode = 2
+min_value = -0.999
 max_value = 0.999
 step = 0.01
+value = 0.0010000000000000009
 
 [node name="OffsetConfirmButton" type="Button" parent="UI/RightSideMenu/OffsetFold/PanelContainer/OffsetVContain"]
 layout_mode = 2
