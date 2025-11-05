@@ -582,6 +582,30 @@ func extend_vertex_to_boundary_if_neighbor(v: Vector3, neighbors: Dictionary, th
 	var near_z_min = v.z < threshold
 	var near_z_max = v.z > grid_size - threshold
 	
+	# Special case: if there's a block above, remove ALL bevels on the entire block
+	# This makes the block underneath a complete flat box
+	if neighbors["up"] != -1:
+		# Extend X-axis to boundaries
+		if v.x < grid_size * 0.5:
+			result.x = 0
+		else:
+			result.x = grid_size
+		
+		# Extend Y-axis to boundaries
+		if v.y < grid_size * 0.5:
+			result.y = 0
+		else:
+			result.y = grid_size
+		
+		# Extend Z-axis to boundaries
+		if v.z < grid_size * 0.5:
+			result.z = 0
+		else:
+			result.z = grid_size
+		
+		# Return early - we've handled this vertex completely
+		return result
+	
 	# For corner vertices, check if we should extend on each axis
 	# A corner vertex (e.g., at x_min and z_min) should only extend on an axis
 	# if there's a neighbor on that axis OR on both axes
