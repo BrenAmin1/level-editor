@@ -47,10 +47,23 @@ func place_tile(pos: Vector3i, tile_type: int):
 	tiles[pos] = tile_type
 	
 	update_tile_mesh(pos)
+	
+	# Update direct neighbors (6 directions)
 	for offset in [
 		Vector3i(1,0,0), Vector3i(-1,0,0),
 		Vector3i(0,1,0), Vector3i(0,-1,0),
 		Vector3i(0,0,1), Vector3i(0,0,-1)
+	]:
+		var neighbor_pos = pos + offset
+		if neighbor_pos in tiles:
+			update_tile_mesh(neighbor_pos)
+	
+	# Update diagonal neighbors (4 corners) - they may have exposed corners now
+	for offset in [
+		Vector3i(1, 0, 1),   # Southeast
+		Vector3i(1, 0, -1),  # Northeast
+		Vector3i(-1, 0, 1),  # Southwest
+		Vector3i(-1, 0, -1)  # Northwest
 	]:
 		var neighbor_pos = pos + offset
 		if neighbor_pos in tiles:
@@ -67,10 +80,22 @@ func remove_tile(pos: Vector3i):
 		tile_meshes[pos].queue_free()
 		tile_meshes.erase(pos)
 	
+	# Update direct neighbors (6 directions)
 	for offset in [
 		Vector3i(1,0,0), Vector3i(-1,0,0),
 		Vector3i(0,1,0), Vector3i(0,-1,0),
 		Vector3i(0,0,1), Vector3i(0,0,-1)
+	]:
+		var neighbor_pos = pos + offset
+		if neighbor_pos in tiles:
+			update_tile_mesh(neighbor_pos)
+	
+	# Update diagonal neighbors (4 corners) - they may have exposed corners now
+	for offset in [
+		Vector3i(1, 0, 1),   # Southeast
+		Vector3i(1, 0, -1),  # Northeast
+		Vector3i(-1, 0, 1),  # Southwest
+		Vector3i(-1, 0, -1)  # Northwest
 	]:
 		var neighbor_pos = pos + offset
 		if neighbor_pos in tiles:

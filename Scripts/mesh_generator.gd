@@ -64,6 +64,41 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 			MeshArrays.INDICES: PackedInt32Array()
 		}
 	
+	# If there's a block above, disable culling entirely to preserve extended geometry
+	var has_block_above = neighbors[NeighborDir.UP] != -1
+	
+	# Check for exposed corners (where both adjacent sides have blocks, creating a corner)
+	# These corners need bevels preserved, but we can still cull the two adjacent interior faces
+	var exposed_corners = []  # Track which specific corners are exposed
+	
+	# Northwest corner: has north AND west neighbors, but the diagonal is exposed
+	if neighbors[NeighborDir.NORTH] != -1 and neighbors[NeighborDir.WEST] != -1:
+		var nw_pos = pos + Vector3i(-1, 0, -1)
+		if nw_pos not in tiles:
+			exposed_corners.append("NW")
+	
+	# Northeast corner: has north AND east neighbors, but the diagonal is exposed
+	if neighbors[NeighborDir.NORTH] != -1 and neighbors[NeighborDir.EAST] != -1:
+		var ne_pos = pos + Vector3i(1, 0, -1)
+		if ne_pos not in tiles:
+			exposed_corners.append("NE")
+	
+	# Southwest corner: has south AND west neighbors, but the diagonal is exposed
+	if neighbors[NeighborDir.SOUTH] != -1 and neighbors[NeighborDir.WEST] != -1:
+		var sw_pos = pos + Vector3i(-1, 0, 1)
+		if sw_pos not in tiles:
+			exposed_corners.append("SW")
+	
+	# Southeast corner: has south AND east neighbors, but the diagonal is exposed
+	if neighbors[NeighborDir.SOUTH] != -1 and neighbors[NeighborDir.EAST] != -1:
+		var se_pos = pos + Vector3i(1, 0, 1)
+		if se_pos not in tiles:
+			exposed_corners.append("SE")
+	
+	# Disable ALL culling only if there's a block above
+	# For corner blocks, we'll do selective culling
+	var disable_all_culling = has_block_above
+	
 	# Process each surface from the original mesh
 	for surface_idx in range(base_mesh.get_surface_count()):
 		var arrays = base_mesh.surface_get_arrays(surface_idx)
@@ -85,55 +120,84 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 			var v1 = vertices[i1]
 			var v2 = vertices[i2]
 			
-			# Get face normal
+			# Get face normal BEFORE extension
 			var face_normal = (normals[i0] + normals[i1] + normals[i2]).normalized()
 			
-			# Calculate face center
+			# Calculate face center BEFORE extension for culling checks
 			var face_center = (v0 + v1 + v2) / 3.0
 			
 			var should_cull = false
 			
-			# Check if face is in an interior zone where there's a neighbor
-			# West side interior zone
-			if neighbors[NeighborDir.WEST] != -1 and not should_render_vertical_face(pos, pos + Vector3i(-1, 0, 0)):
-				if face_center.x < interior_margin:
-					if face_normal.x > -0.7:  # Not strongly facing west (outward)
-						should_cull = true
-			
-			# East side interior zone
-			if neighbors[NeighborDir.EAST] != -1 and not should_render_vertical_face(pos, pos + Vector3i(1, 0, 0)):
-				if face_center.x > s - interior_margin:
-					if face_normal.x < 0.7:  # Not strongly facing east (outward)
-						should_cull = true
-			
-			# Down side interior zone
-			if neighbors[NeighborDir.DOWN] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, -1, 0)):
-				if face_center.y < interior_margin:
-					if face_normal.y > -0.7:  # Not strongly facing down (outward)
-						should_cull = true
-			
-			# Up side interior zone
-			if neighbors[NeighborDir.UP] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, 1, 0)):
-				if face_center.y > s - interior_margin:
-					if face_normal.y < 0.7:  # Not strongly facing up (outward)
-						should_cull = true
-			
-			# North side interior zone
-			if neighbors[NeighborDir.NORTH] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, 0, -1)):
-				if face_center.z < interior_margin:
-					if face_normal.z > -0.7:  # Not strongly facing north (outward)
-						should_cull = true
-			
-			# South side interior zone
-			if neighbors[NeighborDir.SOUTH] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, 0, 1)):
-				if face_center.z > s - interior_margin:
-					if face_normal.z < 0.7:  # Not strongly facing south (outward)
-						should_cull = true
+			# Only perform culling if all culling is not disabled
+			if not disable_all_culling:
+				# For corner blocks, allow culling of the two interior faces
+				# but skip culling near the exposed corner edges
+				
+				# West side interior zone
+				if neighbors[NeighborDir.WEST] != -1 and not should_render_vertical_face(pos, pos + Vector3i(-1, 0, 0)):
+					if face_center.x < interior_margin:
+						# Check if this face is near an exposed corner - if so, don't cull
+						var is_near_corner = false
+						if "NW" in exposed_corners and face_center.z < s * 0.5:
+							is_near_corner = true
+						if "SW" in exposed_corners and face_center.z > s * 0.5:
+							is_near_corner = true
+						
+						if not is_near_corner and face_normal.x > -0.7:
+							should_cull = true
+				
+				# East side interior zone
+				if neighbors[NeighborDir.EAST] != -1 and not should_render_vertical_face(pos, pos + Vector3i(1, 0, 0)):
+					if face_center.x > s - interior_margin:
+						var is_near_corner = false
+						if "NE" in exposed_corners and face_center.z < s * 0.5:
+							is_near_corner = true
+						if "SE" in exposed_corners and face_center.z > s * 0.5:
+							is_near_corner = true
+						
+						if not is_near_corner and face_normal.x < 0.7:
+							should_cull = true
+				
+				# Down side interior zone
+				if neighbors[NeighborDir.DOWN] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, -1, 0)):
+					if face_center.y < interior_margin:
+						if face_normal.y > -0.7:
+							should_cull = true
+				
+				# Up side interior zone
+				if neighbors[NeighborDir.UP] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, 1, 0)):
+					if face_center.y > s - interior_margin:
+						if face_normal.y < 0.7:
+							should_cull = true
+				
+				# North side interior zone
+				if neighbors[NeighborDir.NORTH] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, 0, -1)):
+					if face_center.z < interior_margin:
+						var is_near_corner = false
+						if "NW" in exposed_corners and face_center.x < s * 0.5:
+							is_near_corner = true
+						if "NE" in exposed_corners and face_center.x > s * 0.5:
+							is_near_corner = true
+						
+						if not is_near_corner and face_normal.z > -0.7:
+							should_cull = true
+				
+				# South side interior zone
+				if neighbors[NeighborDir.SOUTH] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, 0, 1)):
+					if face_center.z > s - interior_margin:
+						var is_near_corner = false
+						if "SW" in exposed_corners and face_center.x < s * 0.5:
+							is_near_corner = true
+						if "SE" in exposed_corners and face_center.x > s * 0.5:
+							is_near_corner = true
+						
+						if not is_near_corner and face_normal.z < 0.7:
+							should_cull = true
 			
 			if should_cull:
 				continue
 			
-			# Extend vertices to boundaries only if there's a neighboring tile
+			# Extend vertices after culling decision
 			v0 = extend_vertex_to_boundary_if_neighbor(v0, neighbors, 0.35, pos)
 			v1 = extend_vertex_to_boundary_if_neighbor(v1, neighbors, 0.35, pos)
 			v2 = extend_vertex_to_boundary_if_neighbor(v2, neighbors, 0.35, pos)
@@ -197,7 +261,12 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 			final_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
 			
 			# Apply the correct material for this surface type
-			var material = base_mesh.surface_get_material(surf_type)
+			# Check custom_materials first, then fall back to base mesh
+			var material = null
+			if tile_type in tile_map.custom_materials and surf_type < tile_map.custom_materials[tile_type].size():
+				material = tile_map.custom_materials[tile_type][surf_type]
+			if not material:
+				material = base_mesh.surface_get_material(surf_type)
 			if material:
 				final_mesh.surface_set_material(final_mesh.get_surface_count() - 1, material)
 	

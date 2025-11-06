@@ -44,9 +44,9 @@ func _ready():
 	
 	# Load custom mesh
 	tilemap.load_obj_for_tile_type(3, "res://cube_bulge.obj")
-	#tilemap.set_custom_material(3, 0, GRASS)
-	#tilemap.set_custom_material(3, 1, DIRT)
-	#tilemap.set_custom_material(3, 2, DIRT)
+	tilemap.set_custom_material(3, 2, GRASS)
+	tilemap.set_custom_material(3, 1, DIRT)
+	tilemap.set_custom_material(3, 0, DIRT)
 	
 	# Debug: Check surfaces
 	var surfaces = tilemap.get_surface_count(3)
