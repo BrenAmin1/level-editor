@@ -1,52 +1,54 @@
 extends Node3D
 
-# Components
+# ============================================================================
+# COMPONENTS
+# ============================================================================
 @onready var camera: CameraController = $Camera3D
 @onready var grid_visualizer: GridVisualizer = $GridVisualizer
 @onready var cursor_visualizer: CursorVisualizer = $CursorVisualizer
 
 var tilemap: TileMap3D
+var input_handler: InputHandler
+var selection_manager: SelectionManager
+var y_level_manager: YLevelManager
 
-
-# Editor mode
+# ============================================================================
+# EDITOR STATE
+# ============================================================================
 enum EditorMode { EDIT, SELECT }
 var current_mode: EditorMode = EditorMode.EDIT
-
-# Editor state
 var current_tile_type = 0
 var current_y_level = 0
 var grid_size = 1.0
 
-# Y-level offsets: Dictionary[int, Vector2] - maps y_level to (x_offset, z_offset)
-var y_level_offsets: Dictionary = {}
+# ============================================================================
+# SETTINGS
+# ============================================================================
+@export var grid_range: int = 100
 
-# Mouse handling
-var mouse_pressed: bool = false
-var current_mouse_button: InputEventMouseButton
-
-# Selection state
-var selection_start: Vector3i
-var selection_end: Vector3i
-var is_selecting: bool = false
-var has_selection : bool = false
-var selection_visualizer: MeshInstance3D
+# ============================================================================
+# MATERIALS
+# ============================================================================
 const GRASS = preload("uid://diy61rx0i7gtu")
 const DIRT = preload("uid://dfjriranjhvuo")
 
-# Grid settings
-@export var grid_range: int = 100
+# ============================================================================
+# INITIALIZATION
+# ============================================================================
 
 func _ready():
-	# Initialize tilemap
+	# Initialize TileMap3D
 	tilemap = TileMap3D.new(grid_size)
 	tilemap.set_parent(self)
 	tilemap.set_offset_provider(Callable(self, "get_y_level_offset"))
+	
+	# Load custom mesh
 	tilemap.load_obj_for_tile_type(3, "res://cube_bulge.obj")
-	tilemap.set_custom_material(3, 0, GRASS)    # Surface 0
-	tilemap.set_custom_material(3, 1, DIRT)   # Surface 1
-	tilemap.set_custom_material(3, 2, DIRT)  # Surface 2
-
-	# Debug: Check how many triangles the base mesh has
+	tilemap.set_custom_material(3, 0, GRASS)
+	tilemap.set_custom_material(3, 1, DIRT)
+	tilemap.set_custom_material(3, 2, DIRT)
+	
+	# Debug: Check surfaces
 	var surfaces = tilemap.get_surface_count(3)
 	print("Loaded ", surfaces, " surfaces")
 	for i in range(surfaces):
@@ -54,22 +56,62 @@ func _ready():
 		var indices = arrays[Mesh.ARRAY_INDEX]
 		print("  Surface ", i, ": ", indices.size() / 3, " triangles")
 	
-	# Create selection visualizer
-	create_selection_visualizer()
+	# Initialize components
+	y_level_manager = YLevelManager.new()
+	y_level_manager.setup(tilemap, grid_visualizer)
+	
+	selection_manager = SelectionManager.new()
+	selection_manager.setup(tilemap, camera, y_level_manager, grid_size, grid_range, self)
+	
+	input_handler = InputHandler.new()
+	input_handler.setup(self, camera, tilemap, cursor_visualizer, selection_manager, 
+						y_level_manager, grid_size, grid_range)
 	
 	print("Mode: EDIT (Press TAB to toggle)")
 
-func _process(_delta):
-	if camera:
-		update_cursor_position()
-		if mouse_pressed:
-			current_mouse_button.position = get_viewport().get_mouse_position()
-			handle_mouse_click(current_mouse_button)
+# ============================================================================
+# MAIN LOOP
+# ============================================================================
 
-func update_cursor_position():
-	if not camera or not cursor_visualizer:
-		return
+func _process(_delta):
+	if camera and cursor_visualizer:
+		_update_cursor()
+		input_handler.handle_continuous_input(_delta)
+
+# ============================================================================
+# INPUT HANDLING
+# ============================================================================
+
+func _input(event):
+	var result = input_handler.process_input(event, current_mode, current_tile_type, current_y_level)
 	
+	if result:
+		if result.has("action") and result["action"] == "toggle_mode":
+			_toggle_mode()
+		if result.has("tile_type"):
+			current_tile_type = result["tile_type"]
+		if result.has("y_level"):
+			current_y_level = result["y_level"]
+	
+	# Update selection manager state
+	selection_manager.update_state(current_y_level, current_tile_type)
+	
+	# Handle mouse wheel for FOV
+	if event is InputEventMouseButton:
+		if event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			input_handler.handle_mouse_wheel(1.0)
+		elif event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			input_handler.handle_mouse_wheel(-1.0)
+	
+	# Reset FOV
+	if Input.is_action_just_pressed("reset_fov"):
+		camera.reset_fov()
+
+# ============================================================================
+# CURSOR UPDATE
+# ============================================================================
+
+func _update_cursor():
 	var viewport = get_viewport()
 	if not viewport:
 		return
@@ -78,359 +120,64 @@ func update_cursor_position():
 	var from = camera.project_ray_origin(mouse_pos)
 	var to = from + camera.project_ray_normal(mouse_pos) * 1000
 	
-	# Get offset for current Y level
-	var offset = get_y_level_offset(current_y_level)
-	
-	# Create a plane at the current Y level
+	var offset = y_level_manager.get_offset(current_y_level)
 	var y_world = current_y_level * grid_size
 	var placement_plane = Plane(Vector3.UP, y_world)
 	var intersection = placement_plane.intersects_ray(from, to - from)
 	
 	if intersection:
-		# Apply offset to intersection point
 		var adjusted_intersection = intersection - Vector3(offset.x, 0, offset.y)
-		
 		var grid_pos = Vector3i(
 			floori(adjusted_intersection.x / grid_size),
 			current_y_level,
 			floori(adjusted_intersection.z / grid_size)
 		)
 		
-		# CLAMP TO GRID RANGE
 		if abs(grid_pos.x) > grid_range or abs(grid_pos.z) > grid_range:
-			return  # Outside allowed bounds
+			return
 		
-		# Update selection end if selecting
-		if is_selecting and current_mode == EditorMode.SELECT:
-			selection_end = grid_pos
-			update_selection_visualizer()
+		# Update selection if selecting
+		if selection_manager.is_selecting and current_mode == EditorMode.SELECT:
+			selection_manager.update_selection(mouse_pos)
 		
 		var tile_exists = tilemap.has_tile(grid_pos)
 		cursor_visualizer.update_cursor_with_offset(camera, current_y_level, tile_exists, offset)
 
-func _input(event):
-	if event is InputEventMouseButton and event.pressed:
-		mouse_pressed = true
-		current_mouse_button = event
-		if current_mode == EditorMode.SELECT and event.button_index == MOUSE_BUTTON_RIGHT:
-			mass_delete_tiles()
-			
-		# Start selection in SELECT mode
-		if current_mode == EditorMode.SELECT and event.button_index == MOUSE_BUTTON_LEFT:
-			has_selection = true
-			start_selection(event.position)
-		
-	elif event is InputEventMouseButton and event.is_released():
-		mouse_pressed = false
-		# End selection in SELECT mode
-		if current_mode == EditorMode.SELECT and event.button_index == MOUSE_BUTTON_LEFT and is_selecting:
-			has_selection = true
-			end_selection()
-	
-	# Camera rotation
-	if event is InputEventMouseMotion:
-		camera.handle_mouse_motion(event)
-	
-	# Mouse wheel for FOV
-	if event is InputEventMouse and not Engine.is_editor_hint():
-		if Input.is_mouse_button_pressed(MOUSE_BUTTON_WHEEL_DOWN):
-			camera.handle_mouse_wheel(1.0)
-		elif Input.is_mouse_button_pressed(MOUSE_BUTTON_WHEEL_UP):
-			camera.handle_mouse_wheel(-1.0)
-	
-	# Reset FOV
-	if Input.is_action_just_pressed("reset_fov"):
-		camera.reset_fov()
-	
-	# Keyboard shortcuts
-	if event is InputEventKey and event.pressed:
-		if event.keycode == KEY_TAB:
-			toggle_mode()
-		elif event.keycode == KEY_ENTER:
-			get_viewport().debug_draw = Viewport.DEBUG_DRAW_WIREFRAME
-		elif event.keycode == KEY_BACKSPACE:
-			get_viewport().debug_draw = Viewport.DEBUG_DRAW_DISABLED
-		elif event.keycode == KEY_1:
-			current_tile_type = 0
-			print("Selected: Floor tile (gray)")
-		elif event.keycode == KEY_2:
-			current_tile_type = 1
-			print("Selected: Wall tile (brown)")
-		elif event.keycode == KEY_3:
-			current_tile_type = 3
-			print("Selected: Custom")
-		elif event.keycode == KEY_BRACKETRIGHT or event.keycode == KEY_MINUS:
-			current_y_level -= 1
-			print("Y-Level: ", current_y_level)
-			var offset = get_y_level_offset(current_y_level)
-			grid_visualizer.set_y_level_offset(current_y_level, offset)
-		elif event.keycode == KEY_BRACKETLEFT or event.keycode == KEY_EQUAL:
-			current_y_level += 1
-			print("Y-Level: ", current_y_level)
-			var offset = get_y_level_offset(current_y_level)
-			grid_visualizer.set_y_level_offset(current_y_level, offset)
-		# Mass operations in SELECT mode
-		elif current_mode == EditorMode.SELECT:
-			if event.keycode == KEY_F and has_selection:
-				mass_place_tiles()
-			elif event.keycode == KEY_DELETE or event.keycode == KEY_X and has_selection:
-				mass_delete_tiles()
+# ============================================================================
+# MODE MANAGEMENT
+# ============================================================================
 
-func toggle_mode():
+func _toggle_mode():
 	if current_mode == EditorMode.EDIT:
 		current_mode = EditorMode.SELECT
 		print("Mode: SELECT (Drag to select area, F to fill, Delete/X to clear)")
 	else:
 		current_mode = EditorMode.EDIT
-		clear_selection()
+		selection_manager.clear_selection()
 		print("Mode: EDIT")
 
-# Get offset for a specific Y level
+# ============================================================================
+# Y-LEVEL OFFSET (for TileMap3D)
+# ============================================================================
+
 func get_y_level_offset(y_level: int) -> Vector2:
-	return y_level_offsets.get(y_level, Vector2.ZERO)
+	return y_level_manager.get_offset(y_level)
 
-# Set offset for a specific Y level
+
 func set_y_level_offset(y_level: int, x_offset: float, z_offset: float):
-	y_level_offsets[y_level] = Vector2(x_offset, z_offset)
-	# Update all tiles at this Y level
-	tilemap.refresh_y_level(y_level)
-	# Update grid and cursor visualizers
-	grid_visualizer.set_y_level_offset(current_y_level, get_y_level_offset(current_y_level))
+	y_level_manager.set_offset(y_level, x_offset, z_offset)
 
-# Clear offset for a specific Y level
+
 func clear_y_level_offset(y_level: int):
-	y_level_offsets.erase(y_level)
-	tilemap.refresh_y_level(y_level)
-	grid_visualizer.set_y_level_offset(current_y_level, Vector2.ZERO)
+	y_level_manager.clear_offset(y_level)
 
-func start_selection(mouse_pos: Vector2):
-	var from = camera.project_ray_origin(mouse_pos)
-	var to = from + camera.project_ray_normal(mouse_pos) * 1000
-	
-	var offset = get_y_level_offset(current_y_level)
-	
-	var y_world = current_y_level * grid_size
-	var placement_plane = Plane(Vector3.UP, y_world)
-	var intersection = placement_plane.intersects_ray(from, to - from)
-	
-	if intersection:
-		var adjusted_intersection = intersection - Vector3(offset.x, 0, offset.y)
-		
-		var grid_pos = Vector3i(
-			floori(adjusted_intersection.x / grid_size),
-			current_y_level,
-			floori(adjusted_intersection.z / grid_size)
-		)
-		
-		# CLAMP TO GRID RANGE
-		if abs(grid_pos.x) > grid_range or abs(grid_pos.z) > grid_range:
-			return
-		
-		selection_start = grid_pos
-		selection_end = grid_pos
-		is_selecting = true
-		update_selection_visualizer()
-
-func end_selection():
-	is_selecting = false
-	print("Selected area: ", selection_start, " to ", selection_end)
-
-func clear_selection():
-	is_selecting = false
-	has_selection = false
-	if selection_visualizer:
-		selection_visualizer.visible = false
-
-func create_selection_visualizer():
-	selection_visualizer = MeshInstance3D.new()
-	var immediate_mesh = ImmediateMesh.new()
-	selection_visualizer.mesh = immediate_mesh
-	
-	var material = StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.albedo_color = Color(0.2, 0.6, 1.0, 0.3)
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_ALWAYS
-	selection_visualizer.material_override = material
-	
-	selection_visualizer.visible = false
-	add_child(selection_visualizer)
-
-func update_selection_visualizer():
-	if not selection_visualizer:
-		return
-	
-	var immediate_mesh = ImmediateMesh.new()
-	selection_visualizer.mesh = immediate_mesh
-	
-	# Calculate bounds
-	var min_x = mini(selection_start.x, selection_end.x)
-	var max_x = maxi(selection_start.x, selection_end.x)
-	var min_z = mini(selection_start.z, selection_end.z)
-	var max_z = maxi(selection_start.z, selection_end.z)
-	
-	var offset = get_y_level_offset(current_y_level)
-	var y = current_y_level * grid_size
-	var s = grid_size
-	
-	# Create filled quads for the selection area
-	var surface_array = []
-	surface_array.resize(Mesh.ARRAY_MAX)
-	
-	var verts = PackedVector3Array()
-	var indices = PackedInt32Array()
-	var normals = PackedVector3Array()
-	
-	# Top face
-	for x in range(min_x, max_x + 1):
-		for z in range(min_z, max_z + 1):
-			var pos = Vector3(x * s + offset.x, y + 0.01, z * s + offset.y)
-			var start_idx = verts.size()
-			
-			verts.append_array([
-				pos,
-				pos + Vector3(s, 0, 0),
-				pos + Vector3(s, 0, s),
-				pos + Vector3(0, 0, s)
-			])
-			
-			normals.append_array([
-				Vector3.UP, Vector3.UP, Vector3.UP, Vector3.UP
-			])
-			
-			indices.append_array([
-				start_idx, start_idx + 1, start_idx + 2,
-				start_idx, start_idx + 2, start_idx + 3
-			])
-	
-	surface_array[Mesh.ARRAY_VERTEX] = verts
-	surface_array[Mesh.ARRAY_INDEX] = indices
-	surface_array[Mesh.ARRAY_NORMAL] = normals
-	
-	var mesh = ArrayMesh.new()
-	if verts.size() > 0:
-		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
-	
-	selection_visualizer.mesh = mesh
-	selection_visualizer.visible = true
-
-func mass_place_tiles():
-	if not is_selecting and selection_start == selection_end:
-		print("No area selected")
-		return
-	
-	var min_x = mini(selection_start.x, selection_end.x)
-	var max_x = maxi(selection_start.x, selection_end.x)
-	var min_z = mini(selection_start.z, selection_end.z)
-	var max_z = maxi(selection_start.z, selection_end.z)
-	
-	var count = 0
-	for x in range(min_x, max_x + 1):
-		for z in range(min_z, max_z + 1):
-			var pos = Vector3i(x, current_y_level, z)
-			if abs(pos.x) <= grid_range and abs(pos.z) <= grid_range:
-				tilemap.place_tile(pos, current_tile_type)
-				count += 1
-	
-	print("Placed ", count, " tiles")
-	clear_selection()
-
-func mass_delete_tiles():
-	if not is_selecting and selection_start == selection_end:
-		print("No area selected")
-		return
-	
-	var min_x = mini(selection_start.x, selection_end.x)
-	var max_x = maxi(selection_start.x, selection_end.x)
-	var min_z = mini(selection_start.z, selection_end.z)
-	var max_z = maxi(selection_start.z, selection_end.z)
-	
-	var count = 0
-	for x in range(min_x, max_x + 1):
-		for z in range(min_z, max_z + 1):
-			var pos = Vector3i(x, current_y_level, z)
-			if tilemap.has_tile(pos):
-				tilemap.remove_tile(pos)
-				count += 1
-	
-	print("Deleted ", count, " tiles")
-	clear_selection()
-
-func handle_mouse_click(event: InputEventMouseButton):
-	if not camera:
-		return
-	
-	# Only allow placement/removal in EDIT mode
-	if current_mode == EditorMode.EDIT:
-		if event.button_index == MOUSE_BUTTON_LEFT:
-			attempt_tile_placement(event.position, true)
-		elif event.button_index == MOUSE_BUTTON_RIGHT:
-			attempt_tile_removal(event.position)
-
-func attempt_tile_placement(mouse_pos: Vector2, single_click: bool):
-	var from = camera.project_ray_origin(mouse_pos)
-	var to = from + camera.project_ray_normal(mouse_pos) * 1000
-	
-	var offset = get_y_level_offset(current_y_level)
-	
-	# Create a plane at the current Y level
-	var y_world = current_y_level * grid_size
-	var placement_plane = Plane(Vector3.UP, y_world)
-	
-	var ray_dir = (to - from).normalized()
-	var intersection = placement_plane.intersects_ray(from, ray_dir)
-	
-	if intersection:
-		var adjusted_intersection = intersection - Vector3(offset.x, 0, offset.y)
-		
-		var grid_pos = Vector3i(
-			floori(adjusted_intersection.x / grid_size),
-			current_y_level,
-			floori(adjusted_intersection.z / grid_size)
-		)
-		
-		# CLAMP TO GRID RANGE
-		if abs(grid_pos.x) > grid_range or abs(grid_pos.z) > grid_range:
-			return  # Outside allowed bounds
-		
-		# In editor mode with mouse held, only place if tile doesn't exist
-		if not single_click and tilemap.has_tile(grid_pos):
-			return
-		
-		tilemap.place_tile(grid_pos, current_tile_type)
-
-func attempt_tile_removal(mouse_pos: Vector2):
-	if not camera:
-		return
-	
-	var from = camera.project_ray_origin(mouse_pos)
-	var to = from + camera.project_ray_normal(mouse_pos) * 1000
-	
-	var offset = get_y_level_offset(current_y_level)
-	
-	# First try plane intersection at current Y level
-	var y_world = current_y_level * grid_size
-	var placement_plane = Plane(Vector3.UP, y_world)
-	
-	var ray_dir = (to - from).normalized()
-	var intersection = placement_plane.intersects_ray(from, ray_dir)
-	
-	if intersection:
-		var adjusted_intersection = intersection - Vector3(offset.x, 0, offset.y)
-		
-		var grid_pos = Vector3i(
-			floori(adjusted_intersection.x / grid_size),
-			current_y_level,
-			floori(adjusted_intersection.z / grid_size)
-		)
-		if tilemap.has_tile(grid_pos):
-			tilemap.remove_tile(grid_pos)
+# ============================================================================
+# EXPORT FUNCTIONS (Optional - can be called from UI)
+# ============================================================================
 
 func export_current_level():
-	"""Export level as optimized mesh with multiple materials"""
 	var timestamp = Time.get_datetime_string_from_system().replace(":", "-")
 	var filename = "res://exported_level_" + timestamp + ".tres"
-	
 	print("\n=== EXPORTING LEVEL ===")
 	tilemap.export_level_to_file(filename, true)
 	print("Saved to: ", filename)
@@ -438,44 +185,9 @@ func export_current_level():
 
 
 func export_current_level_single_material():
-	"""Export level as single-material mesh"""
 	var timestamp = Time.get_datetime_string_from_system().replace(":", "-")
 	var filename = "res://exported_level_single_" + timestamp + ".tres"
-	
 	print("\n=== EXPORTING LEVEL (Single Material) ===")
 	tilemap.export_level_to_file(filename, false)
 	print("Saved to: ", filename)
 	print("=========================================\n")
-
-
-# Optional: Add a function to preview the optimized mesh in-editor
-func preview_optimized_mesh():
-	"""Replace current tile meshes with optimized combined mesh for preview"""
-	
-	# Hide all individual tile meshes
-	for pos in tilemap.tile_meshes:
-		tilemap.tile_meshes[pos].visible = false
-	
-	# Create preview mesh instance
-	var optimized_mesh = tilemap.generate_optimized_level_mesh_multi_material()
-	var preview_instance = MeshInstance3D.new()
-	preview_instance.mesh = optimized_mesh
-	preview_instance.name = "OptimizedPreview"
-	add_child(preview_instance)
-	
-	print("✓ Preview created - press Ctrl+Shift+P to toggle back")
-
-
-func restore_individual_meshes():
-	"""Restore individual tile mesh visibility"""
-	
-	# Remove preview if it exists
-	var preview = get_node_or_null("OptimizedPreview")
-	if preview:
-		preview.queue_free()
-	
-	# Show all individual tile meshes
-	for pos in tilemap.tile_meshes:
-		tilemap.tile_meshes[pos].visible = true
-	
-	print("✓ Individual meshes restored")
