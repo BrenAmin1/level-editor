@@ -411,3 +411,57 @@ func attempt_tile_removal(mouse_pos: Vector2):
 		)
 		if tilemap.has_tile(grid_pos):
 			tilemap.remove_tile(grid_pos)
+
+func export_current_level():
+	"""Export level as optimized mesh with multiple materials"""
+	var timestamp = Time.get_datetime_string_from_system().replace(":", "-")
+	var filename = "res://exported_level_" + timestamp + ".tres"
+	
+	print("\n=== EXPORTING LEVEL ===")
+	tilemap.export_level_to_file(filename, true)
+	print("Saved to: ", filename)
+	print("======================\n")
+
+
+func export_current_level_single_material():
+	"""Export level as single-material mesh"""
+	var timestamp = Time.get_datetime_string_from_system().replace(":", "-")
+	var filename = "res://exported_level_single_" + timestamp + ".tres"
+	
+	print("\n=== EXPORTING LEVEL (Single Material) ===")
+	tilemap.export_level_to_file(filename, false)
+	print("Saved to: ", filename)
+	print("=========================================\n")
+
+
+# Optional: Add a function to preview the optimized mesh in-editor
+func preview_optimized_mesh():
+	"""Replace current tile meshes with optimized combined mesh for preview"""
+	
+	# Hide all individual tile meshes
+	for pos in tilemap.tile_meshes:
+		tilemap.tile_meshes[pos].visible = false
+	
+	# Create preview mesh instance
+	var optimized_mesh = tilemap.generate_optimized_level_mesh_multi_material()
+	var preview_instance = MeshInstance3D.new()
+	preview_instance.mesh = optimized_mesh
+	preview_instance.name = "OptimizedPreview"
+	add_child(preview_instance)
+	
+	print("✓ Preview created - press Ctrl+Shift+P to toggle back")
+
+
+func restore_individual_meshes():
+	"""Restore individual tile mesh visibility"""
+	
+	# Remove preview if it exists
+	var preview = get_node_or_null("OptimizedPreview")
+	if preview:
+		preview.queue_free()
+	
+	# Show all individual tile meshes
+	for pos in tilemap.tile_meshes:
+		tilemap.tile_meshes[pos].visible = true
+	
+	print("✓ Individual meshes restored")
