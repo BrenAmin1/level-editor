@@ -1,9 +1,18 @@
 class_name TileMap3D extends RefCounted
 
+
+# Slant direction enum
+enum SlantType {
+	NONE = 0,
+	NW_SE = 1,  # Northwest to Southeast diagonal
+	NE_SW = 2   # Northeast to Southwest diagonal
+}
+
 # ============================================================================
 # CORE DATA
 # ============================================================================
 var tiles = {}  # Vector3i -> tile_type
+var tile_slants = {}  # Vector3i -> SlantType (ADD THIS LINE)
 var tile_meshes = {}  # Vector3i -> MeshInstance3D
 var custom_meshes = {}  # tile_type -> ArrayMesh (custom loaded meshes)
 var custom_materials: Dictionary = {}  # tile_type -> Array[Material]
@@ -207,3 +216,49 @@ func generate_optimized_level_mesh_multi_material() -> ArrayMesh:
 
 func export_level_to_file(filepath: String, use_multi_material: bool = true):
 	return mesh_optimizer.export_level_to_file(filepath, use_multi_material)
+
+
+# ============================================================================
+# SLANT MANAGEMENT
+# ============================================================================
+
+func toggle_tile_slant(pos: Vector3i):
+	if not has_tile(pos):
+		return
+	
+	var current_slant = tile_slants.get(pos, SlantType.NONE)
+	
+	# Cycle through slant types: NONE -> Auto -> Other direction -> NONE
+	match current_slant:
+		SlantType.NONE:
+			tile_slants[pos] = _auto_determine_slant(pos)
+		SlantType.NW_SE:
+			tile_slants[pos] = SlantType.NE_SW
+		SlantType.NE_SW:
+			tile_slants.erase(pos)
+	
+	update_tile_mesh(pos)
+	print("Tile at ", pos, " slant: ", tile_slants.get(pos, SlantType.NONE))
+
+
+func get_tile_slant(pos: Vector3i) -> int:
+	return tile_slants.get(pos, SlantType.NONE)
+
+
+func _auto_determine_slant(pos: Vector3i) -> int:
+	# Count neighbors in each direction
+	var north = 1 if has_tile(pos + Vector3i(0, 0, -1)) else 0
+	var south = 1 if has_tile(pos + Vector3i(0, 0, 1)) else 0
+	var east = 1 if has_tile(pos + Vector3i(1, 0, 0)) else 0
+	var west = 1 if has_tile(pos + Vector3i(-1, 0, 0)) else 0
+	
+	var ns_count = north + south
+	var ew_count = east + west
+	
+	# If more tiles on north/south axis, use NE_SW slant
+	# If more tiles on east/west axis, use NW_SE slant
+	# If equal, default to NW_SE
+	if ns_count > ew_count:
+		return SlantType.NE_SW
+	else:
+		return SlantType.NW_SE

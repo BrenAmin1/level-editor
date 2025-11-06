@@ -51,10 +51,26 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 		return ArrayMesh.new()
 	
 	var base_mesh = custom_meshes[tile_type]
-	var final_mesh = ArrayMesh.new()
+	var slant_type = tile_map.get_tile_slant(pos)
 	
-	# Build arrays organized by surface type (top/sides/bottom)
-	# We'll sort triangles into correct surfaces after vertex modification
+	# Initialize surface data structures
+	var triangles_by_surface = _initialize_surface_arrays()
+	
+	# Check culling conditions
+	var has_block_above = neighbors[NeighborDir.UP] != -1
+	var exposed_corners = _find_exposed_corners(pos, neighbors)
+	var disable_all_culling = has_block_above
+	
+	# Process each surface from the base mesh
+	for surface_idx in range(base_mesh.get_surface_count()):
+		_process_mesh_surface(base_mesh, surface_idx, pos, neighbors, slant_type, 
+							  triangles_by_surface, exposed_corners, disable_all_culling)
+	
+	# Build and return the final mesh
+	return _build_final_mesh(triangles_by_surface, tile_type, base_mesh)
+
+
+func _initialize_surface_arrays() -> Dictionary:
 	var triangles_by_surface = {}
 	for surf_type in SurfaceType.values():
 		triangles_by_surface[surf_type] = {
@@ -63,189 +79,209 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 			MeshArrays.UVS: PackedVector2Array(),
 			MeshArrays.INDICES: PackedInt32Array()
 		}
+	return triangles_by_surface
+
+
+func _find_exposed_corners(pos: Vector3i, neighbors: Dictionary) -> Array:
+	var exposed_corners = []
 	
-	# If there's a block above, disable culling entirely to preserve extended geometry
-	var has_block_above = neighbors[NeighborDir.UP] != -1
-	
-	# Check for exposed corners (where both adjacent sides have blocks, creating a corner)
-	# These corners need bevels preserved, but we can still cull the two adjacent interior faces
-	var exposed_corners = []  # Track which specific corners are exposed
-	
-	# Northwest corner: has north AND west neighbors, but the diagonal is exposed
+	# Northwest corner
 	if neighbors[NeighborDir.NORTH] != -1 and neighbors[NeighborDir.WEST] != -1:
-		var nw_pos = pos + Vector3i(-1, 0, -1)
-		if nw_pos not in tiles:
+		if (pos + Vector3i(-1, 0, -1)) not in tiles:
 			exposed_corners.append("NW")
 	
-	# Northeast corner: has north AND east neighbors, but the diagonal is exposed
+	# Northeast corner
 	if neighbors[NeighborDir.NORTH] != -1 and neighbors[NeighborDir.EAST] != -1:
-		var ne_pos = pos + Vector3i(1, 0, -1)
-		if ne_pos not in tiles:
+		if (pos + Vector3i(1, 0, -1)) not in tiles:
 			exposed_corners.append("NE")
 	
-	# Southwest corner: has south AND west neighbors, but the diagonal is exposed
+	# Southwest corner
 	if neighbors[NeighborDir.SOUTH] != -1 and neighbors[NeighborDir.WEST] != -1:
-		var sw_pos = pos + Vector3i(-1, 0, 1)
-		if sw_pos not in tiles:
+		if (pos + Vector3i(-1, 0, 1)) not in tiles:
 			exposed_corners.append("SW")
 	
-	# Southeast corner: has south AND east neighbors, but the diagonal is exposed
+	# Southeast corner
 	if neighbors[NeighborDir.SOUTH] != -1 and neighbors[NeighborDir.EAST] != -1:
-		var se_pos = pos + Vector3i(1, 0, 1)
-		if se_pos not in tiles:
+		if (pos + Vector3i(1, 0, 1)) not in tiles:
 			exposed_corners.append("SE")
 	
-	# Disable ALL culling only if there's a block above
-	# For corner blocks, we'll do selective culling
-	var disable_all_culling = has_block_above
+	return exposed_corners
+
+
+func _process_mesh_surface(base_mesh: ArrayMesh, surface_idx: int, pos: Vector3i, 
+							neighbors: Dictionary, slant_type: int, triangles_by_surface: Dictionary,
+							exposed_corners: Array, disable_all_culling: bool):
+	var arrays = base_mesh.surface_get_arrays(surface_idx)
+	var vertices = arrays[Mesh.ARRAY_VERTEX]
+	var normals = arrays[Mesh.ARRAY_NORMAL]
+	var uvs = arrays[Mesh.ARRAY_TEX_UV]
+	var indices = arrays[Mesh.ARRAY_INDEX]
 	
-	# Process each surface from the original mesh
-	for surface_idx in range(base_mesh.get_surface_count()):
-		var arrays = base_mesh.surface_get_arrays(surface_idx)
-		var vertices = arrays[Mesh.ARRAY_VERTEX]
-		var normals = arrays[Mesh.ARRAY_NORMAL]
-		var uvs = arrays[Mesh.ARRAY_TEX_UV]
-		var indices = arrays[Mesh.ARRAY_INDEX]
-		
-		var s = grid_size
-		var interior_margin = 0.15  # Distance from boundary to consider "interior"
-		
-		# Process each triangle
-		for i in range(0, indices.size(), 3):
-			var i0 = indices[i]
-			var i1 = indices[i + 1]
-			var i2 = indices[i + 2]
-			
-			var v0 = vertices[i0]
-			var v1 = vertices[i1]
-			var v2 = vertices[i2]
-			
-			# Get face normal BEFORE extension
-			var face_normal = (normals[i0] + normals[i1] + normals[i2]).normalized()
-			
-			# Calculate face center BEFORE extension for culling checks
-			var face_center = (v0 + v1 + v2) / 3.0
-			
-			var should_cull = false
-			
-			# Only perform culling if all culling is not disabled
-			if not disable_all_culling:
-				# For corner blocks, allow culling of the two interior faces
-				# but skip culling near the exposed corner edges
-				
-				# West side interior zone
-				if neighbors[NeighborDir.WEST] != -1 and not should_render_vertical_face(pos, pos + Vector3i(-1, 0, 0)):
-					if face_center.x < interior_margin:
-						# Check if this face is near an exposed corner - if so, don't cull
-						var is_near_corner = false
-						if "NW" in exposed_corners and face_center.z < s * 0.5:
-							is_near_corner = true
-						if "SW" in exposed_corners and face_center.z > s * 0.5:
-							is_near_corner = true
-						
-						if not is_near_corner and face_normal.x > -0.7:
-							should_cull = true
-				
-				# East side interior zone
-				if neighbors[NeighborDir.EAST] != -1 and not should_render_vertical_face(pos, pos + Vector3i(1, 0, 0)):
-					if face_center.x > s - interior_margin:
-						var is_near_corner = false
-						if "NE" in exposed_corners and face_center.z < s * 0.5:
-							is_near_corner = true
-						if "SE" in exposed_corners and face_center.z > s * 0.5:
-							is_near_corner = true
-						
-						if not is_near_corner and face_normal.x < 0.7:
-							should_cull = true
-				
-				# Down side interior zone
-				if neighbors[NeighborDir.DOWN] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, -1, 0)):
-					if face_center.y < interior_margin:
-						if face_normal.y > -0.7:
-							should_cull = true
-				
-				# Up side interior zone
-				if neighbors[NeighborDir.UP] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, 1, 0)):
-					if face_center.y > s - interior_margin:
-						if face_normal.y < 0.7:
-							should_cull = true
-				
-				# North side interior zone
-				if neighbors[NeighborDir.NORTH] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, 0, -1)):
-					if face_center.z < interior_margin:
-						var is_near_corner = false
-						if "NW" in exposed_corners and face_center.x < s * 0.5:
-							is_near_corner = true
-						if "NE" in exposed_corners and face_center.x > s * 0.5:
-							is_near_corner = true
-						
-						if not is_near_corner and face_normal.z > -0.7:
-							should_cull = true
-				
-				# South side interior zone
-				if neighbors[NeighborDir.SOUTH] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, 0, 1)):
-					if face_center.z > s - interior_margin:
-						var is_near_corner = false
-						if "SW" in exposed_corners and face_center.x < s * 0.5:
-							is_near_corner = true
-						if "SE" in exposed_corners and face_center.x > s * 0.5:
-							is_near_corner = true
-						
-						if not is_near_corner and face_normal.z < 0.7:
-							should_cull = true
-			
-			if should_cull:
-				continue
-			
-			# Extend vertices after culling decision
-			v0 = extend_vertex_to_boundary_if_neighbor(v0, neighbors, 0.35, pos)
-			v1 = extend_vertex_to_boundary_if_neighbor(v1, neighbors, 0.35, pos)
-			v2 = extend_vertex_to_boundary_if_neighbor(v2, neighbors, 0.35, pos)
-			
-			# CRITICAL: Recalculate face normal after vertex modification
-			# This ensures triangles are assigned to the correct surface
-			var edge1 = v1 - v0
-			var edge2 = v2 - v0
-			var new_face_normal = edge1.cross(edge2).normalized()
-			
-			# Determine which surface this triangle should belong to based on its FINAL normal
-			var target_surface: int
-			
-			# If normal is strongly pointing up, it's a top surface
-			if new_face_normal.y > 0.8:
-				target_surface = SurfaceType.TOP
-			# If normal is strongly pointing down, it's a bottom surface
-			elif new_face_normal.y < -0.8:
-				target_surface = SurfaceType.BOTTOM
-			# Otherwise it's a side surface
-			else:
-				target_surface = SurfaceType.SIDES
-			
-			# Add this triangle to the appropriate surface
-			var target = triangles_by_surface[target_surface]
-			var start_idx = target[MeshArrays.VERTICES].size()
-			
-			target[MeshArrays.VERTICES].append(v0)
-			target[MeshArrays.VERTICES].append(v1)
-			target[MeshArrays.VERTICES].append(v2)
-			
-			# Use the NEW normal for proper lighting after vertex modification
-			target[MeshArrays.NORMALS].append(new_face_normal)
-			target[MeshArrays.NORMALS].append(new_face_normal)
-			target[MeshArrays.NORMALS].append(new_face_normal)
-			
-			# Preserve original UVs
-			if uvs.size() > 0:
-				target[MeshArrays.UVS].append(uvs[i0] if i0 < uvs.size() else Vector2.ZERO)
-				target[MeshArrays.UVS].append(uvs[i1] if i1 < uvs.size() else Vector2.ZERO)
-				target[MeshArrays.UVS].append(uvs[i2] if i2 < uvs.size() else Vector2.ZERO)
-			
-			target[MeshArrays.INDICES].append(start_idx)
-			target[MeshArrays.INDICES].append(start_idx + 1)
-			target[MeshArrays.INDICES].append(start_idx + 2)
+	var s = grid_size
 	
-	# Now build the final mesh with properly sorted surfaces
-	# Process in order: Top, Sides, Bottom
+	# Process each triangle
+	for i in range(0, indices.size(), 3):
+		var i0 = indices[i]
+		var i1 = indices[i + 1]
+		var i2 = indices[i + 2]
+		
+		var v0 = vertices[i0]
+		var v1 = vertices[i1]
+		var v2 = vertices[i2]
+		
+		# Apply slant rotation if needed
+		if slant_type != tile_map.SlantType.NONE:
+			v0 = _apply_slant_rotation(v0, slant_type, s)
+			v1 = _apply_slant_rotation(v1, slant_type, s)
+			v2 = _apply_slant_rotation(v2, slant_type, s)
+		
+		var face_normal = (normals[i0] + normals[i1] + normals[i2]).normalized()
+		var face_center = (v0 + v1 + v2) / 3.0
+		
+		# Check if triangle should be culled (slant or neighbor culling)
+		if slant_type != tile_map.SlantType.NONE and _should_cull_triangle_for_slant(v0, v1, v2, slant_type, s):
+			continue
+		
+		if _should_cull_for_neighbors(pos, neighbors, face_center, face_normal, exposed_corners, 
+									  disable_all_culling, s):
+			continue
+		
+		# Extend vertices to boundaries
+		v0 = extend_vertex_to_boundary_if_neighbor(v0, neighbors, 0.35, pos)
+		v1 = extend_vertex_to_boundary_if_neighbor(v1, neighbors, 0.35, pos)
+		v2 = extend_vertex_to_boundary_if_neighbor(v2, neighbors, 0.35, pos)
+		
+		# Add triangle to appropriate surface
+		_add_triangle_to_surface(triangles_by_surface, v0, v1, v2, uvs, i0, i1, i2)
+
+
+func _apply_slant_rotation(v: Vector3, slant_type: int, grid_s: float) -> Vector3:
+	# Rotate the mesh 45 degrees around the Y axis to align bevels with diagonal
+	var center = Vector3(grid_s * 0.5, 0, grid_s * 0.5)
+	var relative = v - center
+	
+	match slant_type:
+		tile_map.SlantType.NW_SE:
+			# Rotate -45 degrees (align with NW-SE diagonal)
+			var angle = -PI / 4.0
+			var cos_a = cos(angle)
+			var sin_a = sin(angle)
+			var rotated = Vector3(
+				relative.x * cos_a - relative.z * sin_a,
+				relative.y,
+				relative.x * sin_a + relative.z * cos_a
+			)
+			return rotated + center
+			
+		tile_map.SlantType.NE_SW:
+			# Rotate 45 degrees (align with NE-SW diagonal)
+			var angle = PI / 4.0
+			var cos_a = cos(angle)
+			var sin_a = sin(angle)
+			var rotated = Vector3(
+				relative.x * cos_a - relative.z * sin_a,
+				relative.y,
+				relative.x * sin_a + relative.z * cos_a
+			)
+			return rotated + center
+	
+	return v
+
+
+func _should_cull_for_neighbors(pos: Vector3i, neighbors: Dictionary, face_center: Vector3, 
+								face_normal: Vector3, exposed_corners: Array, 
+								disable_all_culling: bool, s: float) -> bool:
+	if disable_all_culling:
+		return false
+	
+	var interior_margin = 0.15
+	
+	# West side culling
+	if neighbors[NeighborDir.WEST] != -1 and not should_render_vertical_face(pos, pos + Vector3i(-1, 0, 0)):
+		if face_center.x < interior_margin:
+			var is_near_corner = ("NW" in exposed_corners and face_center.z < s * 0.5) or \
+								 ("SW" in exposed_corners and face_center.z > s * 0.5)
+			if not is_near_corner and face_normal.x > -0.7:
+				return true
+	
+	# East side culling
+	if neighbors[NeighborDir.EAST] != -1 and not should_render_vertical_face(pos, pos + Vector3i(1, 0, 0)):
+		if face_center.x > s - interior_margin:
+			var is_near_corner = ("NE" in exposed_corners and face_center.z < s * 0.5) or \
+								 ("SE" in exposed_corners and face_center.z > s * 0.5)
+			if not is_near_corner and face_normal.x < 0.7:
+				return true
+	
+	# Down side culling
+	if neighbors[NeighborDir.DOWN] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, -1, 0)):
+		if face_center.y < interior_margin and face_normal.y > -0.7:
+			return true
+	
+	# Up side culling
+	if neighbors[NeighborDir.UP] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, 1, 0)):
+		if face_center.y > s - interior_margin and face_normal.y < 0.7:
+			return true
+	
+	# North side culling
+	if neighbors[NeighborDir.NORTH] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, 0, -1)):
+		if face_center.z < interior_margin:
+			var is_near_corner = ("NW" in exposed_corners and face_center.x < s * 0.5) or \
+								 ("NE" in exposed_corners and face_center.x > s * 0.5)
+			if not is_near_corner and face_normal.z > -0.7:
+				return true
+	
+	# South side culling
+	if neighbors[NeighborDir.SOUTH] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, 0, 1)):
+		if face_center.z > s - interior_margin:
+			var is_near_corner = ("SW" in exposed_corners and face_center.x < s * 0.5) or \
+								 ("SE" in exposed_corners and face_center.x > s * 0.5)
+			if not is_near_corner and face_normal.z < 0.7:
+				return true
+	
+	return false
+
+
+func _add_triangle_to_surface(triangles_by_surface: Dictionary, v0: Vector3, v1: Vector3, v2: Vector3,
+							   uvs: PackedVector2Array, i0: int, i1: int, i2: int):
+	# Recalculate face normal after modifications
+	var edge1 = v1 - v0
+	var edge2 = v2 - v0
+	var new_face_normal = edge1.cross(edge2).normalized()
+	
+	# Determine surface type
+	var target_surface: int
+	if new_face_normal.y > 0.8:
+		target_surface = SurfaceType.TOP
+	elif new_face_normal.y < -0.8:
+		target_surface = SurfaceType.BOTTOM
+	else:
+		target_surface = SurfaceType.SIDES
+	
+	# Add to appropriate surface
+	var target = triangles_by_surface[target_surface]
+	var start_idx = target[MeshArrays.VERTICES].size()
+	
+	target[MeshArrays.VERTICES].append(v0)
+	target[MeshArrays.VERTICES].append(v1)
+	target[MeshArrays.VERTICES].append(v2)
+	
+	target[MeshArrays.NORMALS].append(new_face_normal)
+	target[MeshArrays.NORMALS].append(new_face_normal)
+	target[MeshArrays.NORMALS].append(new_face_normal)
+	
+	if uvs.size() > 0:
+		target[MeshArrays.UVS].append(uvs[i0] if i0 < uvs.size() else Vector2.ZERO)
+		target[MeshArrays.UVS].append(uvs[i1] if i1 < uvs.size() else Vector2.ZERO)
+		target[MeshArrays.UVS].append(uvs[i2] if i2 < uvs.size() else Vector2.ZERO)
+	
+	target[MeshArrays.INDICES].append(start_idx)
+	target[MeshArrays.INDICES].append(start_idx + 1)
+	target[MeshArrays.INDICES].append(start_idx + 2)
+
+
+func _build_final_mesh(triangles_by_surface: Dictionary, tile_type: int, base_mesh: ArrayMesh) -> ArrayMesh:
+	var final_mesh = ArrayMesh.new()
+	
 	for surf_type in [SurfaceType.TOP, SurfaceType.SIDES, SurfaceType.BOTTOM]:
 		var surf_data = triangles_by_surface[surf_type]
 		
@@ -260,8 +296,7 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 			
 			final_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
 			
-			# Apply the correct material for this surface type
-			# Check custom_materials first, then fall back to base mesh
+			# Apply materials
 			var material = null
 			if tile_type in tile_map.custom_materials and surf_type < tile_map.custom_materials[tile_type].size():
 				material = tile_map.custom_materials[tile_type][surf_type]
@@ -271,6 +306,24 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 				final_mesh.surface_set_material(final_mesh.get_surface_count() - 1, material)
 	
 	return final_mesh
+
+
+func _should_cull_triangle_for_slant(v0: Vector3, v1: Vector3, v2: Vector3, slant_type: int, grid_s: float) -> bool:
+	match slant_type:
+		tile_map.SlantType.NW_SE:
+			var v0_cull = (v0.x + v0.z) > grid_s
+			var v1_cull = (v1.x + v1.z) > grid_s
+			var v2_cull = (v2.x + v2.z) > grid_s
+			return v0_cull and v1_cull and v2_cull
+			
+		tile_map.SlantType.NE_SW:
+			var v0_cull = v0.x > (grid_s - v0.z)
+			var v1_cull = v1.x > (grid_s - v1.z)
+			var v2_cull = v2.x > (grid_s - v2.z)
+			return v0_cull and v1_cull and v2_cull
+	
+	return false
+
 
 # Helper function to extend a vertex to boundary only if there's a neighbor in that direction
 # For corner vertices, only extend on axes where neighbors exist
