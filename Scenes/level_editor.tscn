@@ -43,30 +43,13 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="Controls" type="Label" parent="UI"]
-layout_mode = 0
-offset_right = 225.0
-offset_bottom = 319.0
-text = "WASD -> MOVE
-LMB -> PLACE
-RMB -> REMOVE
-MMB -> LOOK AROUND
-MWHEELUP -> ZOOM IN
-WHEELDOWN -> ZOOM OUT
-CTRL + MMB -> RESET VIEW
-ENTER -> WIREFRAMES
-BACKSPACE -> DEFAULT VIEW
-[ --> LAYER UP
-] --> LAYER DOWN
-1... 2... -> BLOCK TYPE"
-
 [node name="RightSideMenu" type="VBoxContainer" parent="UI"]
 layout_mode = 1
 anchors_preset = 1
 anchor_left = 1.0
 anchor_right = 1.0
 offset_left = -326.0
-offset_bottom = 194.0
+offset_bottom = 221.0
 grow_horizontal = 0
 script = ExtResource("5_wchaa")
 
@@ -94,6 +77,8 @@ min_value = -0.999
 max_value = 0.999
 step = 0.01
 value = 0.0010000000000000009
+allow_greater = true
+allow_lesser = true
 
 [node name="YOffsetLabel" type="Label" parent="UI/RightSideMenu/OffsetFold/PanelContainer/OffsetVContain"]
 layout_mode = 2
@@ -105,10 +90,29 @@ min_value = -0.999
 max_value = 0.999
 step = 0.01
 value = 0.0010000000000000009
+allow_greater = true
+allow_lesser = true
 
 [node name="OffsetConfirmButton" type="Button" parent="UI/RightSideMenu/OffsetFold/PanelContainer/OffsetVContain"]
 layout_mode = 2
 text = "Confirm"
+
+[node name="Controls" type="Label" parent="UI"]
+layout_mode = 0
+offset_right = 225.0
+offset_bottom = 319.0
+text = "WASD -> MOVE
+LMB -> PLACE
+RMB -> REMOVE
+MMB -> LOOK AROUND
+MWHEELUP -> ZOOM IN
+WHEELDOWN -> ZOOM OUT
+CTRL + MMB -> RESET VIEW
+ENTER -> WIREFRAMES
+BACKSPACE -> DEFAULT VIEW
+[ --> LAYER UP
+] --> LAYER DOWN
+1... 2... -> BLOCK TYPE"
 
 [connection signal="level_changed" from="GridVisualizer" to="UI/RightSideMenu" method="_on_grid_visualizer_level_changed"]
 [connection signal="pressed" from="UI/RightSideMenu/OffsetFold/PanelContainer/OffsetVContain/OffsetConfirmButton" to="UI/RightSideMenu" method="_on_offset_confirm_button_pressed"]

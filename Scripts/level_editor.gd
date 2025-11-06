@@ -30,6 +30,8 @@ var selection_end: Vector3i
 var is_selecting: bool = false
 var has_selection : bool = false
 var selection_visualizer: MeshInstance3D
+const GRASS = preload("uid://diy61rx0i7gtu")
+const DIRT = preload("uid://dfjriranjhvuo")
 
 # Grid settings
 @export var grid_range: int = 100
@@ -40,6 +42,9 @@ func _ready():
 	tilemap.set_parent(self)
 	tilemap.set_offset_provider(Callable(self, "get_y_level_offset"))
 	tilemap.load_obj_for_tile_type(3, "res://cube_bulge.obj")
+	tilemap.set_custom_material(3, 0, GRASS)    # Surface 0
+	tilemap.set_custom_material(3, 1, DIRT)   # Surface 1
+	tilemap.set_custom_material(3, 2, DIRT)  # Surface 2
 	# Create selection visualizer
 	create_selection_visualizer()
 	
@@ -95,7 +100,6 @@ func update_cursor_position():
 		cursor_visualizer.update_cursor_with_offset(camera, current_y_level, tile_exists, offset)
 
 func _input(event):
-	# Handle mouse button press
 	if event is InputEventMouseButton and event.pressed:
 		mouse_pressed = true
 		current_mouse_button = event

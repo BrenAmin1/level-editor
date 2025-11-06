@@ -1,0 +1,7 @@
+[gd_resource type="StandardMaterial3D" load_steps=2 format=3 uid="uid://dfjriranjhvuo"]
+
+[ext_resource type="Texture2D" uid="uid://cxklurghvpogm" path="res://Resources/keynote.jpg" id="1_wscye"]
+
+[resource]
+albedo_texture = ExtResource("1_wscye")
+uv1_triplanar = true

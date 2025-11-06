@@ -555,113 +555,115 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 		return ArrayMesh.new()
 	
 	var base_mesh = custom_meshes[tile_type]
-	var arrays = base_mesh.surface_get_arrays(0)
-	var vertices = arrays[Mesh.ARRAY_VERTEX]
-	var normals = arrays[Mesh.ARRAY_NORMAL]
-	var uvs = arrays[Mesh.ARRAY_TEX_UV]
-	var indices = arrays[Mesh.ARRAY_INDEX]
+	var final_mesh = ArrayMesh.new()
 	
-	# Build new arrays with culled/flattened faces
-	var new_verts = PackedVector3Array()
-	var new_normals = PackedVector3Array()
-	var new_uvs = PackedVector2Array()
-	var new_indices = PackedInt32Array()
+	# Process each surface separately
+	for surface_idx in range(base_mesh.get_surface_count()):
+		var arrays = base_mesh.surface_get_arrays(surface_idx)
+		var vertices = arrays[Mesh.ARRAY_VERTEX]
+		var normals = arrays[Mesh.ARRAY_NORMAL]
+		var uvs = arrays[Mesh.ARRAY_TEX_UV]
+		var indices = arrays[Mesh.ARRAY_INDEX]
+		
+		# Build new arrays with culled/flattened faces
+		var new_verts = PackedVector3Array()
+		var new_normals = PackedVector3Array()
+		var new_uvs = PackedVector2Array()
+		var new_indices = PackedInt32Array()
+		
+		var s = grid_size
+		var boundary_threshold = 0.02
+		var extend_threshold = 0.35  # Threshold for extending vertices to boundaries
+		
+		# Process each triangle
+		for i in range(0, indices.size(), 3):
+			var i0 = indices[i]
+			var i1 = indices[i + 1]
+			var i2 = indices[i + 2]
+			
+			var v0 = vertices[i0]
+			var v1 = vertices[i1]
+			var v2 = vertices[i2]
+			
+			# Get face normal
+			var face_normal = (normals[i0] + normals[i1] + normals[i2]).normalized()
+			
+			# Check if ALL vertices of this face are on a boundary
+			var all_on_x_min = v0.x < boundary_threshold and v1.x < boundary_threshold and v2.x < boundary_threshold
+			var all_on_x_max = v0.x > s - boundary_threshold and v1.x > s - boundary_threshold and v2.x > s - boundary_threshold
+			var all_on_y_min = v0.y < boundary_threshold and v1.y < boundary_threshold and v2.y < boundary_threshold
+			var all_on_y_max = v0.y > s - boundary_threshold and v1.y > s - boundary_threshold and v2.y > s - boundary_threshold
+			var all_on_z_min = v0.z < boundary_threshold and v1.z < boundary_threshold and v2.z < boundary_threshold
+			var all_on_z_max = v0.z > s - boundary_threshold and v1.z > s - boundary_threshold and v2.z > s - boundary_threshold
+			
+			var should_cull = false
+			
+			# Check each boundary direction
+			if all_on_x_min and face_normal.x < -0.3 and neighbors["west"] != -1:
+				if not should_render_vertical_face(pos, pos + Vector3i(-1, 0, 0)):
+					should_cull = true
+			elif all_on_x_max and face_normal.x > 0.3 and neighbors["east"] != -1:
+				if not should_render_vertical_face(pos, pos + Vector3i(1, 0, 0)):
+					should_cull = true
+			elif all_on_y_min and face_normal.y < -0.3 and neighbors["down"] != -1:
+				if not should_render_vertical_face(pos, pos + Vector3i(0, -1, 0)):
+					should_cull = true
+			elif all_on_y_max and face_normal.y > 0.3 and neighbors["up"] != -1:
+				if not should_render_vertical_face(pos, pos + Vector3i(0, 1, 0)):
+					should_cull = true
+			elif all_on_z_min and face_normal.z < -0.3 and neighbors["north"] != -1:
+				if not should_render_vertical_face(pos, pos + Vector3i(0, 0, -1)):
+					should_cull = true
+			elif all_on_z_max and face_normal.z > 0.3 and neighbors["south"] != -1:
+				if not should_render_vertical_face(pos, pos + Vector3i(0, 0, 1)):
+					should_cull = true
+			
+			if should_cull:
+				continue
+			
+			# Extend vertices to boundaries only if there's a neighboring tile
+			# This fixes gaps from bevels when tiles are adjacent
+			v0 = extend_vertex_to_boundary_if_neighbor(v0, neighbors, extend_threshold, pos)
+			v1 = extend_vertex_to_boundary_if_neighbor(v1, neighbors, extend_threshold, pos)
+			v2 = extend_vertex_to_boundary_if_neighbor(v2, neighbors, extend_threshold, pos)
+			
+			# Add this triangle
+			var start_idx = new_verts.size()
+			new_verts.append(v0)
+			new_verts.append(v1)
+			new_verts.append(v2)
+			
+			new_normals.append(normals[i0])
+			new_normals.append(normals[i1])
+			new_normals.append(normals[i2])
+			
+			if uvs.size() > 0:
+				new_uvs.append(uvs[i0] if i0 < uvs.size() else Vector2.ZERO)
+				new_uvs.append(uvs[i1] if i1 < uvs.size() else Vector2.ZERO)
+				new_uvs.append(uvs[i2] if i2 < uvs.size() else Vector2.ZERO)
+			
+			new_indices.append(start_idx)
+			new_indices.append(start_idx + 1)
+			new_indices.append(start_idx + 2)
+		
+		# Add this surface to the final mesh
+		if new_verts.size() > 0:
+			var surface_array = []
+			surface_array.resize(Mesh.ARRAY_MAX)
+			surface_array[Mesh.ARRAY_VERTEX] = new_verts
+			surface_array[Mesh.ARRAY_NORMAL] = new_normals
+			if new_uvs.size() > 0:
+				surface_array[Mesh.ARRAY_TEX_UV] = new_uvs
+			surface_array[Mesh.ARRAY_INDEX] = new_indices
+			
+			final_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
+			
+			# Apply the material from the base mesh for this surface
+			var material = base_mesh.surface_get_material(surface_idx)
+			if material:
+				final_mesh.surface_set_material(final_mesh.get_surface_count() - 1, material)
 	
-	var s = grid_size
-	var boundary_threshold = 0.02
-	var extend_threshold = 0.35  # Threshold for extending vertices to boundaries
-	
-	# Process each triangle
-	for i in range(0, indices.size(), 3):
-		var i0 = indices[i]
-		var i1 = indices[i + 1]
-		var i2 = indices[i + 2]
-		
-		var v0 = vertices[i0]
-		var v1 = vertices[i1]
-		var v2 = vertices[i2]
-		
-		# Get face normal
-		var face_normal = (normals[i0] + normals[i1] + normals[i2]).normalized()
-		
-		# Check if ALL vertices of this face are on a boundary
-		var all_on_x_min = v0.x < boundary_threshold and v1.x < boundary_threshold and v2.x < boundary_threshold
-		var all_on_x_max = v0.x > s - boundary_threshold and v1.x > s - boundary_threshold and v2.x > s - boundary_threshold
-		var all_on_y_min = v0.y < boundary_threshold and v1.y < boundary_threshold and v2.y < boundary_threshold
-		var all_on_y_max = v0.y > s - boundary_threshold and v1.y > s - boundary_threshold and v2.y > s - boundary_threshold
-		var all_on_z_min = v0.z < boundary_threshold and v1.z < boundary_threshold and v2.z < boundary_threshold
-		var all_on_z_max = v0.z > s - boundary_threshold and v1.z > s - boundary_threshold and v2.z > s - boundary_threshold
-		
-		var should_cull = false
-		
-		# Check each boundary direction
-		if all_on_x_min and face_normal.x < -0.3 and neighbors["west"] != -1:
-			if not should_render_vertical_face(pos, pos + Vector3i(-1, 0, 0)):
-				should_cull = true
-		elif all_on_x_max and face_normal.x > 0.3 and neighbors["east"] != -1:
-			if not should_render_vertical_face(pos, pos + Vector3i(1, 0, 0)):
-				should_cull = true
-		elif all_on_y_min and face_normal.y < -0.3 and neighbors["down"] != -1:
-			if not should_render_vertical_face(pos, pos + Vector3i(0, -1, 0)):
-				should_cull = true
-		elif all_on_y_max and face_normal.y > 0.3 and neighbors["up"] != -1:
-			if not should_render_vertical_face(pos, pos + Vector3i(0, 1, 0)):
-				should_cull = true
-		elif all_on_z_min and face_normal.z < -0.3 and neighbors["north"] != -1:
-			if not should_render_vertical_face(pos, pos + Vector3i(0, 0, -1)):
-				should_cull = true
-		elif all_on_z_max and face_normal.z > 0.3 and neighbors["south"] != -1:
-			if not should_render_vertical_face(pos, pos + Vector3i(0, 0, 1)):
-				should_cull = true
-		
-		if should_cull:
-			continue
-		
-		# Extend vertices to boundaries only if there's a neighboring tile
-		# This fixes gaps from bevels when tiles are adjacent
-		v0 = extend_vertex_to_boundary_if_neighbor(v0, neighbors, extend_threshold, pos)
-		v1 = extend_vertex_to_boundary_if_neighbor(v1, neighbors, extend_threshold, pos)
-		v2 = extend_vertex_to_boundary_if_neighbor(v2, neighbors, extend_threshold, pos)
-		
-		# Add this triangle
-		var start_idx = new_verts.size()
-		new_verts.append(v0)
-		new_verts.append(v1)
-		new_verts.append(v2)
-		
-		new_normals.append(normals[i0])
-		new_normals.append(normals[i1])
-		new_normals.append(normals[i2])
-		
-		if uvs.size() > 0:
-			new_uvs.append(uvs[i0] if i0 < uvs.size() else Vector2.ZERO)
-			new_uvs.append(uvs[i1] if i1 < uvs.size() else Vector2.ZERO)
-			new_uvs.append(uvs[i2] if i2 < uvs.size() else Vector2.ZERO)
-		
-		new_indices.append(start_idx)
-		new_indices.append(start_idx + 1)
-		new_indices.append(start_idx + 2)
-	
-	# Create new mesh
-	var surface_array = []
-	surface_array.resize(Mesh.ARRAY_MAX)
-	surface_array[Mesh.ARRAY_VERTEX] = new_verts
-	surface_array[Mesh.ARRAY_NORMAL] = new_normals
-	if new_uvs.size() > 0:
-		surface_array[Mesh.ARRAY_TEX_UV] = new_uvs
-	surface_array[Mesh.ARRAY_INDEX] = new_indices
-	
-	var mesh = ArrayMesh.new()
-	if new_verts.size() > 0:
-		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
-		# Apply all materials from base mesh
-		for surface_idx in range(base_mesh.get_surface_count()):
-			var mat = base_mesh.surface_get_material(surface_idx)
-			if mat:
-				mesh.surface_set_material(0, mat)
-				break  # Use first available material for the combined surface
-	
-	return mesh
+	return final_mesh
 
 
 # Helper function to extend a vertex to boundary only if there's a neighbor in that direction
