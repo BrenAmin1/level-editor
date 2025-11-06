@@ -119,6 +119,21 @@ func _process_mesh_surface(base_mesh: ArrayMesh, surface_idx: int, pos: Vector3i
 	
 	var s = grid_size
 	
+	# DEBUG: Print neighbor info once per surface 0 (top surface)
+	if surface_idx == 0 and slant_type != tile_map.SlantType.NONE:
+		if slant_type == tile_map.SlantType.NW_SE:
+			var nw_neighbor = pos + Vector3i(-1, 0, -1)
+			var se_neighbor = pos + Vector3i(1, 0, 1)
+			var has_nw = nw_neighbor in tiles and tile_map.get_tile_slant(nw_neighbor) == slant_type
+			var has_se = se_neighbor in tiles and tile_map.get_tile_slant(se_neighbor) == slant_type
+			print("  Tile ", pos, " NW_SE diagonal neighbors: NW=", has_nw, " (", nw_neighbor, ") SE=", has_se, " (", se_neighbor, ")")
+		elif slant_type == tile_map.SlantType.NE_SW:
+			var ne_neighbor = pos + Vector3i(1, 0, -1)
+			var sw_neighbor = pos + Vector3i(-1, 0, 1)
+			var has_ne = ne_neighbor in tiles and tile_map.get_tile_slant(ne_neighbor) == slant_type
+			var has_sw = sw_neighbor in tiles and tile_map.get_tile_slant(sw_neighbor) == slant_type
+			print("  Tile ", pos, " NE_SW diagonal neighbors: NE=", has_ne, " (", ne_neighbor, ") SW=", has_sw, " (", sw_neighbor, ")")
+	
 	# Process each triangle
 	for i in range(0, indices.size(), 3):
 		var i0 = indices[i]
@@ -134,25 +149,83 @@ func _process_mesh_surface(base_mesh: ArrayMesh, surface_idx: int, pos: Vector3i
 			v0 = _apply_slant_rotation(v0, slant_type, s)
 			v1 = _apply_slant_rotation(v1, slant_type, s)
 			v2 = _apply_slant_rotation(v2, slant_type, s)
+			
+			# Extend corners to connect with neighbors
+			v0 = _extend_slant_vertices(v0, pos, slant_type, neighbors, s)
+			v1 = _extend_slant_vertices(v1, pos, slant_type, neighbors, s)
+			v2 = _extend_slant_vertices(v2, pos, slant_type, neighbors, s)
 		
 		var face_normal = (normals[i0] + normals[i1] + normals[i2]).normalized()
 		var face_center = (v0 + v1 + v2) / 3.0
 		
-		# Check if triangle should be culled (slant or neighbor culling)
-		if slant_type != tile_map.SlantType.NONE and _should_cull_triangle_for_slant(v0, v1, v2, slant_type, s):
-			continue
-		
-		if _should_cull_for_neighbors(pos, neighbors, face_center, face_normal, exposed_corners, 
-									  disable_all_culling, s):
-			continue
-		
-		# Extend vertices to boundaries
-		v0 = extend_vertex_to_boundary_if_neighbor(v0, neighbors, 0.35, pos)
-		v1 = extend_vertex_to_boundary_if_neighbor(v1, neighbors, 0.35, pos)
-		v2 = extend_vertex_to_boundary_if_neighbor(v2, neighbors, 0.35, pos)
+		# Still check neighbor culling (unless slant is enabled - then disable all culling for now)
+		if slant_type == tile_map.SlantType.NONE:
+			if _should_cull_for_neighbors(pos, neighbors, face_center, face_normal, exposed_corners, 
+										  disable_all_culling, s):
+				continue
+			
+			# Extend vertices to boundaries (only if no slant)
+			v0 = extend_vertex_to_boundary_if_neighbor(v0, neighbors, 0.35, pos)
+			v1 = extend_vertex_to_boundary_if_neighbor(v1, neighbors, 0.35, pos)
+			v2 = extend_vertex_to_boundary_if_neighbor(v2, neighbors, 0.35, pos)
 		
 		# Add triangle to appropriate surface
 		_add_triangle_to_surface(triangles_by_surface, v0, v1, v2, uvs, i0, i1, i2)
+
+
+func _extend_slant_vertices(v: Vector3, pos: Vector3i, slant_type: int, neighbors: Dictionary, grid_s: float) -> Vector3:
+	var result = v
+	
+	# First, clamp anything outside
+	result.x = clamp(result.x, 0, grid_s)
+	result.z = clamp(result.z, 0, grid_s)
+	
+	# Check ALL 8 directions (orthogonal + diagonal) for matching slanted neighbors
+	var neighbor_positions = [
+		pos + Vector3i(0, 0, -1),   # North
+		pos + Vector3i(1, 0, -1),   # NE
+		pos + Vector3i(1, 0, 0),    # East
+		pos + Vector3i(1, 0, 1),    # SE
+		pos + Vector3i(0, 0, 1),    # South
+		pos + Vector3i(-1, 0, 1),   # SW
+		pos + Vector3i(-1, 0, 0),   # West
+		pos + Vector3i(-1, 0, -1),  # NW
+	]
+	
+	# Check if ANY neighbor has matching slant in each direction
+	var has_north = (neighbor_positions[0] in tiles and tile_map.get_tile_slant(neighbor_positions[0]) == slant_type) or \
+					(neighbor_positions[1] in tiles and tile_map.get_tile_slant(neighbor_positions[1]) == slant_type) or \
+					(neighbor_positions[7] in tiles and tile_map.get_tile_slant(neighbor_positions[7]) == slant_type)
+	
+	var has_south = (neighbor_positions[4] in tiles and tile_map.get_tile_slant(neighbor_positions[4]) == slant_type) or \
+					(neighbor_positions[3] in tiles and tile_map.get_tile_slant(neighbor_positions[3]) == slant_type) or \
+					(neighbor_positions[5] in tiles and tile_map.get_tile_slant(neighbor_positions[5]) == slant_type)
+	
+	var has_east = (neighbor_positions[2] in tiles and tile_map.get_tile_slant(neighbor_positions[2]) == slant_type) or \
+				   (neighbor_positions[1] in tiles and tile_map.get_tile_slant(neighbor_positions[1]) == slant_type) or \
+				   (neighbor_positions[3] in tiles and tile_map.get_tile_slant(neighbor_positions[3]) == slant_type)
+	
+	var has_west = (neighbor_positions[6] in tiles and tile_map.get_tile_slant(neighbor_positions[6]) == slant_type) or \
+				   (neighbor_positions[7] in tiles and tile_map.get_tile_slant(neighbor_positions[7]) == slant_type) or \
+				   (neighbor_positions[5] in tiles and tile_map.get_tile_slant(neighbor_positions[5]) == slant_type)
+	
+	# Extend vertices aggressively if there's a neighbor in that direction
+	if has_north and result.z < grid_s * 0.5:
+		result.z = 0
+	
+	if has_south and result.z > grid_s * 0.5:
+		result.z = grid_s
+	
+	if has_east and result.x > grid_s * 0.5:
+		result.x = grid_s
+	
+	if has_west and result.x < grid_s * 0.5:
+		result.x = 0
+	
+	return result
+
+
+
 
 
 func _apply_slant_rotation(v: Vector3, slant_type: int, grid_s: float) -> Vector3:
