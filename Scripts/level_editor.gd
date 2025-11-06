@@ -47,7 +47,10 @@ func _ready():
 	tilemap.set_custom_material(3, 2, GRASS)
 	tilemap.set_custom_material(3, 1, DIRT)
 	tilemap.set_custom_material(3, 0, DIRT)
-	
+	tilemap.load_obj_for_tile_type(4, "res://half_bevel.obj")
+	tilemap.set_custom_material(4, 2, GRASS)
+	tilemap.set_custom_material(4, 1, DIRT)
+	tilemap.set_custom_material(4, 0, DIRT)
 	# Debug: Check surfaces
 	var surfaces = tilemap.get_surface_count(3)
 	print("Loaded ", surfaces, " surfaces")

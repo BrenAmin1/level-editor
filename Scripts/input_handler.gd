@@ -95,6 +95,9 @@ func _handle_keyboard(event: InputEventKey) -> Dictionary:
 		KEY_3:
 			result["tile_type"] = 3
 			print("Selected: Custom")
+		KEY_4:
+			result["tile_type"] = 4
+			print("Selected: Custom")
 		KEY_S:  # ADD THIS CASE
 			_toggle_slant_at_cursor()
 		KEY_BRACKETRIGHT, KEY_MINUS:
