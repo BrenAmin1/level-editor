@@ -1,5 +1,25 @@
 class_name MeshGenerator extends RefCounted
 
+# References to parent TileMap3D data
+var custom_meshes: Dictionary  # Reference to TileMap3D.custom_meshes
+var tiles: Dictionary  # Reference to TileMap3D.tiles
+var grid_size: float  # Reference to TileMap3D.grid_size
+var tile_map: TileMap3D  # Reference to parent for calling methods
+
+# ============================================================================
+# SETUP
+# ============================================================================
+
+func setup(tilemap: TileMap3D, meshes_ref: Dictionary, tiles_ref: Dictionary, grid_sz: float):
+	tile_map = tilemap
+	custom_meshes = meshes_ref
+	tiles = tiles_ref
+	grid_size = grid_sz
+
+# ============================================================================
+# MESH GENERATION FUNCTIONS
+# ============================================================================
+
 # Generate mesh for custom tile types with neighbor culling and conditional boundary extension
 func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Dictionary) -> ArrayMesh:
 	if tile_type not in custom_meshes:
@@ -143,8 +163,8 @@ func extend_vertex_to_boundary_if_neighbor(v: Vector3, neighbors: Dictionary, th
 	
 	# Special case: if there's a block above, remove ALL bevels
 	if neighbors["up"] != -1:
-		var current_offset = get_offset_for_y(pos.y)
-		var neighbor_offset = get_offset_for_y(pos.y + 1)
+		var current_offset = tile_map.get_offset_for_y(pos.y)
+		var neighbor_offset = tile_map.get_offset_for_y(pos.y + 1)
 		
 		if current_offset.is_equal_approx(neighbor_offset):
 			if v.x < grid_size * 0.5:
@@ -167,8 +187,8 @@ func extend_vertex_to_boundary_if_neighbor(v: Vector3, neighbors: Dictionary, th
 	# If there's a tile below, extend bottom vertices
 	var has_down_neighbor = neighbors["down"] != -1
 	if has_down_neighbor and v.y < grid_size * 0.5:
-		var current_offset = get_offset_for_y(pos.y)
-		var neighbor_offset = get_offset_for_y(pos.y - 1)
+		var current_offset = tile_map.get_offset_for_y(pos.y)
+		var neighbor_offset = tile_map.get_offset_for_y(pos.y - 1)
 		var offset_diff = current_offset - neighbor_offset
 		var extra_extension = abs(offset_diff.y)
 		result.y = -extra_extension
@@ -231,13 +251,12 @@ func extend_vertex_to_boundary_if_neighbor(v: Vector3, neighbors: Dictionary, th
 
 
 
-
 func should_render_vertical_face(current_pos: Vector3i, neighbor_pos: Vector3i) -> bool:
 	if neighbor_pos not in tiles:
 		return true
 	
-	var current_offset = get_offset_for_y(current_pos.y)
-	var neighbor_offset = get_offset_for_y(neighbor_pos.y)
+	var current_offset = tile_map.get_offset_for_y(current_pos.y)
+	var neighbor_offset = tile_map.get_offset_for_y(neighbor_pos.y)
 	
 	if not current_offset.is_equal_approx(neighbor_offset):
 		return true

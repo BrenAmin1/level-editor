@@ -1,5 +1,25 @@
 class_name MeshOptimizer extends RefCounted
 
+# References to parent TileMap3D data and components
+var tiles: Dictionary  # Reference to TileMap3D.tiles
+var custom_meshes: Dictionary  # Reference to TileMap3D.custom_meshes
+var tile_map: TileMap3D  # Reference to parent for calling methods
+var mesh_generator: MeshGenerator  # Reference to MeshGenerator component
+
+# ============================================================================
+# SETUP
+# ============================================================================
+
+func setup(tilemap: TileMap3D, tiles_ref: Dictionary, meshes_ref: Dictionary, generator: MeshGenerator):
+	tile_map = tilemap
+	tiles = tiles_ref
+	custom_meshes = meshes_ref
+	mesh_generator = generator
+
+# ============================================================================
+# MESH OPTIMIZATION FUNCTIONS
+# ============================================================================
+
 func generate_optimized_level_mesh() -> ArrayMesh:
 	"""Generate optimized mesh - handles both standard and custom tiles"""
 	
@@ -28,9 +48,9 @@ func generate_optimized_level_mesh() -> ArrayMesh:
 		if tile_type in custom_meshes:
 			# Custom mesh - bake each instance with neighbor culling
 			for pos in positions:
-				var neighbors = get_neighbors(pos)
-				var tile_mesh = generate_custom_tile_mesh(pos, tile_type, neighbors)
-				var world_pos = grid_to_world(pos)
+				var neighbors = tile_map.get_neighbors(pos)
+				var tile_mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors)
+				var world_pos = tile_map.grid_to_world(pos)
 				
 				# Add this mesh instance to combined mesh
 				vertex_offset = append_mesh_to_arrays(
@@ -41,9 +61,9 @@ func generate_optimized_level_mesh() -> ArrayMesh:
 		else:
 			# Standard tiles - bake each with neighbor culling
 			for pos in positions:
-				var neighbors = get_neighbors(pos)
-				var tile_mesh = generate_tile_mesh(pos, tile_type, neighbors)
-				var world_pos = grid_to_world(pos)
+				var neighbors = tile_map.get_neighbors(pos)
+				var tile_mesh = mesh_generator.generate_tile_mesh(pos, tile_type, neighbors)
+				var world_pos = tile_map.grid_to_world(pos)
 				
 				vertex_offset = append_mesh_to_arrays(
 					tile_mesh, world_pos,
@@ -141,15 +161,15 @@ func generate_optimized_level_mesh_multi_material() -> ArrayMesh:
 		
 		# Combine all tiles of this type
 		for pos in positions:
-			var neighbors = get_neighbors(pos)
+			var neighbors = tile_map.get_neighbors(pos)
 			var tile_mesh: ArrayMesh
 			
 			if tile_type in custom_meshes:
-				tile_mesh = generate_custom_tile_mesh(pos, tile_type, neighbors)
+				tile_mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors)
 			else:
-				tile_mesh = generate_tile_mesh(pos, tile_type, neighbors)
+				tile_mesh = mesh_generator.generate_tile_mesh(pos, tile_type, neighbors)
 			
-			var world_pos = grid_to_world(pos)
+			var world_pos = tile_map.grid_to_world(pos)
 			
 			vertex_offset = append_mesh_to_arrays(
 				tile_mesh, world_pos,

@@ -1,5 +1,23 @@
 class_name MeshEditor extends RefCounted
 
+# References to parent TileMap3D data
+var custom_meshes: Dictionary  # Reference to TileMap3D.custom_meshes
+var tiles: Dictionary  # Reference to TileMap3D.tiles
+var tile_map: TileMap3D  # Reference to parent for calling update_tile_mesh
+
+# ============================================================================
+# SETUP
+# ============================================================================
+
+func setup(tilemap: TileMap3D, meshes_ref: Dictionary, tiles_ref: Dictionary):
+	tile_map = tilemap
+	custom_meshes = meshes_ref
+	tiles = tiles_ref
+
+# ============================================================================
+# MESH EDITING FUNCTIONS
+# ============================================================================
+
 # Get editable mesh data for a tile type (returns first surface)
 func get_mesh_data(tile_type: int) -> Dictionary:
 	var mesh = custom_meshes.get(tile_type)
@@ -63,7 +81,7 @@ func edit_mesh_vertices(tile_type: int, new_vertices: PackedVector3Array) -> boo
 	# Update all tiles using this mesh
 	for pos in tiles:
 		if tiles[pos] == tile_type:
-			update_tile_mesh(pos)
+			tile_map.update_tile_mesh(pos)
 	
 	return true
 
@@ -151,6 +169,6 @@ func recalculate_normals(tile_type: int) -> bool:
 	# Update all tiles
 	for pos in tiles:
 		if tiles[pos] == tile_type:
-			update_tile_mesh(pos)
+			tile_map.update_tile_mesh(pos)
 	
 	return true

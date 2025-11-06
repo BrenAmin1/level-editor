@@ -45,7 +45,6 @@ func _ready():
 	tilemap.set_custom_material(3, 0, GRASS)    # Surface 0
 	tilemap.set_custom_material(3, 1, DIRT)   # Surface 1
 	tilemap.set_custom_material(3, 2, DIRT)  # Surface 2
-	tilemap.load_obj_for_tile_type(3, "res://cube_bulge.obj")
 
 	# Debug: Check how many triangles the base mesh has
 	var surfaces = tilemap.get_surface_count(3)

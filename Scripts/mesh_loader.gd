@@ -1,5 +1,25 @@
 class_name MeshLoader extends RefCounted
 
+# References to parent TileMap3D data and components
+var custom_meshes: Dictionary  # Reference to TileMap3D.custom_meshes
+var custom_materials: Dictionary  # Reference to TileMap3D.custom_materials
+var grid_size: float  # Reference to TileMap3D.grid_size
+var mesh_editor: MeshEditor  # Reference to MeshEditor component
+
+# ============================================================================
+# SETUP
+# ============================================================================
+
+func setup(meshes_ref: Dictionary, materials_ref: Dictionary, grid_sz: float, editor: MeshEditor):
+	custom_meshes = meshes_ref
+	custom_materials = materials_ref
+	grid_size = grid_sz
+	mesh_editor = editor
+
+# ============================================================================
+# MESH LOADING FUNCTIONS
+# ============================================================================
+
 # Load an OBJ file and associate it with a tile type (supports multiple materials via usemtl groups)
 func load_obj_for_tile_type(tile_type: int, obj_path: String) -> bool:
 	var file = FileAccess.open(obj_path, FileAccess.READ)
@@ -135,7 +155,7 @@ func load_obj_for_tile_type(tile_type: int, obj_path: String) -> bool:
 
 # Extend boundary vertices to grid edges (fixes gaps from bevels)
 func extend_mesh_to_boundaries(tile_type: int, threshold: float = 0.15) -> bool:
-	var mesh_data = get_mesh_data(tile_type)
+	var mesh_data = mesh_editor.get_mesh_data(tile_type)
 	if mesh_data.is_empty():
 		return false
 	
@@ -163,7 +183,7 @@ func extend_mesh_to_boundaries(tile_type: int, threshold: float = 0.15) -> bool:
 		
 		vertices[i] = v
 	
-	return edit_mesh_vertices(tile_type, vertices)
+	return mesh_editor.edit_mesh_vertices(tile_type, vertices)
 
 
 # Flip normals and reverse winding order for Blender meshes (handles multiple surfaces)

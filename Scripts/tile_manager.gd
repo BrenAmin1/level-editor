@@ -1,6 +1,31 @@
 class_name TileManager extends RefCounted
 
+# References to parent TileMap3D data and components
+var tiles: Dictionary  # Reference to TileMap3D.tiles
+var tile_meshes: Dictionary  # Reference to TileMap3D.tile_meshes
+var custom_meshes: Dictionary  # Reference to TileMap3D.custom_meshes
+var grid_size: float  # Reference to TileMap3D.grid_size
+var parent_node: Node3D  # Reference to TileMap3D.parent_node
+var tile_map: TileMap3D  # Reference to parent for calling methods
+var mesh_generator: MeshGenerator  # Reference to MeshGenerator component
 
+# ============================================================================
+# SETUP
+# ============================================================================
+
+func setup(tilemap: TileMap3D, tiles_ref: Dictionary, tile_meshes_ref: Dictionary, 
+		   meshes_ref: Dictionary, grid_sz: float, parent: Node3D, generator: MeshGenerator):
+	tile_map = tilemap
+	tiles = tiles_ref
+	tile_meshes = tile_meshes_ref
+	custom_meshes = meshes_ref
+	grid_size = grid_sz
+	parent_node = parent
+	mesh_generator = generator
+
+# ============================================================================
+# COORDINATE CONVERSION
+# ============================================================================
 
 func world_to_grid(pos: Vector3) -> Vector3i:
 	return Vector3i(
@@ -11,8 +36,12 @@ func world_to_grid(pos: Vector3) -> Vector3i:
 
 
 func grid_to_world(pos: Vector3i) -> Vector3:
-	var offset = get_offset_for_y(pos.y)
+	var offset = tile_map.get_offset_for_y(pos.y)
 	return Vector3(pos.x * grid_size + offset.x, pos.y * grid_size, pos.z * grid_size + offset.y)
+
+# ============================================================================
+# TILE MANIPULATION
+# ============================================================================
 
 func place_tile(pos: Vector3i, tile_type: int):
 	tiles[pos] = tile_type
@@ -53,6 +82,10 @@ func has_tile(pos: Vector3i) -> bool:
 func get_tile_type(pos: Vector3i) -> int:
 	return tiles.get(pos, -1)
 
+# ============================================================================
+# MESH MANAGEMENT
+# ============================================================================
+
 func update_tile_mesh(pos: Vector3i):
 	if not parent_node:
 		return
@@ -63,10 +96,10 @@ func update_tile_mesh(pos: Vector3i):
 	var mesh: ArrayMesh
 	if tile_type in custom_meshes:
 		var neighbors = get_neighbors(pos)
-		mesh = generate_custom_tile_mesh(pos, tile_type, neighbors)
+		mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors)
 	else:
 		var neighbors = get_neighbors(pos)
-		mesh = generate_tile_mesh(pos, tile_type, neighbors)
+		mesh = mesh_generator.generate_tile_mesh(pos, tile_type, neighbors)
 	
 	if pos in tile_meshes:
 		tile_meshes[pos].mesh = mesh
@@ -88,6 +121,10 @@ func update_tile_mesh(pos: Vector3i):
 		
 		parent_node.add_child(mesh_instance)
 		tile_meshes[pos] = mesh_instance
+
+# ============================================================================
+# NEIGHBOR QUERIES
+# ============================================================================
 
 func get_neighbors(pos: Vector3i) -> Dictionary:
 	var neighbors = {}

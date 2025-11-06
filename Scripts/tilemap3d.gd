@@ -1,13 +1,19 @@
 class_name TileMap3D extends RefCounted
 
+# ============================================================================
+# CORE DATA
+# ============================================================================
 var tiles = {}  # Vector3i -> tile_type
 var tile_meshes = {}  # Vector3i -> MeshInstance3D
 var custom_meshes = {}  # tile_type -> ArrayMesh (custom loaded meshes)
+var custom_materials: Dictionary = {}  # tile_type -> Array[Material]
 var grid_size: float = 1.0
 var parent_node: Node3D
 var offset_provider: Callable
 
-var custom_materials: Dictionary = {}  # tile_type -> Material
+# ============================================================================
+# COMPONENTS
+# ============================================================================
 var mesh_loader: MeshLoader
 var mesh_generator: MeshGenerator
 var mesh_editor: MeshEditor
@@ -15,12 +21,46 @@ var material_manager: MaterialManager
 var tile_manager: TileManager
 var mesh_optimizer: MeshOptimizer
 
+# ============================================================================
+# INITIALIZATION
+# ============================================================================
+
 func _init(grid_sz: float = 1.0):
 	grid_size = grid_sz
+	
+	# Initialize all components
+	mesh_editor = MeshEditor.new()
+	mesh_generator = MeshGenerator.new()
+	mesh_loader = MeshLoader.new()
+	tile_manager = TileManager.new()
+	mesh_optimizer = MeshOptimizer.new()
+	material_manager = MaterialManager.new()
+	
+	print("TileMap3D: Components initialized")
 
+# Setup components after parent_node is set
+func _setup_components():
+	if not parent_node:
+		push_error("Cannot setup components: parent_node is null")
+		return
+	
+	# Setup in dependency order
+	mesh_editor.setup(self, custom_meshes, tiles)
+	mesh_generator.setup(self, custom_meshes, tiles, grid_size)
+	mesh_loader.setup(custom_meshes, custom_materials, grid_size, mesh_editor)
+	tile_manager.setup(self, tiles, tile_meshes, custom_meshes, grid_size, parent_node, mesh_generator)
+	mesh_optimizer.setup(self, tiles, custom_meshes, mesh_generator)
+	material_manager.setup(self, custom_meshes, custom_materials, tiles)
+	
+	print("TileMap3D: Components setup complete")
+
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
 
 func set_parent(node: Node3D):
 	parent_node = node
+	_setup_components()
 
 
 func set_offset_provider(provider: Callable):
@@ -32,6 +72,103 @@ func get_offset_for_y(y_level: int) -> Vector2:
 		return offset_provider.call(y_level)
 	return Vector2.ZERO
 
+# ============================================================================
+# MESH LOADING (Delegate to MeshLoader)
+# ============================================================================
+
+func load_obj_for_tile_type(tile_type: int, obj_path: String) -> bool:
+	return mesh_loader.load_obj_for_tile_type(tile_type, obj_path)
+
+
+func extend_mesh_to_boundaries(tile_type: int, threshold: float = 0.15) -> bool:
+	return mesh_loader.extend_mesh_to_boundaries(tile_type, threshold)
+
+
+func flip_mesh_normals(tile_type: int) -> bool:
+	return mesh_loader.flip_mesh_normals(tile_type)
+
+
+func align_mesh_to_grid(tile_type: int) -> bool:
+	return mesh_loader.align_mesh_to_grid(tile_type)
+
+# ============================================================================
+# MESH EDITING (Delegate to MeshEditor)
+# ============================================================================
+
+func get_mesh_data(tile_type: int) -> Dictionary:
+	return mesh_editor.get_mesh_data(tile_type)
+
+
+func edit_mesh_vertices(tile_type: int, new_vertices: PackedVector3Array) -> bool:
+	return mesh_editor.edit_mesh_vertices(tile_type, new_vertices)
+
+
+func transform_vertex(tile_type: int, vertex_index: int, new_position: Vector3) -> bool:
+	return mesh_editor.transform_vertex(tile_type, vertex_index, new_position)
+
+
+func scale_mesh(tile_type: int, scale: Vector3) -> bool:
+	return mesh_editor.scale_mesh(tile_type, scale)
+
+
+func recalculate_normals(tile_type: int) -> bool:
+	return mesh_editor.recalculate_normals(tile_type)
+
+# ============================================================================
+# MATERIAL MANAGEMENT (Delegate to MaterialManager)
+# ============================================================================
+
+func set_custom_material(tile_type: int, surface_index: int, material: StandardMaterial3D) -> bool:
+	return material_manager.set_custom_material(tile_type, surface_index, material)
+
+
+func get_surface_count(tile_type: int) -> int:
+	return material_manager.get_surface_count(tile_type)
+
+
+func get_custom_material(tile_type: int, surface_index: int) -> Material:
+	return material_manager.get_custom_material(tile_type, surface_index)
+
+
+func create_custom_material(albedo_color: Color, metallic: float = 0.0, 
+							roughness: float = 1.0, emission: Color = Color.BLACK) -> StandardMaterial3D:
+	return material_manager.create_custom_material(albedo_color, metallic, roughness, emission)
+
+# ============================================================================
+# TILE MANAGEMENT (Delegate to TileManager)
+# ============================================================================
+
+func world_to_grid(pos: Vector3) -> Vector3i:
+	return tile_manager.world_to_grid(pos)
+
+
+func grid_to_world(pos: Vector3i) -> Vector3:
+	return tile_manager.grid_to_world(pos)
+
+
+func place_tile(pos: Vector3i, tile_type: int):
+	tile_manager.place_tile(pos, tile_type)
+
+
+func remove_tile(pos: Vector3i):
+	tile_manager.remove_tile(pos)
+
+
+func has_tile(pos: Vector3i) -> bool:
+	return tile_manager.has_tile(pos)
+
+
+func get_tile_type(pos: Vector3i) -> int:
+	return tile_manager.get_tile_type(pos)
+
+
+func update_tile_mesh(pos: Vector3i):
+	tile_manager.update_tile_mesh(pos)
+
+
+func get_neighbors(pos: Vector3i) -> Dictionary:
+	return tile_manager.get_neighbors(pos)
+
 
 func refresh_y_level(y_level: int):
 	for pos in tiles.keys():
@@ -40,3 +177,33 @@ func refresh_y_level(y_level: int):
 	for pos in tiles.keys():
 		if pos.y == y_level + 1 or pos.y == y_level - 1:
 			update_tile_mesh(pos)
+
+# ============================================================================
+# MESH GENERATION (Delegate to MeshGenerator)
+# ============================================================================
+
+func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Dictionary) -> ArrayMesh:
+	return mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors)
+
+
+func generate_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Dictionary) -> ArrayMesh:
+	return mesh_generator.generate_tile_mesh(pos, tile_type, neighbors)
+
+
+func should_render_vertical_face(current_pos: Vector3i, neighbor_pos: Vector3i) -> bool:
+	return mesh_generator.should_render_vertical_face(current_pos, neighbor_pos)
+
+# ============================================================================
+# OPTIMIZATION & EXPORT (Delegate to MeshOptimizer)
+# ============================================================================
+
+func generate_optimized_level_mesh() -> ArrayMesh:
+	return mesh_optimizer.generate_optimized_level_mesh()
+
+
+func generate_optimized_level_mesh_multi_material() -> ArrayMesh:
+	return mesh_optimizer.generate_optimized_level_mesh_multi_material()
+
+
+func export_level_to_file(filepath: String, use_multi_material: bool = true):
+	return mesh_optimizer.export_level_to_file(filepath, use_multi_material)

@@ -1,5 +1,21 @@
 class_name MaterialManager extends RefCounted
 
+# References to parent TileMap3D data
+var custom_meshes: Dictionary  # Reference to TileMap3D.custom_meshes
+var custom_materials: Dictionary  # Reference to TileMap3D.custom_materials
+var tiles: Dictionary  # Reference to TileMap3D.tiles
+var tile_map: TileMap3D  # Reference to parent for calling update_tile_mesh
+
+# ============================================================================
+# SETUP
+# ============================================================================
+
+func setup(tilemap: TileMap3D, meshes_ref: Dictionary, materials_ref: Dictionary, tiles_ref: Dictionary):
+	tile_map = tilemap
+	custom_meshes = meshes_ref
+	custom_materials = materials_ref
+	tiles = tiles_ref
+
 # ============================================================================
 # MATERIAL MANAGEMENT FUNCTIONS
 # ============================================================================
@@ -31,7 +47,7 @@ func set_custom_material(tile_type: int, surface_index: int, material: StandardM
 	# Update all tiles using this mesh type
 	for pos in tiles:
 		if tiles[pos] == tile_type:
-			update_tile_mesh(pos)
+			tile_map.update_tile_mesh(pos)
 	
 	print("✓ Material updated for tile type ", tile_type, " surface ", surface_index)
 	return true
