@@ -7,19 +7,24 @@ var grid_size: float = 1.0
 var parent_node: Node3D
 var offset_provider: Callable
 
+
 func _init(grid_sz: float = 1.0):
 	grid_size = grid_sz
+
 
 func set_parent(node: Node3D):
 	parent_node = node
 
+
 func set_offset_provider(provider: Callable):
 	offset_provider = provider
+
 
 func get_offset_for_y(y_level: int) -> Vector2:
 	if offset_provider.is_valid():
 		return offset_provider.call(y_level)
 	return Vector2.ZERO
+
 
 # Load an OBJ file and associate it with a tile type
 func load_obj_for_tile_type(tile_type: int, obj_path: String) -> bool:
@@ -129,6 +134,7 @@ func load_obj_for_tile_type(tile_type: int, obj_path: String) -> bool:
 	
 	return true
 
+
 # Extend boundary vertices to grid edges (fixes gaps from bevels)
 func extend_mesh_to_boundaries(tile_type: int, threshold: float = 0.15) -> bool:
 	var mesh_data = get_mesh_data(tile_type)
@@ -160,6 +166,7 @@ func extend_mesh_to_boundaries(tile_type: int, threshold: float = 0.15) -> bool:
 		vertices[i] = v
 	
 	return edit_mesh_vertices(tile_type, vertices)
+
 
 # Flip normals and reverse winding order for Blender meshes
 func flip_mesh_normals(tile_type: int) -> bool:
@@ -198,6 +205,7 @@ func flip_mesh_normals(tile_type: int) -> bool:
 	custom_meshes[tile_type] = new_mesh
 	return true
 
+
 # Align mesh to grid cell (bottom-left corner at origin)
 func align_mesh_to_grid(tile_type: int) -> bool:
 	var mesh_data = get_mesh_data(tile_type)
@@ -235,6 +243,7 @@ func align_mesh_to_grid(tile_type: int) -> bool:
 	
 	return edit_mesh_vertices(tile_type, vertices)
 
+
 # Get editable mesh data for a tile type
 func get_mesh_data(tile_type: int) -> Dictionary:
 	var mesh = custom_meshes.get(tile_type)
@@ -248,6 +257,7 @@ func get_mesh_data(tile_type: int) -> Dictionary:
 		"uvs": arrays[Mesh.ARRAY_TEX_UV],
 		"indices": arrays[Mesh.ARRAY_INDEX]
 	}
+
 
 # Edit vertices of a custom mesh
 func edit_mesh_vertices(tile_type: int, new_vertices: PackedVector3Array) -> bool:
@@ -283,6 +293,7 @@ func edit_mesh_vertices(tile_type: int, new_vertices: PackedVector3Array) -> boo
 	
 	return true
 
+
 # Transform a single vertex by index
 func transform_vertex(tile_type: int, vertex_index: int, new_position: Vector3) -> bool:
 	var mesh_data = get_mesh_data(tile_type)
@@ -308,6 +319,7 @@ func scale_mesh(tile_type: int, scale: Vector3) -> bool:
 		vertices[i] *= scale
 	
 	return edit_mesh_vertices(tile_type, vertices)
+
 
 # Recalculate normals for a mesh
 func recalculate_normals(tile_type: int) -> bool:
@@ -367,12 +379,14 @@ func recalculate_normals(tile_type: int) -> bool:
 	
 	return true
 
+
 func world_to_grid(pos: Vector3) -> Vector3i:
 	return Vector3i(
 		floori(pos.x / grid_size),
 		floori(pos.y / grid_size),
 		floori(pos.z / grid_size)
 	)
+
 
 func grid_to_world(pos: Vector3i) -> Vector3:
 	var offset = get_offset_for_y(pos.y)
@@ -390,6 +404,7 @@ func place_tile(pos: Vector3i, tile_type: int):
 		var neighbor_pos = pos + offset
 		if neighbor_pos in tiles:
 			update_tile_mesh(neighbor_pos)
+
 
 func remove_tile(pos: Vector3i):
 	if pos not in tiles:
@@ -423,6 +438,7 @@ func refresh_y_level(y_level: int):
 	for pos in tiles.keys():
 		if pos.y == y_level + 1 or pos.y == y_level - 1:
 			update_tile_mesh(pos)
+
 
 func update_tile_mesh(pos: Vector3i):
 	if not parent_node:
@@ -459,6 +475,7 @@ func update_tile_mesh(pos: Vector3i):
 		
 		parent_node.add_child(mesh_instance)
 		tile_meshes[pos] = mesh_instance
+
 
 # Generate mesh for custom tile types with neighbor culling and conditional boundary extension
 func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Dictionary) -> ArrayMesh:
@@ -568,6 +585,7 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 		mesh.surface_set_material(0, base_mesh.surface_get_material(0))
 	
 	return mesh
+
 
 # Helper function to extend a vertex to boundary only if there's a neighbor in that direction
 # For corner vertices, only extend on axes where neighbors exist
@@ -688,9 +706,6 @@ func extend_vertex_to_boundary_if_neighbor(v: Vector3, neighbors: Dictionary, th
 	return result
 
 
-
-
-
 func get_neighbors(pos: Vector3i) -> Dictionary:
 	var neighbors = {}
 	var directions = {
@@ -719,6 +734,7 @@ func should_render_vertical_face(current_pos: Vector3i, neighbor_pos: Vector3i) 
 		return true
 	
 	return false
+
 
 func generate_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Dictionary) -> ArrayMesh:
 	var surface_array = []
@@ -784,6 +800,7 @@ func generate_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Dictionary) ->
 		mesh.surface_set_material(0, material)
 	
 	return mesh
+
 
 func add_quad(verts: PackedVector3Array, indices: PackedInt32Array,
 			  normals: PackedVector3Array, uvs: PackedVector2Array,

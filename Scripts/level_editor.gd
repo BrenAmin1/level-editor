@@ -27,6 +27,7 @@ var current_mouse_button: InputEventMouseButton
 var selection_start: Vector3i
 var selection_end: Vector3i
 var is_selecting: bool = false
+var has_selection : bool = false
 var selection_visualizer: MeshInstance3D
 
 # Grid settings
@@ -100,17 +101,16 @@ func _input(event):
 		if current_mode == EditorMode.SELECT and event.button_index == MOUSE_BUTTON_RIGHT:
 			mass_delete_tiles()
 			
-		if current_mode == EditorMode.SELECT and event.button_index == MOUSE_BUTTON_RIGHT and is_selecting:
-			mass_delete_tiles()
 		# Start selection in SELECT mode
 		if current_mode == EditorMode.SELECT and event.button_index == MOUSE_BUTTON_LEFT:
+			has_selection = true
 			start_selection(event.position)
 		
 	elif event is InputEventMouseButton and event.is_released():
 		mouse_pressed = false
-		
 		# End selection in SELECT mode
 		if current_mode == EditorMode.SELECT and event.button_index == MOUSE_BUTTON_LEFT and is_selecting:
+			has_selection = true
 			end_selection()
 	
 	# Camera rotation
@@ -157,9 +157,9 @@ func _input(event):
 			grid_visualizer.set_y_level_offset(current_y_level, offset)
 		# Mass operations in SELECT mode
 		elif current_mode == EditorMode.SELECT:
-			if event.keycode == KEY_F:
+			if event.keycode == KEY_F and has_selection:
 				mass_place_tiles()
-			elif event.keycode == KEY_DELETE or event.keycode == KEY_X:
+			elif event.keycode == KEY_DELETE or event.keycode == KEY_X and has_selection:
 				mass_delete_tiles()
 
 func toggle_mode():
@@ -223,6 +223,7 @@ func end_selection():
 
 func clear_selection():
 	is_selecting = false
+	has_selection = false
 	if selection_visualizer:
 		selection_visualizer.visible = false
 
