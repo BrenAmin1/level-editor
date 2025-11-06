@@ -565,15 +565,14 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 		var uvs = arrays[Mesh.ARRAY_TEX_UV]
 		var indices = arrays[Mesh.ARRAY_INDEX]
 		
-		# Build new arrays with culled/flattened faces
+		var s = grid_size
+		var interior_margin = 0.15  # Distance from boundary to consider "interior"
+		
+		# Build new arrays with culled faces
 		var new_verts = PackedVector3Array()
 		var new_normals = PackedVector3Array()
 		var new_uvs = PackedVector2Array()
 		var new_indices = PackedInt32Array()
-		
-		var s = grid_size
-		var boundary_threshold = 0.02
-		var extend_threshold = 0.35  # Threshold for extending vertices to boundaries
 		
 		# Process each triangle
 		for i in range(0, indices.size(), 3):
@@ -588,44 +587,57 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 			# Get face normal
 			var face_normal = (normals[i0] + normals[i1] + normals[i2]).normalized()
 			
-			# Check if ALL vertices of this face are on a boundary
-			var all_on_x_min = v0.x < boundary_threshold and v1.x < boundary_threshold and v2.x < boundary_threshold
-			var all_on_x_max = v0.x > s - boundary_threshold and v1.x > s - boundary_threshold and v2.x > s - boundary_threshold
-			var all_on_y_min = v0.y < boundary_threshold and v1.y < boundary_threshold and v2.y < boundary_threshold
-			var all_on_y_max = v0.y > s - boundary_threshold and v1.y > s - boundary_threshold and v2.y > s - boundary_threshold
-			var all_on_z_min = v0.z < boundary_threshold and v1.z < boundary_threshold and v2.z < boundary_threshold
-			var all_on_z_max = v0.z > s - boundary_threshold and v1.z > s - boundary_threshold and v2.z > s - boundary_threshold
+			# Calculate face center
+			var face_center = (v0 + v1 + v2) / 3.0
 			
 			var should_cull = false
 			
-			# Check each boundary direction
-			if all_on_x_min and face_normal.x < -0.3 and neighbors["west"] != -1:
-				if not should_render_vertical_face(pos, pos + Vector3i(-1, 0, 0)):
-					should_cull = true
-			elif all_on_x_max and face_normal.x > 0.3 and neighbors["east"] != -1:
-				if not should_render_vertical_face(pos, pos + Vector3i(1, 0, 0)):
-					should_cull = true
-			elif all_on_y_min and face_normal.y < -0.3 and neighbors["down"] != -1:
-				if not should_render_vertical_face(pos, pos + Vector3i(0, -1, 0)):
-					should_cull = true
-			elif all_on_y_max and face_normal.y > 0.3 and neighbors["up"] != -1:
-				if not should_render_vertical_face(pos, pos + Vector3i(0, 1, 0)):
-					should_cull = true
-			elif all_on_z_min and face_normal.z < -0.3 and neighbors["north"] != -1:
-				if not should_render_vertical_face(pos, pos + Vector3i(0, 0, -1)):
-					should_cull = true
-			elif all_on_z_max and face_normal.z > 0.3 and neighbors["south"] != -1:
-				if not should_render_vertical_face(pos, pos + Vector3i(0, 0, 1)):
-					should_cull = true
+			# Check if face is in an interior zone where there's a neighbor
+			# West side interior zone
+			if neighbors["west"] != -1 and not should_render_vertical_face(pos, pos + Vector3i(-1, 0, 0)):
+				if face_center.x < interior_margin:
+					# This face is in the interior zone between this block and west neighbor
+					# Cull it if it's not facing outward (away from the interior)
+					if face_normal.x > -0.7:  # Not strongly facing west (outward)
+						should_cull = true
+			
+			# East side interior zone
+			if neighbors["east"] != -1 and not should_render_vertical_face(pos, pos + Vector3i(1, 0, 0)):
+				if face_center.x > s - interior_margin:
+					if face_normal.x < 0.7:  # Not strongly facing east (outward)
+						should_cull = true
+			
+			# Down side interior zone
+			if neighbors["down"] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, -1, 0)):
+				if face_center.y < interior_margin:
+					if face_normal.y > -0.7:  # Not strongly facing down (outward)
+						should_cull = true
+			
+			# Up side interior zone
+			if neighbors["up"] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, 1, 0)):
+				if face_center.y > s - interior_margin:
+					if face_normal.y < 0.7:  # Not strongly facing up (outward)
+						should_cull = true
+			
+			# North side interior zone
+			if neighbors["north"] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, 0, -1)):
+				if face_center.z < interior_margin:
+					if face_normal.z > -0.7:  # Not strongly facing north (outward)
+						should_cull = true
+			
+			# South side interior zone
+			if neighbors["south"] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, 0, 1)):
+				if face_center.z > s - interior_margin:
+					if face_normal.z < 0.7:  # Not strongly facing south (outward)
+						should_cull = true
 			
 			if should_cull:
 				continue
 			
 			# Extend vertices to boundaries only if there's a neighboring tile
-			# This fixes gaps from bevels when tiles are adjacent
-			v0 = extend_vertex_to_boundary_if_neighbor(v0, neighbors, extend_threshold, pos)
-			v1 = extend_vertex_to_boundary_if_neighbor(v1, neighbors, extend_threshold, pos)
-			v2 = extend_vertex_to_boundary_if_neighbor(v2, neighbors, extend_threshold, pos)
+			v0 = extend_vertex_to_boundary_if_neighbor(v0, neighbors, 0.35, pos)
+			v1 = extend_vertex_to_boundary_if_neighbor(v1, neighbors, 0.35, pos)
+			v2 = extend_vertex_to_boundary_if_neighbor(v2, neighbors, 0.35, pos)
 			
 			# Add this triangle
 			var start_idx = new_verts.size()
@@ -646,6 +658,7 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 			new_indices.append(start_idx + 1)
 			new_indices.append(start_idx + 2)
 		
+		
 		# Add this surface to the final mesh
 		if new_verts.size() > 0:
 			var surface_array = []
@@ -665,7 +678,6 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 	
 	return final_mesh
 
-
 # Helper function to extend a vertex to boundary only if there's a neighbor in that direction
 # For corner vertices, only extend on axes where neighbors exist
 func extend_vertex_to_boundary_if_neighbor(v: Vector3, neighbors: Dictionary, threshold: float, pos: Vector3i) -> Vector3:
@@ -674,68 +686,49 @@ func extend_vertex_to_boundary_if_neighbor(v: Vector3, neighbors: Dictionary, th
 	# Determine which boundaries this vertex is near
 	var near_x_min = v.x < threshold
 	var near_x_max = v.x > grid_size - threshold
-	#var near_y_min = v.y < threshold
 	var near_y_max = v.y > grid_size - threshold
 	var near_z_min = v.z < threshold
 	var near_z_max = v.z > grid_size - threshold
 	
-	# Special case: if there's a block above, remove ALL bevels on the entire block
-	# This makes the block underneath a complete flat box
+	# Special case: if there's a block above, remove ALL bevels
 	if neighbors["up"] != -1:
 		var current_offset = get_offset_for_y(pos.y)
 		var neighbor_offset = get_offset_for_y(pos.y + 1)
 		
-		# Only flatten if offsets match (blocks are aligned)
 		if current_offset.is_equal_approx(neighbor_offset):
-			# Extend X-axis to boundaries
 			if v.x < grid_size * 0.5:
 				result.x = 0
 			else:
 				result.x = grid_size
 			
-			# Extend Y-axis to boundaries
 			if v.y < grid_size * 0.5:
 				result.y = 0
 			else:
 				result.y = grid_size
 			
-			# Extend Z-axis to boundaries
 			if v.z < grid_size * 0.5:
 				result.z = 0
 			else:
 				result.z = grid_size
 			
-			# Return early - we've handled this vertex completely
 			return result
 	
-	# If there's a tile below, extend ALL bottom bevel vertices down
-	# Account for offset differences by extending extra
+	# If there's a tile below, extend bottom vertices
 	var has_down_neighbor = neighbors["down"] != -1
 	if has_down_neighbor and v.y < grid_size * 0.5:
 		var current_offset = get_offset_for_y(pos.y)
 		var neighbor_offset = get_offset_for_y(pos.y - 1)
 		var offset_diff = current_offset - neighbor_offset
-		
-		# Calculate how much extra we need to extend based on Z-offset difference
-		# The Z-offset creates a vertical gap that needs to be filled
-		var extra_extension = abs(offset_diff.y)  # Z-offset affects vertical gap
-		
+		var extra_extension = abs(offset_diff.y)
 		result.y = -extra_extension
 	
-	# For corner vertices, check if we should extend on each axis
-	# A corner vertex (e.g., at x_min and z_min) should only extend on an axis
-	# if there's a neighbor on that axis OR on both axes
-	
-	# X-axis extension
+	# X-axis extension - conservative for corners
 	if near_x_min:
-		# Check if there's a neighbor to the west
 		var has_west_neighbor = neighbors["west"] != -1
-		# For corner cases, also check if extending would help connect to a diagonal neighbor
+		# Don't extend if we're at a corner and only have perpendicular neighbor
 		if near_z_min and neighbors["north"] != -1 and not has_west_neighbor:
-			# Don't extend x if we only have a north neighbor at the x-min, z-min corner
 			pass
 		elif near_z_max and neighbors["south"] != -1 and not has_west_neighbor:
-			# Don't extend x if we only have a south neighbor at the x-min, z-max corner
 			pass
 		elif has_west_neighbor:
 			result.x = 0
@@ -763,7 +756,7 @@ func extend_vertex_to_boundary_if_neighbor(v: Vector3, neighbors: Dictionary, th
 		elif has_up_neighbor:
 			result.y = grid_size
 	
-	# Z-axis extension
+	# Z-axis extension - conservative for corners
 	if near_z_min:
 		var has_north_neighbor = neighbors["north"] != -1
 		if near_x_min and neighbors["west"] != -1 and not has_north_neighbor:
@@ -783,6 +776,7 @@ func extend_vertex_to_boundary_if_neighbor(v: Vector3, neighbors: Dictionary, th
 			result.z = grid_size
 	
 	return result
+
 
 
 func get_neighbors(pos: Vector3i) -> Dictionary:

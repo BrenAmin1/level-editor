@@ -5,3 +5,4 @@
 [resource]
 albedo_texture = ExtResource("1_wscye")
 uv1_triplanar = true
+texture_filter = 0
