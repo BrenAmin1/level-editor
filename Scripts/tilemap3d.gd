@@ -7,6 +7,8 @@ var grid_size: float = 1.0
 var parent_node: Node3D
 var offset_provider: Callable
 
+var custom_materials: Dictionary = {}  # tile_type -> Material
+
 
 func _init(grid_sz: float = 1.0):
 	grid_size = grid_sz
@@ -26,7 +28,7 @@ func get_offset_for_y(y_level: int) -> Vector2:
 	return Vector2.ZERO
 
 
-# Load an OBJ file and associate it with a tile type
+# Load an OBJ file and associate it with a tile type (supports multiple materials via usemtl groups)
 func load_obj_for_tile_type(tile_type: int, obj_path: String) -> bool:
 	var file = FileAccess.open(obj_path, FileAccess.READ)
 	if not file:
@@ -36,7 +38,8 @@ func load_obj_for_tile_type(tile_type: int, obj_path: String) -> bool:
 	var temp_vertices = []
 	var temp_normals = []
 	var temp_uvs = []
-	var faces = []
+	var material_groups = {}  # material_name -> faces
+	var current_material = "default"
 	
 	while not file.eof_reached():
 		var line = file.get_line().strip_edges()
@@ -68,6 +71,11 @@ func load_obj_for_tile_type(tile_type: int, obj_path: String) -> bool:
 						parts[1].to_float(),
 						parts[2].to_float()
 					))
+			"usemtl":  # Material assignment
+				if parts.size() >= 2:
+					current_material = parts[1]
+					if current_material not in material_groups:
+						material_groups[current_material] = []
 			"f":  # Face
 				var face = []
 				for i in range(1, parts.size()):
@@ -76,60 +84,78 @@ func load_obj_for_tile_type(tile_type: int, obj_path: String) -> bool:
 					var uv_idx = indices[1].to_int() - 1 if indices.size() > 1 and indices[1] != "" else -1
 					var norm_idx = indices[2].to_int() - 1 if indices.size() > 2 else -1
 					face.append({"v": vert_idx, "vt": uv_idx, "vn": norm_idx})
-				faces.append(face)
+				
+				# Add face to current material group
+				if current_material not in material_groups:
+					material_groups[current_material] = []
+				material_groups[current_material].append(face)
 	
 	file.close()
 	
-	# Convert faces to triangles and build mesh
-	var final_verts = PackedVector3Array()
-	var final_normals = PackedVector3Array()
-	var final_uvs = PackedVector2Array()
-	var final_indices = PackedInt32Array()
-	
-	for face in faces:
-		# Triangulate face (simple fan triangulation)
-		for i in range(1, face.size() - 1):
-			for idx in [0, i, i + 1]:
-				var face_vert = face[idx]
-				final_verts.append(temp_vertices[face_vert.v])
-				
-				if face_vert.vn >= 0 and face_vert.vn < temp_normals.size():
-					final_normals.append(temp_normals[face_vert.vn])
-				else:
-					final_normals.append(Vector3.UP)
-				
-				if face_vert.vt >= 0 and face_vert.vt < temp_uvs.size():
-					final_uvs.append(temp_uvs[face_vert.vt])
-				else:
-					final_uvs.append(Vector2.ZERO)
-	
-	# Create indices
-	for i in range(final_verts.size()):
-		final_indices.append(i)
-	
-	# Create ArrayMesh
-	var surface_array = []
-	surface_array.resize(Mesh.ARRAY_MAX)
-	surface_array[Mesh.ARRAY_VERTEX] = final_verts
-	surface_array[Mesh.ARRAY_NORMAL] = final_normals
-	surface_array[Mesh.ARRAY_TEX_UV] = final_uvs
-	surface_array[Mesh.ARRAY_INDEX] = final_indices
-	
+	# Create mesh with multiple surfaces (one per material)
 	var mesh = ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
+	var materials_array = []
 	
-	# Add default material
-	var material = StandardMaterial3D.new()
-	material.albedo_color = Color.WHITE
-	material.cull_mode = BaseMaterial3D.CULL_BACK  # Normal culling
-	mesh.surface_set_material(0, material)
+	print("Loading mesh with ", material_groups.size(), " material groups: ", material_groups.keys())
+	
+	for mat_name in material_groups:
+		var faces = material_groups[mat_name]
+		
+		# Convert faces to triangles
+		var final_verts = PackedVector3Array()
+		var final_normals = PackedVector3Array()
+		var final_uvs = PackedVector2Array()
+		var final_indices = PackedInt32Array()
+		
+		for face in faces:
+			# Triangulate face (simple fan triangulation)
+			for i in range(1, face.size() - 1):
+				for idx in [0, i, i + 1]:
+					var face_vert = face[idx]
+					final_verts.append(temp_vertices[face_vert.v])
+					
+					if face_vert.vn >= 0 and face_vert.vn < temp_normals.size():
+						final_normals.append(temp_normals[face_vert.vn])
+					else:
+						final_normals.append(Vector3.UP)
+					
+					if face_vert.vt >= 0 and face_vert.vt < temp_uvs.size():
+						final_uvs.append(temp_uvs[face_vert.vt])
+					else:
+						final_uvs.append(Vector2.ZERO)
+		
+		# Create indices
+		for i in range(final_verts.size()):
+			final_indices.append(i)
+		
+		# Create surface for this material group
+		var surface_array = []
+		surface_array.resize(Mesh.ARRAY_MAX)
+		surface_array[Mesh.ARRAY_VERTEX] = final_verts
+		surface_array[Mesh.ARRAY_NORMAL] = final_normals
+		surface_array[Mesh.ARRAY_TEX_UV] = final_uvs
+		surface_array[Mesh.ARRAY_INDEX] = final_indices
+		
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
+		
+		# Create default material for this surface
+		var material = StandardMaterial3D.new()
+		material.albedo_color = Color.WHITE
+		material.cull_mode = BaseMaterial3D.CULL_BACK
+		mesh.surface_set_material(mesh.get_surface_count() - 1, material)
+		materials_array.append(material)
+		
+		print("  Surface ", mesh.get_surface_count() - 1, ": ", mat_name, " (", faces.size(), " faces)")
 	
 	custom_meshes[tile_type] = mesh
+	custom_materials[tile_type] = materials_array  # Store array of materials
 	
-	# Fix Blender's inverted normals and winding order
+	print("✓ Loaded mesh for tile type ", tile_type, " with ", mesh.get_surface_count(), " surfaces")
+	
+	# Fix Blender's inverted normals and winding order (handles multiple surfaces)
 	flip_mesh_normals(tile_type)
 	
-	# Auto-position and scale the mesh to fit grid (bottom-left aligned)
+	# Auto-position and scale the mesh to fit grid (handles multiple surfaces)
 	align_mesh_to_grid(tile_type)
 	
 	return true
@@ -168,66 +194,75 @@ func extend_mesh_to_boundaries(tile_type: int, threshold: float = 0.15) -> bool:
 	return edit_mesh_vertices(tile_type, vertices)
 
 
-# Flip normals and reverse winding order for Blender meshes
+# Flip normals and reverse winding order for Blender meshes (handles multiple surfaces)
 func flip_mesh_normals(tile_type: int) -> bool:
 	if tile_type not in custom_meshes:
 		return false
 	
 	var mesh = custom_meshes[tile_type]
-	var arrays = mesh.surface_get_arrays(0)
-	var vertices = arrays[Mesh.ARRAY_VERTEX]
-	var normals = arrays[Mesh.ARRAY_NORMAL]
-	var uvs = arrays[Mesh.ARRAY_TEX_UV]
-	var indices = arrays[Mesh.ARRAY_INDEX]
-	
-	# Flip normals
-	for i in range(normals.size()):
-		normals[i] = -normals[i]
-	
-	# Reverse winding order (swap every triangle's last two vertices)
-	for i in range(0, indices.size(), 3):
-		var temp = indices[i + 1]
-		indices[i + 1] = indices[i + 2]
-		indices[i + 2] = temp
-	
-	# Create new mesh
-	var surface_array = []
-	surface_array.resize(Mesh.ARRAY_MAX)
-	surface_array[Mesh.ARRAY_VERTEX] = vertices
-	surface_array[Mesh.ARRAY_NORMAL] = normals
-	surface_array[Mesh.ARRAY_TEX_UV] = uvs
-	surface_array[Mesh.ARRAY_INDEX] = indices
-	
 	var new_mesh = ArrayMesh.new()
-	new_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
-	new_mesh.surface_set_material(0, mesh.surface_get_material(0))
+	
+	# Process each surface
+	for surface_idx in range(mesh.get_surface_count()):
+		var arrays = mesh.surface_get_arrays(surface_idx)
+		var vertices = arrays[Mesh.ARRAY_VERTEX]
+		var normals = arrays[Mesh.ARRAY_NORMAL]
+		var uvs = arrays[Mesh.ARRAY_TEX_UV]
+		var indices = arrays[Mesh.ARRAY_INDEX]
+		
+		# Flip normals
+		for i in range(normals.size()):
+			normals[i] = -normals[i]
+		
+		# Reverse winding order (swap every triangle's last two vertices)
+		for i in range(0, indices.size(), 3):
+			var temp = indices[i + 1]
+			indices[i + 1] = indices[i + 2]
+			indices[i + 2] = temp
+		
+		# Create new surface
+		var surface_array = []
+		surface_array.resize(Mesh.ARRAY_MAX)
+		surface_array[Mesh.ARRAY_VERTEX] = vertices
+		surface_array[Mesh.ARRAY_NORMAL] = normals
+		surface_array[Mesh.ARRAY_TEX_UV] = uvs
+		surface_array[Mesh.ARRAY_INDEX] = indices
+		
+		new_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
+		new_mesh.surface_set_material(surface_idx, mesh.surface_get_material(surface_idx))
 	
 	custom_meshes[tile_type] = new_mesh
 	return true
 
 
-# Align mesh to grid cell (bottom-left corner at origin)
+# Align mesh to grid cell (bottom-left corner at origin) - handles multiple surfaces
 func align_mesh_to_grid(tile_type: int) -> bool:
-	var mesh_data = get_mesh_data(tile_type)
-	if mesh_data.is_empty():
+	if tile_type not in custom_meshes:
 		return false
 	
-	var vertices = mesh_data.vertices.duplicate()
+	var mesh = custom_meshes[tile_type]
 	
-	# Calculate bounding box
-	if vertices.size() == 0:
-		return false
+	# Calculate bounding box across ALL surfaces
+	var min_bounds = Vector3.ZERO
+	var max_bounds = Vector3.ZERO
+	var first_vertex = true
 	
-	var min_bounds = vertices[0]
-	var max_bounds = vertices[0]
-	
-	for v in vertices:
-		min_bounds.x = min(min_bounds.x, v.x)
-		min_bounds.y = min(min_bounds.y, v.y)
-		min_bounds.z = min(min_bounds.z, v.z)
-		max_bounds.x = max(max_bounds.x, v.x)
-		max_bounds.y = max(max_bounds.y, v.y)
-		max_bounds.z = max(max_bounds.z, v.z)
+	for surface_idx in range(mesh.get_surface_count()):
+		var arrays = mesh.surface_get_arrays(surface_idx)
+		var vertices = arrays[Mesh.ARRAY_VERTEX]
+		
+		for v in vertices:
+			if first_vertex:
+				min_bounds = v
+				max_bounds = v
+				first_vertex = false
+			else:
+				min_bounds.x = min(min_bounds.x, v.x)
+				min_bounds.y = min(min_bounds.y, v.y)
+				min_bounds.z = min(min_bounds.z, v.z)
+				max_bounds.x = max(max_bounds.x, v.x)
+				max_bounds.y = max(max_bounds.y, v.y)
+				max_bounds.z = max(max_bounds.z, v.z)
 	
 	var size = max_bounds - min_bounds
 	
@@ -235,19 +270,36 @@ func align_mesh_to_grid(tile_type: int) -> bool:
 	var max_dimension = max(size.x, max(size.y, size.z))
 	var scale_factor = grid_size / max_dimension if max_dimension > 0 else 1.0
 	
-	# Transform vertices: 
-	# 1. Move min corner to origin
-	# 2. Scale to fit grid
-	for i in range(vertices.size()):
-		vertices[i] = (vertices[i] - min_bounds) * scale_factor
+	# Transform all surfaces
+	var new_mesh = ArrayMesh.new()
 	
-	return edit_mesh_vertices(tile_type, vertices)
+	for surface_idx in range(mesh.get_surface_count()):
+		var arrays = mesh.surface_get_arrays(surface_idx)
+		var vertices = arrays[Mesh.ARRAY_VERTEX].duplicate()
+		
+		# Transform vertices
+		for i in range(vertices.size()):
+			vertices[i] = (vertices[i] - min_bounds) * scale_factor
+		
+		# Create new surface
+		var surface_array = []
+		surface_array.resize(Mesh.ARRAY_MAX)
+		surface_array[Mesh.ARRAY_VERTEX] = vertices
+		surface_array[Mesh.ARRAY_NORMAL] = arrays[Mesh.ARRAY_NORMAL]
+		surface_array[Mesh.ARRAY_TEX_UV] = arrays[Mesh.ARRAY_TEX_UV]
+		surface_array[Mesh.ARRAY_INDEX] = arrays[Mesh.ARRAY_INDEX]
+		
+		new_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
+		new_mesh.surface_set_material(surface_idx, mesh.surface_get_material(surface_idx))
+	
+	custom_meshes[tile_type] = new_mesh
+	return true
 
 
-# Get editable mesh data for a tile type
+# Get editable mesh data for a tile type (returns first surface)
 func get_mesh_data(tile_type: int) -> Dictionary:
 	var mesh = custom_meshes.get(tile_type)
-	if not mesh:
+	if not mesh or mesh.get_surface_count() == 0:
 		return {}
 	
 	var arrays = mesh.surface_get_arrays(0)
@@ -259,20 +311,26 @@ func get_mesh_data(tile_type: int) -> Dictionary:
 	}
 
 
-# Edit vertices of a custom mesh
+# Edit vertices of a custom mesh (updates all surfaces proportionally)
 func edit_mesh_vertices(tile_type: int, new_vertices: PackedVector3Array) -> bool:
 	if tile_type not in custom_meshes:
 		push_error("No custom mesh for tile type: " + str(tile_type))
 		return false
 	
 	var mesh = custom_meshes[tile_type]
+	if mesh.get_surface_count() == 0:
+		return false
+	
 	var arrays = mesh.surface_get_arrays(0)
 	
 	if new_vertices.size() != arrays[Mesh.ARRAY_VERTEX].size():
 		push_error("New vertices array size doesn't match original")
 		return false
 	
-	# Create new mesh with updated vertices
+	# Rebuild mesh with updated vertices for first surface
+	var new_mesh = ArrayMesh.new()
+	
+	# Update first surface with new vertices
 	var surface_array = []
 	surface_array.resize(Mesh.ARRAY_MAX)
 	surface_array[Mesh.ARRAY_VERTEX] = new_vertices
@@ -280,9 +338,21 @@ func edit_mesh_vertices(tile_type: int, new_vertices: PackedVector3Array) -> boo
 	surface_array[Mesh.ARRAY_TEX_UV] = arrays[Mesh.ARRAY_TEX_UV]
 	surface_array[Mesh.ARRAY_INDEX] = arrays[Mesh.ARRAY_INDEX]
 	
-	var new_mesh = ArrayMesh.new()
 	new_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
 	new_mesh.surface_set_material(0, mesh.surface_get_material(0))
+	
+	# Copy other surfaces unchanged
+	for surface_idx in range(1, mesh.get_surface_count()):
+		var other_arrays = mesh.surface_get_arrays(surface_idx)
+		var other_surface_array = []
+		other_surface_array.resize(Mesh.ARRAY_MAX)
+		other_surface_array[Mesh.ARRAY_VERTEX] = other_arrays[Mesh.ARRAY_VERTEX]
+		other_surface_array[Mesh.ARRAY_NORMAL] = other_arrays[Mesh.ARRAY_NORMAL]
+		other_surface_array[Mesh.ARRAY_TEX_UV] = other_arrays[Mesh.ARRAY_TEX_UV]
+		other_surface_array[Mesh.ARRAY_INDEX] = other_arrays[Mesh.ARRAY_INDEX]
+		
+		new_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, other_surface_array)
+		new_mesh.surface_set_material(surface_idx, mesh.surface_get_material(surface_idx))
 	
 	custom_meshes[tile_type] = new_mesh
 	
@@ -321,54 +391,56 @@ func scale_mesh(tile_type: int, scale: Vector3) -> bool:
 	return edit_mesh_vertices(tile_type, vertices)
 
 
-# Recalculate normals for a mesh
+# Recalculate normals for a mesh (handles all surfaces)
 func recalculate_normals(tile_type: int) -> bool:
 	if tile_type not in custom_meshes:
 		return false
 	
 	var mesh = custom_meshes[tile_type]
-	var arrays = mesh.surface_get_arrays(0)
-	var vertices = arrays[Mesh.ARRAY_VERTEX]
-	var indices = arrays[Mesh.ARRAY_INDEX]
-	
-	var normals = PackedVector3Array()
-	normals.resize(vertices.size())
-	for i in range(normals.size()):
-		normals[i] = Vector3.ZERO
-	
-	# Calculate face normals and accumulate
-	for i in range(0, indices.size(), 3):
-		var i0 = indices[i]
-		var i1 = indices[i + 1]
-		var i2 = indices[i + 2]
-		
-		var v0 = vertices[i0]
-		var v1 = vertices[i1]
-		var v2 = vertices[i2]
-		
-		var edge1 = v1 - v0
-		var edge2 = v2 - v0
-		var normal = edge1.cross(edge2).normalized()
-		
-		normals[i0] += normal
-		normals[i1] += normal
-		normals[i2] += normal
-	
-	# Normalize
-	for i in range(normals.size()):
-		normals[i] = normals[i].normalized()
-	
-	# Update mesh
-	var surface_array = []
-	surface_array.resize(Mesh.ARRAY_MAX)
-	surface_array[Mesh.ARRAY_VERTEX] = vertices
-	surface_array[Mesh.ARRAY_NORMAL] = normals
-	surface_array[Mesh.ARRAY_TEX_UV] = arrays[Mesh.ARRAY_TEX_UV]
-	surface_array[Mesh.ARRAY_INDEX] = indices
-	
 	var new_mesh = ArrayMesh.new()
-	new_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
-	new_mesh.surface_set_material(0, mesh.surface_get_material(0))
+	
+	for surface_idx in range(mesh.get_surface_count()):
+		var arrays = mesh.surface_get_arrays(surface_idx)
+		var vertices = arrays[Mesh.ARRAY_VERTEX]
+		var indices = arrays[Mesh.ARRAY_INDEX]
+		
+		var normals = PackedVector3Array()
+		normals.resize(vertices.size())
+		for i in range(normals.size()):
+			normals[i] = Vector3.ZERO
+		
+		# Calculate face normals and accumulate
+		for i in range(0, indices.size(), 3):
+			var i0 = indices[i]
+			var i1 = indices[i + 1]
+			var i2 = indices[i + 2]
+			
+			var v0 = vertices[i0]
+			var v1 = vertices[i1]
+			var v2 = vertices[i2]
+			
+			var edge1 = v1 - v0
+			var edge2 = v2 - v0
+			var normal = edge1.cross(edge2).normalized()
+			
+			normals[i0] += normal
+			normals[i1] += normal
+			normals[i2] += normal
+		
+		# Normalize
+		for i in range(normals.size()):
+			normals[i] = normals[i].normalized()
+		
+		# Update mesh
+		var surface_array = []
+		surface_array.resize(Mesh.ARRAY_MAX)
+		surface_array[Mesh.ARRAY_VERTEX] = vertices
+		surface_array[Mesh.ARRAY_NORMAL] = normals
+		surface_array[Mesh.ARRAY_TEX_UV] = arrays[Mesh.ARRAY_TEX_UV]
+		surface_array[Mesh.ARRAY_INDEX] = indices
+		
+		new_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
+		new_mesh.surface_set_material(surface_idx, mesh.surface_get_material(surface_idx))
 	
 	custom_meshes[tile_type] = new_mesh
 	
@@ -582,7 +654,12 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 	var mesh = ArrayMesh.new()
 	if new_verts.size() > 0:
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
-		mesh.surface_set_material(0, base_mesh.surface_get_material(0))
+		# Apply all materials from base mesh
+		for surface_idx in range(base_mesh.get_surface_count()):
+			var mat = base_mesh.surface_get_material(surface_idx)
+			if mat:
+				mesh.surface_set_material(0, mat)
+				break  # Use first available material for the combined surface
 	
 	return mesh
 
@@ -1037,3 +1114,70 @@ func export_level_to_file(filepath: String, use_multi_material: bool = true):
 		push_error("Failed to save mesh: " + str(success))
 	
 	return optimized_mesh
+
+# ============================================================================
+# MATERIAL MANAGEMENT FUNCTIONS
+# ============================================================================
+
+# Set material for a specific surface of a custom mesh
+func set_custom_material(tile_type: int, surface_index: int, material: StandardMaterial3D) -> bool:
+	if tile_type not in custom_meshes:
+		push_error("No custom mesh for tile type: " + str(tile_type))
+		return false
+	
+	var mesh = custom_meshes[tile_type]
+	if surface_index < 0 or surface_index >= mesh.get_surface_count():
+		push_error("Surface index " + str(surface_index) + " out of range. Mesh has " + str(mesh.get_surface_count()) + " surfaces")
+		return false
+	
+	# Update materials array
+	if tile_type not in custom_materials:
+		custom_materials[tile_type] = []
+	
+	# Ensure array is large enough
+	while custom_materials[tile_type].size() < mesh.get_surface_count():
+		custom_materials[tile_type].append(null)
+	
+	custom_materials[tile_type][surface_index] = material
+	
+	# Apply to the base mesh
+	mesh.surface_set_material(surface_index, material)
+	
+	# Update all tiles using this mesh type
+	for pos in tiles:
+		if tiles[pos] == tile_type:
+			update_tile_mesh(pos)
+	
+	print("✓ Material updated for tile type ", tile_type, " surface ", surface_index)
+	return true
+
+
+# Get the number of surfaces (material slots) for a tile type
+func get_surface_count(tile_type: int) -> int:
+	if tile_type in custom_meshes:
+		return custom_meshes[tile_type].get_surface_count()
+	return 0
+
+
+# Get material for a specific surface
+func get_custom_material(tile_type: int, surface_index: int) -> Material:
+	if tile_type in custom_materials and surface_index < custom_materials[tile_type].size():
+		return custom_materials[tile_type][surface_index]
+	elif tile_type in custom_meshes:
+		var mesh = custom_meshes[tile_type]
+		if surface_index < mesh.get_surface_count():
+			return mesh.surface_get_material(surface_index)
+	return null
+
+
+# Create a material with custom properties
+func create_custom_material(albedo_color: Color, metallic: float = 0.0, 
+						   roughness: float = 1.0, emission: Color = Color.BLACK) -> StandardMaterial3D:
+	var material = StandardMaterial3D.new()
+	material.albedo_color = albedo_color
+	material.metallic = metallic
+	material.roughness = roughness
+	material.emission_enabled = emission != Color.BLACK
+	material.emission = emission
+	material.cull_mode = BaseMaterial3D.CULL_BACK
+	return material

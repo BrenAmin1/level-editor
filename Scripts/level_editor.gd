@@ -7,6 +7,7 @@ extends Node3D
 
 var tilemap: TileMap3D
 
+
 # Editor mode
 enum EditorMode { EDIT, SELECT }
 var current_mode: EditorMode = EditorMode.EDIT
