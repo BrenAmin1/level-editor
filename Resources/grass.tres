@@ -1,0 +1,6 @@
+[gd_resource type="StandardMaterial3D" load_steps=2 format=3 uid="uid://diy61rx0i7gtu"]
+
+[sub_resource type="PlaceholderTexture2D" id="PlaceholderTexture2D_gklyc"]
+
+[resource]
+albedo_texture = SubResource("PlaceholderTexture2D_gklyc")
