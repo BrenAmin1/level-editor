@@ -1,5 +1,30 @@
 class_name MeshGenerator extends RefCounted
 
+# Surface type enum for proper material assignment
+enum SurfaceType {
+	TOP = 0,      # Top face (grass)
+	SIDES = 1,    # Side faces (dirt)
+	BOTTOM = 2    # Bottom face (dirt)
+}
+
+# Mesh array components enum
+enum MeshArrays {
+	VERTICES,
+	NORMALS,
+	UVS,
+	INDICES
+}
+
+# Neighbor direction enum
+enum NeighborDir {
+	NORTH,
+	SOUTH,
+	EAST,
+	WEST,
+	UP,
+	DOWN
+}
+
 # References to parent TileMap3D data
 var custom_meshes: Dictionary  # Reference to TileMap3D.custom_meshes
 var tiles: Dictionary  # Reference to TileMap3D.tiles
@@ -28,7 +53,18 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 	var base_mesh = custom_meshes[tile_type]
 	var final_mesh = ArrayMesh.new()
 	
-	# Process each surface separately
+	# Build arrays organized by surface type (top/sides/bottom)
+	# We'll sort triangles into correct surfaces after vertex modification
+	var triangles_by_surface = {}
+	for surf_type in SurfaceType.values():
+		triangles_by_surface[surf_type] = {
+			MeshArrays.VERTICES: PackedVector3Array(),
+			MeshArrays.NORMALS: PackedVector3Array(),
+			MeshArrays.UVS: PackedVector2Array(),
+			MeshArrays.INDICES: PackedInt32Array()
+		}
+	
+	# Process each surface from the original mesh
 	for surface_idx in range(base_mesh.get_surface_count()):
 		var arrays = base_mesh.surface_get_arrays(surface_idx)
 		var vertices = arrays[Mesh.ARRAY_VERTEX]
@@ -38,12 +74,6 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 		
 		var s = grid_size
 		var interior_margin = 0.15  # Distance from boundary to consider "interior"
-		
-		# Build new arrays with culled faces
-		var new_verts = PackedVector3Array()
-		var new_normals = PackedVector3Array()
-		var new_uvs = PackedVector2Array()
-		var new_indices = PackedInt32Array()
 		
 		# Process each triangle
 		for i in range(0, indices.size(), 3):
@@ -65,39 +95,37 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 			
 			# Check if face is in an interior zone where there's a neighbor
 			# West side interior zone
-			if neighbors["west"] != -1 and not should_render_vertical_face(pos, pos + Vector3i(-1, 0, 0)):
+			if neighbors[NeighborDir.WEST] != -1 and not should_render_vertical_face(pos, pos + Vector3i(-1, 0, 0)):
 				if face_center.x < interior_margin:
-					# This face is in the interior zone between this block and west neighbor
-					# Cull it if it's not facing outward (away from the interior)
 					if face_normal.x > -0.7:  # Not strongly facing west (outward)
 						should_cull = true
 			
 			# East side interior zone
-			if neighbors["east"] != -1 and not should_render_vertical_face(pos, pos + Vector3i(1, 0, 0)):
+			if neighbors[NeighborDir.EAST] != -1 and not should_render_vertical_face(pos, pos + Vector3i(1, 0, 0)):
 				if face_center.x > s - interior_margin:
 					if face_normal.x < 0.7:  # Not strongly facing east (outward)
 						should_cull = true
 			
 			# Down side interior zone
-			if neighbors["down"] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, -1, 0)):
+			if neighbors[NeighborDir.DOWN] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, -1, 0)):
 				if face_center.y < interior_margin:
 					if face_normal.y > -0.7:  # Not strongly facing down (outward)
 						should_cull = true
 			
 			# Up side interior zone
-			if neighbors["up"] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, 1, 0)):
+			if neighbors[NeighborDir.UP] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, 1, 0)):
 				if face_center.y > s - interior_margin:
 					if face_normal.y < 0.7:  # Not strongly facing up (outward)
 						should_cull = true
 			
 			# North side interior zone
-			if neighbors["north"] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, 0, -1)):
+			if neighbors[NeighborDir.NORTH] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, 0, -1)):
 				if face_center.z < interior_margin:
 					if face_normal.z > -0.7:  # Not strongly facing north (outward)
 						should_cull = true
 			
 			# South side interior zone
-			if neighbors["south"] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, 0, 1)):
+			if neighbors[NeighborDir.SOUTH] != -1 and not should_render_vertical_face(pos, pos + Vector3i(0, 0, 1)):
 				if face_center.z > s - interior_margin:
 					if face_normal.z < 0.7:  # Not strongly facing south (outward)
 						should_cull = true
@@ -110,40 +138,66 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 			v1 = extend_vertex_to_boundary_if_neighbor(v1, neighbors, 0.35, pos)
 			v2 = extend_vertex_to_boundary_if_neighbor(v2, neighbors, 0.35, pos)
 			
-			# Add this triangle
-			var start_idx = new_verts.size()
-			new_verts.append(v0)
-			new_verts.append(v1)
-			new_verts.append(v2)
+			# CRITICAL: Recalculate face normal after vertex modification
+			# This ensures triangles are assigned to the correct surface
+			var edge1 = v1 - v0
+			var edge2 = v2 - v0
+			var new_face_normal = edge1.cross(edge2).normalized()
 			
-			new_normals.append(normals[i0])
-			new_normals.append(normals[i1])
-			new_normals.append(normals[i2])
+			# Determine which surface this triangle should belong to based on its FINAL normal
+			var target_surface: int
 			
+			# If normal is strongly pointing up, it's a top surface
+			if new_face_normal.y > 0.8:
+				target_surface = SurfaceType.TOP
+			# If normal is strongly pointing down, it's a bottom surface
+			elif new_face_normal.y < -0.8:
+				target_surface = SurfaceType.BOTTOM
+			# Otherwise it's a side surface
+			else:
+				target_surface = SurfaceType.SIDES
+			
+			# Add this triangle to the appropriate surface
+			var target = triangles_by_surface[target_surface]
+			var start_idx = target[MeshArrays.VERTICES].size()
+			
+			target[MeshArrays.VERTICES].append(v0)
+			target[MeshArrays.VERTICES].append(v1)
+			target[MeshArrays.VERTICES].append(v2)
+			
+			# Use the NEW normal for proper lighting after vertex modification
+			target[MeshArrays.NORMALS].append(new_face_normal)
+			target[MeshArrays.NORMALS].append(new_face_normal)
+			target[MeshArrays.NORMALS].append(new_face_normal)
+			
+			# Preserve original UVs
 			if uvs.size() > 0:
-				new_uvs.append(uvs[i0] if i0 < uvs.size() else Vector2.ZERO)
-				new_uvs.append(uvs[i1] if i1 < uvs.size() else Vector2.ZERO)
-				new_uvs.append(uvs[i2] if i2 < uvs.size() else Vector2.ZERO)
+				target[MeshArrays.UVS].append(uvs[i0] if i0 < uvs.size() else Vector2.ZERO)
+				target[MeshArrays.UVS].append(uvs[i1] if i1 < uvs.size() else Vector2.ZERO)
+				target[MeshArrays.UVS].append(uvs[i2] if i2 < uvs.size() else Vector2.ZERO)
 			
-			new_indices.append(start_idx)
-			new_indices.append(start_idx + 1)
-			new_indices.append(start_idx + 2)
+			target[MeshArrays.INDICES].append(start_idx)
+			target[MeshArrays.INDICES].append(start_idx + 1)
+			target[MeshArrays.INDICES].append(start_idx + 2)
+	
+	# Now build the final mesh with properly sorted surfaces
+	# Process in order: Top, Sides, Bottom
+	for surf_type in [SurfaceType.TOP, SurfaceType.SIDES, SurfaceType.BOTTOM]:
+		var surf_data = triangles_by_surface[surf_type]
 		
-		
-		# Add this surface to the final mesh
-		if new_verts.size() > 0:
+		if surf_data[MeshArrays.VERTICES].size() > 0:
 			var surface_array = []
 			surface_array.resize(Mesh.ARRAY_MAX)
-			surface_array[Mesh.ARRAY_VERTEX] = new_verts
-			surface_array[Mesh.ARRAY_NORMAL] = new_normals
-			if new_uvs.size() > 0:
-				surface_array[Mesh.ARRAY_TEX_UV] = new_uvs
-			surface_array[Mesh.ARRAY_INDEX] = new_indices
+			surface_array[Mesh.ARRAY_VERTEX] = surf_data[MeshArrays.VERTICES]
+			surface_array[Mesh.ARRAY_NORMAL] = surf_data[MeshArrays.NORMALS]
+			if surf_data[MeshArrays.UVS].size() > 0:
+				surface_array[Mesh.ARRAY_TEX_UV] = surf_data[MeshArrays.UVS]
+			surface_array[Mesh.ARRAY_INDEX] = surf_data[MeshArrays.INDICES]
 			
 			final_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
 			
-			# Apply the material from the base mesh for this surface
-			var material = base_mesh.surface_get_material(surface_idx)
+			# Apply the correct material for this surface type
+			var material = base_mesh.surface_get_material(surf_type)
 			if material:
 				final_mesh.surface_set_material(final_mesh.get_surface_count() - 1, material)
 	
@@ -162,7 +216,7 @@ func extend_vertex_to_boundary_if_neighbor(v: Vector3, neighbors: Dictionary, th
 	var near_z_max = v.z > grid_size - threshold
 	
 	# Special case: if there's a block above, remove ALL bevels
-	if neighbors["up"] != -1:
+	if neighbors[NeighborDir.UP] != -1:
 		var current_offset = tile_map.get_offset_for_y(pos.y)
 		var neighbor_offset = tile_map.get_offset_for_y(pos.y + 1)
 		
@@ -185,7 +239,7 @@ func extend_vertex_to_boundary_if_neighbor(v: Vector3, neighbors: Dictionary, th
 			return result
 	
 	# If there's a tile below, extend bottom vertices
-	var has_down_neighbor = neighbors["down"] != -1
+	var has_down_neighbor = neighbors[NeighborDir.DOWN] != -1
 	if has_down_neighbor and v.y < grid_size * 0.5:
 		var current_offset = tile_map.get_offset_for_y(pos.y)
 		var neighbor_offset = tile_map.get_offset_for_y(pos.y - 1)
@@ -195,53 +249,53 @@ func extend_vertex_to_boundary_if_neighbor(v: Vector3, neighbors: Dictionary, th
 	
 	# X-axis extension - conservative for corners
 	if near_x_min:
-		var has_west_neighbor = neighbors["west"] != -1
+		var has_west_neighbor = neighbors[NeighborDir.WEST] != -1
 		# Don't extend if we're at a corner and only have perpendicular neighbor
-		if near_z_min and neighbors["north"] != -1 and not has_west_neighbor:
+		if near_z_min and neighbors[NeighborDir.NORTH] != -1 and not has_west_neighbor:
 			pass
-		elif near_z_max and neighbors["south"] != -1 and not has_west_neighbor:
+		elif near_z_max and neighbors[NeighborDir.SOUTH] != -1 and not has_west_neighbor:
 			pass
 		elif has_west_neighbor:
 			result.x = 0
 			
 	elif near_x_max:
-		var has_east_neighbor = neighbors["east"] != -1
-		if near_z_min and neighbors["north"] != -1 and not has_east_neighbor:
+		var has_east_neighbor = neighbors[NeighborDir.EAST] != -1
+		if near_z_min and neighbors[NeighborDir.NORTH] != -1 and not has_east_neighbor:
 			pass
-		elif near_z_max and neighbors["south"] != -1 and not has_east_neighbor:
+		elif near_z_max and neighbors[NeighborDir.SOUTH] != -1 and not has_east_neighbor:
 			pass
 		elif has_east_neighbor:
 			result.x = grid_size
 	
 	# Top face handling
 	if near_y_max:
-		var has_up_neighbor = neighbors["up"] != -1
-		if near_x_min and neighbors["west"] != -1 and not has_up_neighbor:
+		var has_up_neighbor = neighbors[NeighborDir.UP] != -1
+		if near_x_min and neighbors[NeighborDir.WEST] != -1 and not has_up_neighbor:
 			pass
-		elif near_x_max and neighbors["east"] != -1 and not has_up_neighbor:
+		elif near_x_max and neighbors[NeighborDir.EAST] != -1 and not has_up_neighbor:
 			pass
-		elif near_z_min and neighbors["north"] != -1 and not has_up_neighbor:
+		elif near_z_min and neighbors[NeighborDir.NORTH] != -1 and not has_up_neighbor:
 			pass
-		elif near_z_max and neighbors["south"] != -1 and not has_up_neighbor:
+		elif near_z_max and neighbors[NeighborDir.SOUTH] != -1 and not has_up_neighbor:
 			pass
 		elif has_up_neighbor:
 			result.y = grid_size
 	
 	# Z-axis extension - conservative for corners
 	if near_z_min:
-		var has_north_neighbor = neighbors["north"] != -1
-		if near_x_min and neighbors["west"] != -1 and not has_north_neighbor:
+		var has_north_neighbor = neighbors[NeighborDir.NORTH] != -1
+		if near_x_min and neighbors[NeighborDir.WEST] != -1 and not has_north_neighbor:
 			pass
-		elif near_x_max and neighbors["east"] != -1 and not has_north_neighbor:
+		elif near_x_max and neighbors[NeighborDir.EAST] != -1 and not has_north_neighbor:
 			pass
 		elif has_north_neighbor:
 			result.z = 0
 			
 	elif near_z_max:
-		var has_south_neighbor = neighbors["south"] != -1
-		if near_x_min and neighbors["west"] != -1 and not has_south_neighbor:
+		var has_south_neighbor = neighbors[NeighborDir.SOUTH] != -1
+		if near_x_min and neighbors[NeighborDir.WEST] != -1 and not has_south_neighbor:
 			pass
-		elif near_x_max and neighbors["east"] != -1 and not has_south_neighbor:
+		elif near_x_max and neighbors[NeighborDir.EAST] != -1 and not has_south_neighbor:
 			pass
 		elif has_south_neighbor:
 			result.z = grid_size
@@ -275,25 +329,25 @@ func generate_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Dictionary) ->
 	
 	var s = grid_size
 	
-	if neighbors["north"] == -1:
+	if neighbors[NeighborDir.NORTH] == -1:
 		add_quad(verts, indices, normals, uvs,
 			Vector3(0, 0, 0), Vector3(s, 0, 0),
 			Vector3(s, s, 0), Vector3(0, s, 0),
 			Vector3(0, 0, -1))
 	
-	if neighbors["south"] == -1:
+	if neighbors[NeighborDir.SOUTH] == -1:
 		add_quad(verts, indices, normals, uvs,
 			Vector3(s, 0, s), Vector3(0, 0, s),
 			Vector3(0, s, s), Vector3(s, s, s),
 			Vector3(0, 0, 1))
 	
-	if neighbors["east"] == -1:
+	if neighbors[NeighborDir.EAST] == -1:
 		add_quad(verts, indices, normals, uvs,
 			Vector3(s, 0, 0), Vector3(s, 0, s),
 			Vector3(s, s, s), Vector3(s, s, 0),
 			Vector3(1, 0, 0))
 	
-	if neighbors["west"] == -1:
+	if neighbors[NeighborDir.WEST] == -1:
 		add_quad(verts, indices, normals, uvs,
 			Vector3(0, 0, s), Vector3(0, 0, 0),
 			Vector3(0, s, 0), Vector3(0, s, s),

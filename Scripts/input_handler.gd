@@ -115,7 +115,7 @@ func handle_mouse_wheel(delta: float):
 	camera.handle_mouse_wheel(delta)
 
 
-func handle_continuous_input(delta: float):
+func handle_continuous_input(_delta: float):
 	# Handle held mouse buttons in EDIT mode
 	if mouse_pressed and current_mode == 0:  # EDIT mode
 		if current_mouse_button:

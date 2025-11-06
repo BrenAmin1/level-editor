@@ -127,18 +127,11 @@ func update_tile_mesh(pos: Vector3i):
 # ============================================================================
 
 func get_neighbors(pos: Vector3i) -> Dictionary:
-	var neighbors = {}
-	var directions = {
-		"north": Vector3i(0, 0, -1),
-		"south": Vector3i(0, 0, 1),
-		"east": Vector3i(1, 0, 0),
-		"west": Vector3i(-1, 0, 0),
-		"up": Vector3i(0, 1, 0),
-		"down": Vector3i(0, -1, 0)
-	}
-	
-	for dir_name in directions:
-		var neighbor_pos = pos + directions[dir_name]
-		neighbors[dir_name] = tiles.get(neighbor_pos, -1)
-	
+	var neighbors : Dictionary = {}
+	neighbors[MeshGenerator.NeighborDir.NORTH] = tiles.get(pos + Vector3i(0, 0, -1), -1)
+	neighbors[MeshGenerator.NeighborDir.SOUTH] = tiles.get(pos + Vector3i(0, 0, 1), -1)
+	neighbors[MeshGenerator.NeighborDir.EAST] = tiles.get(pos + Vector3i(1, 0, 0), -1)
+	neighbors[MeshGenerator.NeighborDir.WEST] = tiles.get(pos + Vector3i(-1, 0, 0), -1)
+	neighbors[MeshGenerator.NeighborDir.UP] = tiles.get(pos + Vector3i(0, 1, 0), -1)
+	neighbors[MeshGenerator.NeighborDir.DOWN] = tiles.get(pos + Vector3i(0, -1, 0), -1)
 	return neighbors

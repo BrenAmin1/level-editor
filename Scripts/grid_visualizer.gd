@@ -103,11 +103,11 @@ func set_y_level(level: int):
 	current_y_level = level
 	update_grid_lines()
 	update_grid_highlight()
-	level_changed.emit(current_y_level, current_offset)
+	level_changed.emit(current_y_level)
 
 func set_y_level_offset(level: int, offset: Vector2):
 	current_y_level = level
 	current_offset = Vector2(clamp(offset.x,0.0,0.99),clamp(offset.y,0.0,0.99))
-	level_changed.emit(current_y_level, current_offset)
+	level_changed.emit(current_y_level)
 	update_grid_lines()
 	update_grid_highlight()
