@@ -228,14 +228,11 @@ func toggle_tile_slant(pos: Vector3i):
 	
 	var current_slant = tile_slants.get(pos, SlantType.NONE)
 	
-	# Cycle through slant types: NONE -> Auto -> Other direction -> NONE
-	match current_slant:
-		SlantType.NONE:
-			tile_slants[pos] = _auto_determine_slant(pos)
-		SlantType.NW_SE:
-			tile_slants[pos] = SlantType.NE_SW
-		SlantType.NE_SW:
-			tile_slants.erase(pos)
+	# Simple toggle: NONE -> Auto-detected -> NONE
+	if current_slant == SlantType.NONE:
+		tile_slants[pos] = _auto_determine_slant(pos)
+	else:
+		tile_slants.erase(pos)  # Remove slant (back to NONE)
 	
 	update_tile_mesh(pos)
 	print("Tile at ", pos, " slant: ", tile_slants.get(pos, SlantType.NONE))
@@ -246,19 +243,96 @@ func get_tile_slant(pos: Vector3i) -> int:
 
 
 func _auto_determine_slant(pos: Vector3i) -> int:
-	# Count neighbors in each direction
-	var north = 1 if has_tile(pos + Vector3i(0, 0, -1)) else 0
-	var south = 1 if has_tile(pos + Vector3i(0, 0, 1)) else 0
-	var east = 1 if has_tile(pos + Vector3i(1, 0, 0)) else 0
-	var west = 1 if has_tile(pos + Vector3i(-1, 0, 0)) else 0
+	# Get all 8 neighbors on the SAME Y-level
+	var n = has_tile(pos + Vector3i(0, 0, -1))   # North
+	var s = has_tile(pos + Vector3i(0, 0, 1))    # South
+	var e = has_tile(pos + Vector3i(1, 0, 0))    # East
+	var w = has_tile(pos + Vector3i(-1, 0, 0))   # West
+	var nw = has_tile(pos + Vector3i(-1, 0, -1)) # Northwest
+	var ne = has_tile(pos + Vector3i(1, 0, -1))  # Northeast
+	var sw = has_tile(pos + Vector3i(-1, 0, 1))  # Southwest
+	var se = has_tile(pos + Vector3i(1, 0, 1))   # Southeast
 	
-	var ns_count = north + south
-	var ew_count = east + west
+	# Count orthogonal vs diagonal neighbors
+	var orthogonal_count = (1 if n else 0) + (1 if s else 0) + (1 if e else 0) + (1 if w else 0)
+	var diagonal_count = (1 if nw else 0) + (1 if ne else 0) + (1 if sw else 0) + (1 if se else 0)
 	
-	# If more tiles on north/south axis, use NE_SW slant
-	# If more tiles on east/west axis, use NW_SE slant
-	# If equal, default to NW_SE
-	if ns_count > ew_count:
-		return SlantType.NE_SW
-	else:
+	# Pattern detection: Look for diagonal corridors
+	
+	# NW-SE Pattern: Has neighbors on NW-SE diagonal but missing on NE-SW
+	# Examples: corridor from northwest to southeast
+	if (nw or se) and not (ne or sw):
+		# Strong diagonal pattern on NW-SE axis
 		return SlantType.NW_SE
+	
+	# NE-SW Pattern: Has neighbors on NE-SW diagonal but missing on NW-SE
+	if (ne or sw) and not (nw or se):
+		# Strong diagonal pattern on NE-SW axis
+		return SlantType.NE_SW
+	
+	# Check for corner patterns (tile is at a corner/turn)
+	# NW corner: has north and west, but not south or east
+	if n and w and not (s or e):
+		if nw:  # Has diagonal neighbor too
+			return SlantType.NW_SE
+	
+	# NE corner: has north and east, but not south or west
+	if n and e and not (s or w):
+		if ne:
+			return SlantType.NE_SW
+	
+	# SW corner: has south and west, but not north or east
+	if s and w and not (n or e):
+		if sw:
+			return SlantType.NE_SW
+	
+	# SE corner: has south and east, but not north or west
+	if s and e and not (n or w):
+		if se:
+			return SlantType.NW_SE
+	
+	# Check if any diagonal neighbors already have slants - match them
+	var nw_slant = get_tile_slant(pos + Vector3i(-1, 0, -1))
+	var ne_slant = get_tile_slant(pos + Vector3i(1, 0, -1))
+	var sw_slant = get_tile_slant(pos + Vector3i(-1, 0, 1))
+	var se_slant = get_tile_slant(pos + Vector3i(1, 0, 1))
+	
+	# Match adjacent slant directions
+	if (nw_slant == SlantType.NW_SE or se_slant == SlantType.NW_SE):
+		return SlantType.NW_SE
+	if (ne_slant == SlantType.NE_SW or sw_slant == SlantType.NE_SW):
+		return SlantType.NE_SW
+	
+	# If more diagonal neighbors than orthogonal, pick based on which diagonal
+	if diagonal_count > orthogonal_count:
+		var nw_se_score = (1 if nw else 0) + (1 if se else 0)
+		var ne_sw_score = (1 if ne else 0) + (1 if sw else 0)
+		
+		if nw_se_score > ne_sw_score:
+			return SlantType.NW_SE
+		elif ne_sw_score > nw_se_score:
+			return SlantType.NE_SW
+	
+	# Edge detection: Tile is on an edge facing empty space
+	# If surrounded mostly by empty space on one diagonal axis, use that axis
+	var nw_empty = not nw
+	var ne_empty = not ne
+	var sw_empty = not sw
+	var se_empty = not se
+	
+	# If NW and SE are empty (edge along NE-SW)
+	if nw_empty and se_empty and (ne or sw):
+		return SlantType.NE_SW
+	
+	# If NE and SW are empty (edge along NW-SE)
+	if ne_empty and sw_empty and (nw or se):
+		return SlantType.NW_SE
+	
+	# Default fallback: use orthogonal count as before
+	var ns_count = (1 if n else 0) + (1 if s else 0)
+	var ew_count = (1 if e else 0) + (1 if w else 0)
+	
+	if ns_count > ew_count:
+		return SlantType.NE_SW  # Align perpendicular to N-S axis
+	else:
+		return SlantType.NW_SE  # Align perpendicular to E-W axis

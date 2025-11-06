@@ -176,56 +176,73 @@ func _process_mesh_surface(base_mesh: ArrayMesh, surface_idx: int, pos: Vector3i
 func _extend_slant_vertices(v: Vector3, pos: Vector3i, slant_type: int, neighbors: Dictionary, grid_s: float) -> Vector3:
 	var result = v
 	
-	# First, clamp anything outside
-	result.x = clamp(result.x, 0, grid_s)
-	result.z = clamp(result.z, 0, grid_s)
+	# Check diagonal neighbors for matching slants
+	var nw_pos = pos + Vector3i(-1, 0, -1)
+	var ne_pos = pos + Vector3i(1, 0, -1)
+	var sw_pos = pos + Vector3i(-1, 0, 1)
+	var se_pos = pos + Vector3i(1, 0, 1)
 	
-	# Check ALL 8 directions (orthogonal + diagonal) for matching slanted neighbors
-	var neighbor_positions = [
-		pos + Vector3i(0, 0, -1),   # North
-		pos + Vector3i(1, 0, -1),   # NE
-		pos + Vector3i(1, 0, 0),    # East
-		pos + Vector3i(1, 0, 1),    # SE
-		pos + Vector3i(0, 0, 1),    # South
-		pos + Vector3i(-1, 0, 1),   # SW
-		pos + Vector3i(-1, 0, 0),   # West
-		pos + Vector3i(-1, 0, -1),  # NW
-	]
+	var has_nw_slant = (nw_pos in tiles and tile_map.get_tile_slant(nw_pos) == slant_type)
+	var has_ne_slant = (ne_pos in tiles and tile_map.get_tile_slant(ne_pos) == slant_type)
+	var has_sw_slant = (sw_pos in tiles and tile_map.get_tile_slant(sw_pos) == slant_type)
+	var has_se_slant = (se_pos in tiles and tile_map.get_tile_slant(se_pos) == slant_type)
 	
-	# Check if ANY neighbor has matching slant in each direction
-	var has_north = (neighbor_positions[0] in tiles and tile_map.get_tile_slant(neighbor_positions[0]) == slant_type) or \
-					(neighbor_positions[1] in tiles and tile_map.get_tile_slant(neighbor_positions[1]) == slant_type) or \
-					(neighbor_positions[7] in tiles and tile_map.get_tile_slant(neighbor_positions[7]) == slant_type)
+	var center = grid_s * 0.5
+	var extension_distance = grid_s * 0.35  # How far to extend beyond boundary
 	
-	var has_south = (neighbor_positions[4] in tiles and tile_map.get_tile_slant(neighbor_positions[4]) == slant_type) or \
-					(neighbor_positions[3] in tiles and tile_map.get_tile_slant(neighbor_positions[3]) == slant_type) or \
-					(neighbor_positions[5] in tiles and tile_map.get_tile_slant(neighbor_positions[5]) == slant_type)
-	
-	var has_east = (neighbor_positions[2] in tiles and tile_map.get_tile_slant(neighbor_positions[2]) == slant_type) or \
-				   (neighbor_positions[1] in tiles and tile_map.get_tile_slant(neighbor_positions[1]) == slant_type) or \
-				   (neighbor_positions[3] in tiles and tile_map.get_tile_slant(neighbor_positions[3]) == slant_type)
-	
-	var has_west = (neighbor_positions[6] in tiles and tile_map.get_tile_slant(neighbor_positions[6]) == slant_type) or \
-				   (neighbor_positions[7] in tiles and tile_map.get_tile_slant(neighbor_positions[7]) == slant_type) or \
-				   (neighbor_positions[5] in tiles and tile_map.get_tile_slant(neighbor_positions[5]) == slant_type)
-	
-	# Extend vertices aggressively if there's a neighbor in that direction
-	if has_north and result.z < grid_s * 0.5:
-		result.z = 0
-	
-	if has_south and result.z > grid_s * 0.5:
-		result.z = grid_s
-	
-	if has_east and result.x > grid_s * 0.5:
-		result.x = grid_s
-	
-	if has_west and result.x < grid_s * 0.5:
-		result.x = 0
+	match slant_type:
+		tile_map.SlantType.NW_SE:
+			# The diagonal line runs from NW (0,0) to SE (grid_s, grid_s)
+			# We need to extend vertices that are near this diagonal line
+			
+			if has_nw_slant:
+				# For NW connection: vertices where x ≈ z and both are small
+				# Distance to NW-SE diagonal line through origin
+				var dist_to_diagonal = abs(v.x - v.z) / sqrt(2.0)
+				var dist_along_diagonal = (v.x + v.z) / sqrt(2.0)
+				
+				# If vertex is near the diagonal line AND close to the NW edge
+				if dist_to_diagonal < grid_s * 0.3 and dist_along_diagonal < grid_s * 0.6:
+					# Extend along the diagonal towards NW
+					var scale = 1.0 + (extension_distance / max(v.x, v.z, 0.01))
+					result.x = v.x - extension_distance
+					result.z = v.z - extension_distance
+			
+			if has_se_slant:
+				# For SE connection: vertices where x ≈ z and both are large
+				var dist_to_diagonal = abs(v.x - v.z) / sqrt(2.0)
+				var dist_along_diagonal = (v.x + v.z) / sqrt(2.0)
+				
+				# If vertex is near the diagonal line AND close to the SE edge
+				if dist_to_diagonal < grid_s * 0.3 and dist_along_diagonal > grid_s * 0.8:
+					result.x = v.x + extension_distance
+					result.z = v.z + extension_distance
+		
+		tile_map.SlantType.NE_SW:
+			# The diagonal line runs from NE (grid_s, 0) to SW (0, grid_s)
+			
+			if has_ne_slant:
+				# For NE connection: vertices where (grid_s - x) ≈ z
+				# Distance to NE-SW diagonal line
+				var dist_to_diagonal = abs((grid_s - v.x) - v.z) / sqrt(2.0)
+				var dist_along_diagonal = ((grid_s - v.x) + v.z) / sqrt(2.0)
+				
+				# If near the diagonal and close to NE edge
+				if dist_to_diagonal < grid_s * 0.3 and dist_along_diagonal < grid_s * 0.6:
+					result.x = v.x + extension_distance
+					result.z = v.z - extension_distance
+			
+			if has_sw_slant:
+				# For SW connection: vertices where x ≈ (grid_s - z)
+				var dist_to_diagonal = abs((grid_s - v.x) - v.z) / sqrt(2.0)
+				var dist_along_diagonal = ((grid_s - v.x) + v.z) / sqrt(2.0)
+				
+				# If near the diagonal and close to SW edge
+				if dist_to_diagonal < grid_s * 0.3 and dist_along_diagonal > grid_s * 0.8:
+					result.x = v.x - extension_distance
+					result.z = v.z + extension_distance
 	
 	return result
-
-
-
 
 
 func _apply_slant_rotation(v: Vector3, slant_type: int, grid_s: float) -> Vector3:
