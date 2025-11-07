@@ -98,8 +98,9 @@ func _handle_keyboard(event: InputEventKey) -> Dictionary:
 		KEY_4:
 			result["tile_type"] = 4
 			print("Selected: Custom")
-		KEY_S:  # ADD THIS CASE
-			_toggle_slant_at_cursor()
+		KEY_S:
+			if current_mode == 1:
+				_toggle_slant_at_cursor()
 		KEY_BRACKETRIGHT, KEY_MINUS:
 			result["y_level"] = current_y_level - 1
 			y_level_manager.change_y_level(result["y_level"])

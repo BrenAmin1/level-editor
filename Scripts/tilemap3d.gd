@@ -58,7 +58,8 @@ func _setup_components():
 	mesh_generator.setup(self, custom_meshes, tiles, grid_size)
 	mesh_loader.setup(custom_meshes, custom_materials, grid_size, mesh_editor)
 	tile_manager.setup(self, tiles, tile_meshes, custom_meshes, grid_size, parent_node, mesh_generator)
-	mesh_optimizer.setup(self, tiles, custom_meshes, mesh_generator)
+	mesh_optimizer.setup(self, tiles, custom_meshes, mesh_generator, custom_materials)
+
 	material_manager.setup(self, custom_meshes, custom_materials, tiles)
 	
 	print("TileMap3D: Components setup complete")

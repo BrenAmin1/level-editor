@@ -29,8 +29,8 @@ var grid_size = 1.0
 # ============================================================================
 # MATERIALS
 # ============================================================================
-const GRASS = preload("uid://diy61rx0i7gtu")
-const DIRT = preload("uid://dfjriranjhvuo")
+const GRASS = preload("uid://djotdj5tifi3y")
+const DIRT = preload("uid://bxl8k6n4i56yn")
 
 # ============================================================================
 # INITIALIZATION
@@ -109,7 +109,8 @@ func _input(event):
 	# Reset FOV
 	if Input.is_action_just_pressed("reset_fov"):
 		camera.reset_fov()
-
+	if Input.is_action_just_pressed("export"):
+		export_current_level()
 # ============================================================================
 # CURSOR UPDATE
 # ============================================================================

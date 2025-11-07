@@ -1,0 +1,9 @@
+[gd_scene load_steps=2 format=3 uid="uid://c1g7ghw7w55r"]
+
+[ext_resource type="ArrayMesh" uid="uid://d26l06kddvhvq" path="res://Scenes/cube.tres" id="1_pmakv"]
+
+[node name="bulging_cube" type="Node3D"]
+
+[node name="Bulging_Cube" type="MeshInstance3D" parent="."]
+mesh = ExtResource("1_pmakv")
+skeleton = NodePath("")
