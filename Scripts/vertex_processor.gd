@@ -9,67 +9,6 @@ func setup(tilemap: TileMap3D, tiles_ref: Dictionary, grid_sz: float):
 	tiles = tiles_ref
 	grid_size = grid_sz
 
-func apply_slant_rotation(v: Vector3, slant_type: int) -> Vector3:
-	var center = Vector3(grid_size * 0.5, 0, grid_size * 0.5)
-	var relative = v - center
-	
-	var angle = -PI / 4.0 if slant_type == tile_map.SlantType.NW_SE else PI / 4.0
-	var cos_a = cos(angle)
-	var sin_a = sin(angle)
-	var rotated = Vector3(
-		relative.x * cos_a - relative.z * sin_a,
-		relative.y,
-		relative.x * sin_a + relative.z * cos_a
-	)
-	return rotated + center
-
-func extend_slant_vertices(v: Vector3, pos: Vector3i, slant_type: int) -> Vector3:
-	var result = v
-	var s = grid_size
-	
-	# Check diagonal neighbors
-	var nw_pos = pos + Vector3i(-1, 0, -1)
-	var ne_pos = pos + Vector3i(1, 0, -1)
-	var sw_pos = pos + Vector3i(-1, 0, 1)
-	var se_pos = pos + Vector3i(1, 0, 1)
-	
-	var has_nw = (nw_pos in tiles and tile_map.get_tile_slant(nw_pos) == slant_type)
-	var has_ne = (ne_pos in tiles and tile_map.get_tile_slant(ne_pos) == slant_type)
-	var has_sw = (sw_pos in tiles and tile_map.get_tile_slant(sw_pos) == slant_type)
-	var has_se = (se_pos in tiles and tile_map.get_tile_slant(se_pos) == slant_type)
-	
-	var extension_distance = s * 0.35
-	
-	match slant_type:
-		tile_map.SlantType.NW_SE:
-			if has_nw:
-				var dist_to_diagonal = abs(v.x - v.z) / sqrt(2.0)
-				var dist_along_diagonal = (v.x + v.z) / sqrt(2.0)
-				if dist_to_diagonal < s * 0.3 and dist_along_diagonal < s * 0.6:
-					result.x = v.x - extension_distance
-					result.z = v.z - extension_distance
-			if has_se:
-				var dist_to_diagonal = abs(v.x - v.z) / sqrt(2.0)
-				var dist_along_diagonal = (v.x + v.z) / sqrt(2.0)
-				if dist_to_diagonal < s * 0.3 and dist_along_diagonal > s * 0.8:
-					result.x = v.x + extension_distance
-					result.z = v.z + extension_distance
-		
-		tile_map.SlantType.NE_SW:
-			if has_ne:
-				var dist_to_diagonal = abs((s - v.x) - v.z) / sqrt(2.0)
-				var dist_along_diagonal = ((s - v.x) + v.z) / sqrt(2.0)
-				if dist_to_diagonal < s * 0.3 and dist_along_diagonal < s * 0.6:
-					result.x = v.x + extension_distance
-					result.z = v.z - extension_distance
-			if has_sw:
-				var dist_to_diagonal = abs((s - v.x) - v.z) / sqrt(2.0)
-				var dist_along_diagonal = ((s - v.x) + v.z) / sqrt(2.0)
-				if dist_to_diagonal < s * 0.3 and dist_along_diagonal > s * 0.8:
-					result.x = v.x - extension_distance
-					result.z = v.z + extension_distance
-	
-	return result
 
 func extend_to_boundary_if_neighbor(v: Vector3, neighbors: Dictionary, threshold: float, pos: Vector3i) -> Vector3:
 	var result = v
@@ -110,22 +49,18 @@ func extend_to_boundary_if_neighbor(v: Vector3, neighbors: Dictionary, threshold
 		var offset_diff = current_offset - neighbor_offset
 		result.y = -abs(offset_diff.y)
 	
-	# Standard boundary extension
+	# Standard boundary extension - SIMPLIFIED to allow corners
 	if near_x_min and neighbors[NeighborDir.WEST] != -1:
-		if not (near_z_min and neighbors[NeighborDir.NORTH] != -1) and not (near_z_max and neighbors[NeighborDir.SOUTH] != -1):
-			result.x = 0
+		result.x = 0
 	elif near_x_max and neighbors[NeighborDir.EAST] != -1:
-		if not (near_z_min and neighbors[NeighborDir.NORTH] != -1) and not (near_z_max and neighbors[NeighborDir.SOUTH] != -1):
-			result.x = grid_size
+		result.x = grid_size
 	
 	if near_y_max and neighbors[NeighborDir.UP] != -1:
 		result.y = grid_size
 	
 	if near_z_min and neighbors[NeighborDir.NORTH] != -1:
-		if not (near_x_min and neighbors[NeighborDir.WEST] != -1) and not (near_x_max and neighbors[NeighborDir.EAST] != -1):
-			result.z = 0
+		result.z = 0
 	elif near_z_max and neighbors[NeighborDir.SOUTH] != -1:
-		if not (near_x_min and neighbors[NeighborDir.WEST] != -1) and not (near_x_max and neighbors[NeighborDir.EAST] != -1):
-			result.z = grid_size
+		result.z = grid_size
 	
 	return result

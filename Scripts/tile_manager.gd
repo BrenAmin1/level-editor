@@ -9,6 +9,10 @@ var parent_node: Node3D  # Reference to TileMap3D.parent_node
 var tile_map: TileMap3D  # Reference to parent for calling methods
 var mesh_generator: MeshGenerator  # Reference to MeshGenerator component
 
+# Batch mode optimization
+var batch_mode: bool = false
+var dirty_tiles: Dictionary = {}  # Tiles that need mesh updates
+
 # ============================================================================
 # SETUP
 # ============================================================================
@@ -22,6 +26,38 @@ func setup(tilemap: TileMap3D, tiles_ref: Dictionary, tile_meshes_ref: Dictionar
 	grid_size = grid_sz
 	parent_node = parent
 	mesh_generator = generator
+
+# ============================================================================
+# BATCH MODE
+# ============================================================================
+
+func set_batch_mode(enabled: bool):
+	batch_mode = enabled
+	
+	if not enabled and not dirty_tiles.is_empty():
+		# Batch mode ending - update all dirty tiles at once
+		flush_batch_updates()
+
+
+func flush_batch_updates():
+	if dirty_tiles.is_empty():
+		return
+	
+	print("Flushing ", dirty_tiles.size(), " tile updates...")
+	
+	# Update all dirty tiles
+	for pos in dirty_tiles.keys():
+		if pos in tiles:
+			_immediate_update_tile_mesh(pos)
+	
+	dirty_tiles.clear()
+
+
+func mark_dirty(pos: Vector3i):
+	if batch_mode:
+		dirty_tiles[pos] = true
+	else:
+		_immediate_update_tile_mesh(pos)
 
 # ============================================================================
 # COORDINATE CONVERSION
@@ -46,28 +82,50 @@ func grid_to_world(pos: Vector3i) -> Vector3:
 func place_tile(pos: Vector3i, tile_type: int):
 	tiles[pos] = tile_type
 	
-	update_tile_mesh(pos)
-	
-	# Update direct neighbors (6 directions)
-	for offset in [
-		Vector3i(1,0,0), Vector3i(-1,0,0),
-		Vector3i(0,1,0), Vector3i(0,-1,0),
-		Vector3i(0,0,1), Vector3i(0,0,-1)
-	]:
-		var neighbor_pos = pos + offset
-		if neighbor_pos in tiles:
-			update_tile_mesh(neighbor_pos)
-	
-	# Update diagonal neighbors (4 corners) - they may have exposed corners now
-	for offset in [
-		Vector3i(1, 0, 1),   # Southeast
-		Vector3i(1, 0, -1),  # Northeast
-		Vector3i(-1, 0, 1),  # Southwest
-		Vector3i(-1, 0, -1)  # Northwest
-	]:
-		var neighbor_pos = pos + offset
-		if neighbor_pos in tiles:
-			update_tile_mesh(neighbor_pos)
+	if batch_mode:
+		# In batch mode: just mark tiles as dirty
+		mark_dirty(pos)
+		
+		# Mark direct neighbors
+		for offset in [
+			Vector3i(1,0,0), Vector3i(-1,0,0),
+			Vector3i(0,1,0), Vector3i(0,-1,0),
+			Vector3i(0,0,1), Vector3i(0,0,-1)
+		]:
+			var neighbor_pos = pos + offset
+			if neighbor_pos in tiles:
+				mark_dirty(neighbor_pos)
+		
+		# Mark diagonal neighbors
+		for offset in [
+			Vector3i(1, 0, 1), Vector3i(1, 0, -1),
+			Vector3i(-1, 0, 1), Vector3i(-1, 0, -1)
+		]:
+			var neighbor_pos = pos + offset
+			if neighbor_pos in tiles:
+				mark_dirty(neighbor_pos)
+	else:
+		# Normal mode: immediate update
+		update_tile_mesh(pos)
+		
+		# Update direct neighbors
+		for offset in [
+			Vector3i(1,0,0), Vector3i(-1,0,0),
+			Vector3i(0,1,0), Vector3i(0,-1,0),
+			Vector3i(0,0,1), Vector3i(0,0,-1)
+		]:
+			var neighbor_pos = pos + offset
+			if neighbor_pos in tiles:
+				update_tile_mesh(neighbor_pos)
+		
+		# Update diagonal neighbors
+		for offset in [
+			Vector3i(1, 0, 1), Vector3i(1, 0, -1),
+			Vector3i(-1, 0, 1), Vector3i(-1, 0, -1)
+		]:
+			var neighbor_pos = pos + offset
+			if neighbor_pos in tiles:
+				update_tile_mesh(neighbor_pos)
 
 
 func remove_tile(pos: Vector3i):
@@ -80,29 +138,47 @@ func remove_tile(pos: Vector3i):
 		tile_meshes[pos].queue_free()
 		tile_meshes.erase(pos)
 	
-	# Update direct neighbors (6 directions)
-	for offset in [
-		Vector3i(1,0,0), Vector3i(-1,0,0),
-		Vector3i(0,1,0), Vector3i(0,-1,0),
-		Vector3i(0,0,1), Vector3i(0,0,-1)
-	]:
-		var neighbor_pos = pos + offset
-		if neighbor_pos in tiles:
-			update_tile_mesh(neighbor_pos)
-	
-	# Update diagonal neighbors (4 corners) - they may have exposed corners now
-	for offset in [
-		Vector3i(1, 0, 1),   # Southeast
-		Vector3i(1, 0, -1),  # Northeast
-		Vector3i(-1, 0, 1),  # Southwest
-		Vector3i(-1, 0, -1)  # Northwest
-	]:
-		var neighbor_pos = pos + offset
-		if neighbor_pos in tiles:
-			update_tile_mesh(neighbor_pos)
+	if batch_mode:
+		# In batch mode: just mark neighbors as dirty
+		for offset in [
+			Vector3i(1,0,0), Vector3i(-1,0,0),
+			Vector3i(0,1,0), Vector3i(0,-1,0),
+			Vector3i(0,0,1), Vector3i(0,0,-1)
+		]:
+			var neighbor_pos = pos + offset
+			if neighbor_pos in tiles:
+				mark_dirty(neighbor_pos)
+		
+		for offset in [
+			Vector3i(1, 0, 1), Vector3i(1, 0, -1),
+			Vector3i(-1, 0, 1), Vector3i(-1, 0, -1)
+		]:
+			var neighbor_pos = pos + offset
+			if neighbor_pos in tiles:
+				mark_dirty(neighbor_pos)
+	else:
+		# Normal mode: immediate update
+		for offset in [
+			Vector3i(1,0,0), Vector3i(-1,0,0),
+			Vector3i(0,1,0), Vector3i(0,-1,0),
+			Vector3i(0,0,1), Vector3i(0,0,-1)
+		]:
+			var neighbor_pos = pos + offset
+			if neighbor_pos in tiles:
+				update_tile_mesh(neighbor_pos)
+		
+		for offset in [
+			Vector3i(1, 0, 1), Vector3i(1, 0, -1),
+			Vector3i(-1, 0, 1), Vector3i(-1, 0, -1)
+		]:
+			var neighbor_pos = pos + offset
+			if neighbor_pos in tiles:
+				update_tile_mesh(neighbor_pos)
+
 
 func has_tile(pos: Vector3i) -> bool:
 	return pos in tiles
+
 
 func get_tile_type(pos: Vector3i) -> int:
 	return tiles.get(pos, -1)
@@ -112,7 +188,17 @@ func get_tile_type(pos: Vector3i) -> int:
 # ============================================================================
 
 func update_tile_mesh(pos: Vector3i):
+	if batch_mode:
+		mark_dirty(pos)
+	else:
+		_immediate_update_tile_mesh(pos)
+
+
+func _immediate_update_tile_mesh(pos: Vector3i):
 	if not parent_node:
+		return
+	
+	if pos not in tiles:
 		return
 	
 	var tile_type = tiles[pos]

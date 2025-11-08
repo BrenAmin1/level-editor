@@ -77,6 +77,7 @@ func _ready():
 # ============================================================================
 
 func _process(_delta):
+	selection_manager.process_queue()
 	if camera and cursor_visualizer:
 		_update_cursor()
 		input_handler.handle_continuous_input(_delta)

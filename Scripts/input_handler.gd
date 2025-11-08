@@ -98,9 +98,6 @@ func _handle_keyboard(event: InputEventKey) -> Dictionary:
 		KEY_4:
 			result["tile_type"] = 4
 			print("Selected: Custom")
-		KEY_S:
-			if current_mode == 1:
-				_toggle_slant_at_cursor()
 		KEY_BRACKETRIGHT, KEY_MINUS:
 			result["y_level"] = current_y_level - 1
 			y_level_manager.change_y_level(result["y_level"])
@@ -183,30 +180,3 @@ func _attempt_tile_removal(mouse_pos: Vector2):
 		
 		if tilemap.has_tile(grid_pos):
 			tilemap.remove_tile(grid_pos)
-
-
-func _toggle_slant_at_cursor():
-	var viewport = editor.get_viewport()
-	if not viewport:
-		return
-	
-	var mouse_pos = viewport.get_mouse_position()
-	var from = camera.project_ray_origin(mouse_pos)
-	var to = from + camera.project_ray_normal(mouse_pos) * 1000
-	
-	var offset = y_level_manager.get_offset(current_y_level)
-	var y_world = current_y_level * grid_size
-	var placement_plane = Plane(Vector3.UP, y_world)
-	var ray_dir = (to - from).normalized()
-	var intersection = placement_plane.intersects_ray(from, ray_dir)
-	
-	if intersection:
-		var adjusted_intersection = intersection - Vector3(offset.x, 0, offset.y)
-		var grid_pos = Vector3i(
-			floori(adjusted_intersection.x / grid_size),
-			current_y_level,
-			floori(adjusted_intersection.z / grid_size)
-		)
-		
-		if abs(grid_pos.x) <= grid_range and abs(grid_pos.z) <= grid_range:
-			tilemap.toggle_tile_slant(grid_pos)

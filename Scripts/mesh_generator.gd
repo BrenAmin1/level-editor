@@ -64,7 +64,6 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 		return ArrayMesh.new()
 	
 	var base_mesh = custom_meshes[tile_type]
-	var slant_type = tile_map.get_tile_slant(pos)
 	
 	# Determine rotation
 	var rotation_angle = rotation_handler.get_rotation_for_tile(tile_type, neighbors)
@@ -79,7 +78,7 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 	
 	# Process each surface
 	for surface_idx in range(base_mesh.get_surface_count()):
-		_process_mesh_surface(base_mesh, surface_idx, pos, neighbors, slant_type, 
+		_process_mesh_surface(base_mesh, surface_idx, pos, neighbors,
 							  triangles_by_surface, exposed_corners, disable_all_culling, rotation_angle)
 	
 	return mesh_builder.build_final_mesh(triangles_by_surface, tile_type, base_mesh)
@@ -96,7 +95,7 @@ func _initialize_surface_arrays() -> Dictionary:
 	return triangles_by_surface
 
 func _process_mesh_surface(base_mesh: ArrayMesh, surface_idx: int, pos: Vector3i, 
-							neighbors: Dictionary, slant_type: int, triangles_by_surface: Dictionary,
+							neighbors: Dictionary, triangles_by_surface: Dictionary,
 							exposed_corners: Array, disable_all_culling: bool, rotation_angle: float):
 	var arrays = base_mesh.surface_get_arrays(surface_idx)
 	var vertices = arrays[Mesh.ARRAY_VERTEX]
@@ -123,29 +122,18 @@ func _process_mesh_surface(base_mesh: ArrayMesh, surface_idx: int, pos: Vector3i
 		var n1 = normals[i1]
 		var n2 = normals[i2]
 		
-		# Apply slant transformations
-		if slant_type != tile_map.SlantType.NONE:
-			v0 = vertex_processor.apply_slant_rotation(v0, slant_type)
-			v1 = vertex_processor.apply_slant_rotation(v1, slant_type)
-			v2 = vertex_processor.apply_slant_rotation(v2, slant_type)
-			
-			v0 = vertex_processor.extend_slant_vertices(v0, pos, slant_type)
-			v1 = vertex_processor.extend_slant_vertices(v1, pos, slant_type)
-			v2 = vertex_processor.extend_slant_vertices(v2, pos, slant_type)
-		
 		var face_normal = (n0 + n1 + n2).normalized()
 		var face_center = (v0 + v1 + v2) / 3.0
 		
 		# Check culling
-		if slant_type == tile_map.SlantType.NONE:
-			if culling_manager.should_cull_triangle(pos, neighbors, face_center, face_normal, 
-													exposed_corners, disable_all_culling):
-				continue
-			
-			# Extend vertices to boundaries
-			v0 = vertex_processor.extend_to_boundary_if_neighbor(v0, neighbors, 0.35, pos)
-			v1 = vertex_processor.extend_to_boundary_if_neighbor(v1, neighbors, 0.35, pos)
-			v2 = vertex_processor.extend_to_boundary_if_neighbor(v2, neighbors, 0.35, pos)
+		if culling_manager.should_cull_triangle(pos, neighbors, face_center, face_normal, 
+												exposed_corners, disable_all_culling):
+			continue
+		
+		# Extend vertices to boundaries
+		v0 = vertex_processor.extend_to_boundary_if_neighbor(v0, neighbors, 0.35, pos)
+		v1 = vertex_processor.extend_to_boundary_if_neighbor(v1, neighbors, 0.35, pos)
+		v2 = vertex_processor.extend_to_boundary_if_neighbor(v2, neighbors, 0.35, pos)
 		
 		# Add to surface
 		surface_classifier.add_triangle_to_surface(triangles_by_surface, v0, v1, v2, uvs, i0, i1, i2, normals)
