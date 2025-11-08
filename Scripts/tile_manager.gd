@@ -124,7 +124,7 @@ func update_tile_mesh(pos: Vector3i):
 		mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors)
 	else:
 		var neighbors = get_neighbors(pos)
-		mesh = mesh_generator.generate_tile_mesh(pos, tile_type, neighbors)
+		mesh = mesh_generator.generate_tile_mesh(tile_type, neighbors)
 	
 	if pos in tile_meshes:
 		tile_meshes[pos].mesh = mesh

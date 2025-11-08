@@ -196,8 +196,8 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 	return mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors)
 
 
-func generate_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Dictionary) -> ArrayMesh:
-	return mesh_generator.generate_tile_mesh(pos, tile_type, neighbors)
+func generate_tile_mesh(tile_type: int, neighbors: Dictionary) -> ArrayMesh:
+	return mesh_generator.generate_tile_mesh(tile_type, neighbors)
 
 
 func should_render_vertical_face(current_pos: Vector3i, neighbor_pos: Vector3i) -> bool:

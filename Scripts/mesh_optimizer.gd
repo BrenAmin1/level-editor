@@ -66,7 +66,7 @@ func generate_optimized_level_mesh() -> ArrayMesh:
 			# Standard tiles - bake each with neighbor culling
 			for pos in positions:
 				var neighbors = tile_map.get_neighbors(pos)
-				var tile_mesh = mesh_generator.generate_tile_mesh(pos, tile_type, neighbors)
+				var tile_mesh = mesh_generator.generate_tile_mesh(tile_type, neighbors)
 				var world_pos = tile_map.grid_to_world(pos)
 				
 				vertex_offset = append_mesh_to_arrays(
@@ -257,7 +257,7 @@ func generate_optimized_level_mesh_multi_material() -> ArrayMesh:
 			
 			for pos in positions:
 				var neighbors = tile_map.get_neighbors(pos)
-				var tile_mesh = mesh_generator.generate_tile_mesh(pos, tile_type, neighbors)
+				var tile_mesh = mesh_generator.generate_tile_mesh(tile_type, neighbors)
 				var world_pos = tile_map.grid_to_world(pos)
 				
 				vertex_offset = append_mesh_to_arrays(
