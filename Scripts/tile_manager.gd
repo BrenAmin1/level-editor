@@ -8,6 +8,7 @@ var grid_size: float  # Reference to TileMap3D.grid_size
 var parent_node: Node3D  # Reference to TileMap3D.parent_node
 var tile_map: TileMap3D  # Reference to parent for calling methods
 var mesh_generator: MeshGenerator  # Reference to MeshGenerator component
+var diagonal_selector: DiagonalTileSelector
 
 # Batch mode optimization
 var batch_mode: bool = false
@@ -26,6 +27,7 @@ func setup(tilemap: TileMap3D, tiles_ref: Dictionary, tile_meshes_ref: Dictionar
 	grid_size = grid_sz
 	parent_node = parent
 	mesh_generator = generator
+	diagonal_selector = DiagonalTileSelector.new()
 
 # ============================================================================
 # BATCH MODE
@@ -80,24 +82,27 @@ func grid_to_world(pos: Vector3i) -> Vector3:
 # ============================================================================
 
 func place_tile(pos: Vector3i, tile_type: int):
-	tiles[pos] = tile_type
+	# Get the configuration for this position
+	var config = diagonal_selector.get_tile_configuration(pos, tiles)
+	
+	# Override tile_type if it should be a corner piece
+	var actual_tile_type = tile_type
+	if config.corner_type == DiagonalTileSelector.CornerType.INNER_CORNER:
+		actual_tile_type = config.tile_type
+	
+	# Store the tile
+	tiles[pos] = actual_tile_type
 	
 	if batch_mode:
 		# In batch mode: just mark tiles as dirty
 		mark_dirty(pos)
 		
-		# Mark direct neighbors
+		# Mark all neighbors (including diagonals)
 		for offset in [
 			Vector3i(1,0,0), Vector3i(-1,0,0),
 			Vector3i(0,1,0), Vector3i(0,-1,0),
-			Vector3i(0,0,1), Vector3i(0,0,-1)
-		]:
-			var neighbor_pos = pos + offset
-			if neighbor_pos in tiles:
-				mark_dirty(neighbor_pos)
-		
-		# Mark diagonal neighbors
-		for offset in [
+			Vector3i(0,0,1), Vector3i(0,0,-1),
+			# DIAGONAL NEIGHBORS
 			Vector3i(1, 0, 1), Vector3i(1, 0, -1),
 			Vector3i(-1, 0, 1), Vector3i(-1, 0, -1)
 		]:
@@ -108,23 +113,21 @@ func place_tile(pos: Vector3i, tile_type: int):
 		# Normal mode: immediate update
 		update_tile_mesh(pos)
 		
-		# Update direct neighbors
+		# Update all neighbors (including diagonals)
 		for offset in [
 			Vector3i(1,0,0), Vector3i(-1,0,0),
 			Vector3i(0,1,0), Vector3i(0,-1,0),
-			Vector3i(0,0,1), Vector3i(0,0,-1)
-		]:
-			var neighbor_pos = pos + offset
-			if neighbor_pos in tiles:
-				update_tile_mesh(neighbor_pos)
-		
-		# Update diagonal neighbors
-		for offset in [
+			Vector3i(0,0,1), Vector3i(0,0,-1),
+			# DIAGONAL NEIGHBORS
 			Vector3i(1, 0, 1), Vector3i(1, 0, -1),
 			Vector3i(-1, 0, 1), Vector3i(-1, 0, -1)
 		]:
 			var neighbor_pos = pos + offset
 			if neighbor_pos in tiles:
+				# Recalculate neighbor's tile type too!
+				var neighbor_config = diagonal_selector.get_tile_configuration(neighbor_pos, tiles)
+				if neighbor_config.corner_type == DiagonalTileSelector.CornerType.INNER_CORNER:
+					tiles[neighbor_pos] = DiagonalTileSelector.TILE_INNER_CORNER
 				update_tile_mesh(neighbor_pos)
 
 

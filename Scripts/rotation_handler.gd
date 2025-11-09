@@ -5,9 +5,16 @@ var grid_size: float
 func setup(grid_sz: float):
 	grid_size = grid_sz
 
-func get_rotation_for_tile(tile_type: int, neighbors: Dictionary) -> float:
-	if tile_type == 4:  # Half-bevel tile
-		return _get_half_bevel_rotation(neighbors)
+func get_rotation_for_tile(tile_type: int, neighbors: Dictionary, pos: Vector3i = Vector3i.ZERO, tiles: Dictionary = {}) -> float:
+	if tile_type == 4:  # Half-bevel tile (inner corner)
+		# If we have access to the diagonal selector, use its rotation
+		if not tiles.is_empty():
+			var diagonal_selector = DiagonalTileSelector.new()
+			var config = diagonal_selector.get_tile_configuration(pos, tiles)
+			return config.rotation
+		else:
+			# Fallback to old method
+			return _get_half_bevel_rotation(neighbors)
 	return 0.0
 
 func _get_half_bevel_rotation(neighbors: Dictionary) -> float:
@@ -38,17 +45,13 @@ func _get_half_bevel_rotation(neighbors: Dictionary) -> float:
 	# CORNER: Two adjacent neighbors - face away diagonally
 	elif neighbor_count == 2:
 		if has_north and has_west:
-			return 135.0    # Interior NW, face SE
+			return 45  # Interior NW, face SE
 		elif has_north and has_east:
-			return 225.0    # Interior NE, face SW
+			return -225.0    # Interior NE, face SW
 		elif has_south and has_west:
-			return 45.0     # Interior SW, face NE
+			return -45.0     # Interior SW, face NE
 		elif has_south and has_east:
-			return 315.0    # Interior SE, face NW
-		elif has_north and has_south:
-			return 90.0     # Corridor N-S
-		elif has_east and has_west:
-			return 0.0      # Corridor E-W
+			return 225    # Interior SE, face NW
 	
 	# THREE neighbors: Face the only open side
 	elif neighbor_count == 3:
