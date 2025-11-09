@@ -2,18 +2,18 @@ class_name SurfaceClassifier extends RefCounted
 
 func add_triangle_to_surface(triangles_by_surface: Dictionary, v0: Vector3, v1: Vector3, v2: Vector3,
 							   uvs: PackedVector2Array, i0: int, i1: int, i2: int,
-							   original_normals: PackedVector3Array):
-	var edge1 = v1 - v0
-	var edge2 = v2 - v0
-	var face_normal = edge1.cross(edge2).normalized()
+							   rotated_normals: PackedVector3Array, original_normals: PackedVector3Array):
+	# Use the ORIGINAL (unrotated) normals to determine surface type
+	var avg_normal = (original_normals[i0] + original_normals[i1] + original_normals[i2]).normalized()
 	
 	var SurfaceType = MeshGenerator.SurfaceType
 	var MeshArrays = MeshGenerator.MeshArrays
 	
 	var target_surface: int
-	if face_normal.y > 0.8:
+	# Classify based on the original normal direction
+	if avg_normal.y > 0.8:
 		target_surface = SurfaceType.TOP
-	elif face_normal.y < -0.8:
+	elif avg_normal.y < -0.8:
 		target_surface = SurfaceType.BOTTOM
 	else:
 		target_surface = SurfaceType.SIDES
@@ -25,9 +25,10 @@ func add_triangle_to_surface(triangles_by_surface: Dictionary, v0: Vector3, v1: 
 	target[MeshArrays.VERTICES].append(v1)
 	target[MeshArrays.VERTICES].append(v2)
 	
-	target[MeshArrays.NORMALS].append(original_normals[i0])
-	target[MeshArrays.NORMALS].append(original_normals[i1])
-	target[MeshArrays.NORMALS].append(original_normals[i2])
+	# Store the ROTATED normals in the actual mesh
+	target[MeshArrays.NORMALS].append(rotated_normals[i0])
+	target[MeshArrays.NORMALS].append(rotated_normals[i1])
+	target[MeshArrays.NORMALS].append(rotated_normals[i2])
 	
 	if uvs.size() > 0:
 		target[MeshArrays.UVS].append(uvs[i0] if i0 < uvs.size() else Vector2.ZERO)

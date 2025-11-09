@@ -79,6 +79,24 @@ func _handle_mouse_motion(event: InputEventMouseMotion):
 func _handle_keyboard(event: InputEventKey) -> Dictionary:
 	var result = {}
 	
+	# Save/Load shortcuts (highest priority - check first)
+	if event.ctrl_pressed:
+		# Quick save (Ctrl+S)
+		if event.keycode == KEY_S and not event.shift_pressed:
+			editor.quick_save_level()
+			return result
+		
+		# Save with custom name (Ctrl+Shift+S)
+		elif event.keycode == KEY_S and event.shift_pressed:
+			editor.save_level_with_name("my_level")
+			return result
+		
+		# Load last save (Ctrl+L)
+		elif event.keycode == KEY_L:
+			editor.load_last_level()
+			return result
+	
+	# Regular editor controls
 	match event.keycode:
 		KEY_TAB:
 			result["action"] = "toggle_mode"

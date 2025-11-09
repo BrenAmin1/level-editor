@@ -10,6 +10,9 @@ var tile_map: TileMap3D  # Reference to parent for calling methods
 var mesh_generator: MeshGenerator  # Reference to MeshGenerator component
 var diagonal_selector: DiagonalTileSelector
 
+# Auto-detection control
+var auto_tile_selection_enabled: bool = false  # DISABLED for manual placement only
+
 # Batch mode optimization
 var batch_mode: bool = false
 var dirty_tiles: Dictionary = {}  # Tiles that need mesh updates
@@ -82,13 +85,14 @@ func grid_to_world(pos: Vector3i) -> Vector3:
 # ============================================================================
 
 func place_tile(pos: Vector3i, tile_type: int):
-	# Get the configuration for this position
-	var config = diagonal_selector.get_tile_configuration(pos, tiles)
-	
-	# Override tile_type if it should be a corner piece
+	# Manual placement mode - use the exact tile type the user selected
 	var actual_tile_type = tile_type
-	if config.corner_type == DiagonalTileSelector.CornerType.INNER_CORNER:
-		actual_tile_type = config.tile_type
+	
+	# Only use auto-detection if explicitly enabled
+	if auto_tile_selection_enabled:
+		var config = diagonal_selector.get_tile_configuration(pos, tiles)
+		if config.corner_type == DiagonalTileSelector.CornerType.INNER_CORNER:
+			actual_tile_type = config.tile_type
 	
 	# Store the tile
 	tiles[pos] = actual_tile_type
@@ -124,10 +128,11 @@ func place_tile(pos: Vector3i, tile_type: int):
 		]:
 			var neighbor_pos = pos + offset
 			if neighbor_pos in tiles:
-				# Recalculate neighbor's tile type too!
-				var neighbor_config = diagonal_selector.get_tile_configuration(neighbor_pos, tiles)
-				if neighbor_config.corner_type == DiagonalTileSelector.CornerType.INNER_CORNER:
-					tiles[neighbor_pos] = DiagonalTileSelector.TILE_INNER_CORNER
+				# Only recalculate neighbor's tile type if auto-detection is enabled
+				if auto_tile_selection_enabled:
+					var neighbor_config = diagonal_selector.get_tile_configuration(neighbor_pos, tiles)
+					if neighbor_config.corner_type == DiagonalTileSelector.CornerType.INNER_CORNER:
+						tiles[neighbor_pos] = DiagonalTileSelector.TILE_INNER_CORNER
 				update_tile_mesh(neighbor_pos)
 
 

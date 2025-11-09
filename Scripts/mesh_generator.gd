@@ -103,7 +103,10 @@ func _process_mesh_surface(base_mesh: ArrayMesh, surface_idx: int, pos: Vector3i
 	var uvs = arrays[Mesh.ARRAY_TEX_UV]
 	var indices = arrays[Mesh.ARRAY_INDEX]
 	
-	# Apply rotation first
+	# Store ORIGINAL normals for classification
+	var original_normals = normals
+	
+	# Apply rotation to vertices and normals
 	if rotation_angle != 0.0:
 		vertices = rotation_handler.rotate_vertices_y(vertices, rotation_angle)
 		normals = rotation_handler.rotate_normals_y(normals, rotation_angle)
@@ -135,8 +138,8 @@ func _process_mesh_surface(base_mesh: ArrayMesh, surface_idx: int, pos: Vector3i
 		v1 = vertex_processor.extend_to_boundary_if_neighbor(v1, neighbors, 0.35, pos)
 		v2 = vertex_processor.extend_to_boundary_if_neighbor(v2, neighbors, 0.35, pos)
 		
-		# Add to surface
-		surface_classifier.add_triangle_to_surface(triangles_by_surface, v0, v1, v2, uvs, i0, i1, i2, normals)
+		# Add to surface - pass ORIGINAL normals for classification, but rotated normals for the mesh
+		surface_classifier.add_triangle_to_surface(triangles_by_surface, v0, v1, v2, uvs, i0, i1, i2, normals, original_normals)
 
 func generate_tile_mesh(tile_type: int, neighbors: Dictionary) -> ArrayMesh:
 	return mesh_builder.generate_simple_tile_mesh(tile_type, neighbors, grid_size)

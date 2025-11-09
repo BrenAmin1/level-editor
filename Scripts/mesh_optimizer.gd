@@ -360,7 +360,7 @@ func export_level_to_file(filepath: String, use_multi_material: bool = true):
 		optimized_mesh = generate_optimized_level_mesh_multi_material()
 	else:
 		optimized_mesh = generate_optimized_level_mesh()
-	
+	"""
 	# CRITICAL: Duplicate materials so they're embedded in the resource
 	# Without this, material references are lost on save
 	for i in range(optimized_mesh.get_surface_count()):
@@ -370,7 +370,7 @@ func export_level_to_file(filepath: String, use_multi_material: bool = true):
 			var duplicated_mat = mat.duplicate()
 			optimized_mesh.surface_set_material(i, duplicated_mat)
 			print("  Surface ", i, ": Embedded material (", duplicated_mat.get_class(), ")")
-	
+	"""
 	# Save with FLAG_BUNDLE_RESOURCES to ensure materials are saved with the mesh
 	var success = ResourceSaver.save(optimized_mesh, filepath, ResourceSaver.FLAG_BUNDLE_RESOURCES)
 	

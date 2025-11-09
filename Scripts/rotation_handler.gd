@@ -1,22 +1,17 @@
 class_name RotationHandler extends RefCounted
 
 var grid_size: float
+var auto_rotation_enabled: bool = false  # Disabled for manual-only mode
 
 func setup(grid_sz: float):
 	grid_size = grid_sz
 
-func get_rotation_for_tile(tile_type: int, neighbors: Dictionary, pos: Vector3i = Vector3i.ZERO, tiles: Dictionary = {}) -> float:
-	if tile_type == 4:  # Half-bevel tile (inner corner)
-		# If we have access to the diagonal selector, use its rotation
-		if not tiles.is_empty():
-			var diagonal_selector = DiagonalTileSelector.new()
-			var config = diagonal_selector.get_tile_configuration(pos, tiles)
-			return config.rotation
-		else:
-			# Fallback to old method
-			return _get_half_bevel_rotation(neighbors)
+func get_rotation_for_tile(_tile_type: int, _neighbors: Dictionary, _pos: Vector3i = Vector3i.ZERO, _tiles: Dictionary = {}) -> float:
+	# Manual rotation only - all auto-detection disabled
+	# No auto-slant, no diagonal detection, no neighbor-based rotation
 	return 0.0
 
+# Keep the helper methods in case you want to re-enable later
 func _get_half_bevel_rotation(neighbors: Dictionary) -> float:
 	var NeighborDir = MeshGenerator.NeighborDir
 	
