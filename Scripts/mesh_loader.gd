@@ -5,6 +5,7 @@ var custom_meshes: Dictionary  # Reference to TileMap3D.custom_meshes
 var custom_materials: Dictionary  # Reference to TileMap3D.custom_materials
 var grid_size: float  # Reference to TileMap3D.grid_size
 var mesh_editor: MeshEditor  # Reference to MeshEditor component
+var mesh_simplifier: MeshSimplifier
 
 # ============================================================================
 # SETUP
@@ -15,7 +16,8 @@ func setup(meshes_ref: Dictionary, materials_ref: Dictionary, grid_sz: float, ed
 	custom_materials = materials_ref
 	grid_size = grid_sz
 	mesh_editor = editor
-
+	mesh_simplifier = MeshSimplifier.new()
+	
 # ============================================================================
 # MESH LOADING FUNCTIONS
 # ============================================================================

@@ -20,6 +20,7 @@ var current_mode: EditorMode = EditorMode.EDIT
 var current_tile_type = 0
 var current_y_level = 0
 var grid_size = 1.0
+var rotation_increment: float = 15.0  # degrees
 
 # ============================================================================
 # SETTINGS
@@ -163,11 +164,12 @@ func _update_cursor():
 func _toggle_mode():
 	if current_mode == EditorMode.EDIT:
 		current_mode = EditorMode.SELECT
-		print("Mode: SELECT (Drag to select area, F to fill, Delete/X to clear)")
+		print("Mode: SELECT (Drag to select, F to fill, Delete/X to clear, R to rotate)")
 	else:
 		current_mode = EditorMode.EDIT
 		selection_manager.clear_selection()
 		print("Mode: EDIT")
+
 
 # ============================================================================
 # Y-LEVEL OFFSET (for TileMap3D)
@@ -183,6 +185,18 @@ func set_y_level_offset(y_level: int, x_offset: float, z_offset: float):
 
 func clear_y_level_offset(y_level: int):
 	y_level_manager.clear_offset(y_level)
+
+
+# ============================================================================
+# ROTATION FUNCTIONS
+# ============================================================================
+
+func rotate_selection_cw():
+	selection_manager.rotate_selected_tiles(rotation_increment)
+
+func rotate_selection_ccw():
+	selection_manager.rotate_selected_tiles(-rotation_increment)
+
 
 # ============================================================================
 # SAVE/LOAD FUNCTIONS (called by InputHandler)

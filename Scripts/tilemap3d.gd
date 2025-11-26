@@ -11,6 +11,7 @@ var custom_materials: Dictionary = {}  # tile_type -> Array[Material]
 var grid_size: float = 1.0
 var parent_node: Node3D
 var offset_provider: Callable
+var tile_rotations: Dictionary = {}  # Vector3i -> float (degrees)
 
 # ============================================================================
 # COMPONENTS
@@ -184,8 +185,8 @@ func refresh_y_level(y_level: int):
 # MESH GENERATION (Delegate to MeshGenerator)
 # ============================================================================
 
-func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Dictionary) -> ArrayMesh:
-	return mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors)
+func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Dictionary, rotation_degrees: float = 0.0) -> ArrayMesh:
+	return mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation_degrees)
 
 
 func generate_tile_mesh(tile_type: int, neighbors: Dictionary) -> ArrayMesh:
@@ -209,6 +210,25 @@ func generate_optimized_level_mesh_multi_material() -> ArrayMesh:
 
 func export_level_to_file(filepath: String, use_multi_material: bool = true):
 	return mesh_optimizer.export_level_to_file(filepath, use_multi_material)
+
+
+# ============================================================================
+# Rotation methods (delegates to TileManager)
+# ============================================================================
+
+func get_tile_rotation(pos: Vector3i) -> float:
+	"""Get the rotation of a tile in degrees (0-360)"""
+	return tile_rotations.get(pos, 0.0)
+
+func set_tile_rotation(pos: Vector3i, rotation_degrees: float):
+	"""Set the rotation of a tile and regenerate its mesh"""
+	if pos not in tiles:
+		return
+	
+	tile_rotations[pos] = rotation_degrees
+	
+	# Delegate to tile_manager to regenerate the tile
+	tile_manager.regenerate_tile_with_rotation(pos, rotation_degrees)
 
 
 # ============================================================================

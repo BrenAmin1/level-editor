@@ -206,14 +206,18 @@ func process_queue():
 	# Process a batch of tiles this frame
 	var processed = 0
 	while processed < tiles_per_frame and not processing_queue.is_empty():
-		var pos = processing_queue.pop_front()
+		var item = processing_queue.pop_front()
 		
 		if processing_type == "place":
-			tilemap.place_tile(pos, current_tile_type)
-			tiles_placed.append(pos)
+			tilemap.place_tile(item, current_tile_type)
+			tiles_placed.append(item)
 		elif processing_type == "delete":
-			tilemap.remove_tile(pos)
-			tiles_placed.append(pos)
+			tilemap.remove_tile(item)
+			tiles_placed.append(item)
+		elif processing_type == "rotate":
+			# item is a dictionary with pos, type, and rotation
+			tilemap.set_tile_rotation(item["pos"], item["rotation"])
+			tiles_placed.append(item["pos"])
 		
 		processed += 1
 	
@@ -318,3 +322,53 @@ func update_visualizer():
 	
 	selection_visualizer.mesh = mesh
 	selection_visualizer.visible = true
+
+
+# ============================================================================
+# ADD: New rotation function to selection_manager.gd
+# ============================================================================
+
+func rotate_selected_tiles(degrees: float):
+	if not has_selection:
+		print("No area selected")
+		return
+	
+	if is_processing:
+		print("Already processing operation")
+		return
+	
+	var min_x = mini(selection_start.x, selection_end.x)
+	var max_x = maxi(selection_start.x, selection_end.x)
+	var min_z = mini(selection_start.z, selection_end.z)
+	var max_z = maxi(selection_start.z, selection_end.z)
+	
+	# Collect all tiles in selection with their types and rotations
+	var tiles_to_rotate = []
+	for x in range(min_x, max_x + 1):
+		for z in range(min_z, max_z + 1):
+			var pos = Vector3i(x, current_y_level, z)
+			if tilemap.has_tile(pos):
+				var current_rotation = tilemap.get_tile_rotation(pos)
+				var new_rotation = fmod(current_rotation + degrees + 360.0, 360.0)
+				
+				tiles_to_rotate.append({
+					"pos": pos,
+					"rotation": new_rotation
+				})
+	
+	if tiles_to_rotate.is_empty():
+		print("No tiles to rotate in selection")
+		return
+	
+	# Queue rotation operations
+	processing_queue.clear()
+	tiles_placed.clear()
+	processing_queue = tiles_to_rotate.duplicate()
+	
+	is_processing = true
+	batch_mode = true
+	processing_type = "rotate"
+	
+	tilemap.set_batch_mode(true)
+	
+	print("Rotating ", processing_queue.size(), " tiles by ", degrees, " degrees...")

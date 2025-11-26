@@ -59,29 +59,68 @@ func setup(tilemap: TileMap3D, meshes_ref: Dictionary, tiles_ref: Dictionary, gr
 	mesh_builder = MeshBuilder.new()
 	mesh_builder.setup(tile_map)
 
-func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Dictionary) -> ArrayMesh:
+func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Dictionary, rotation_degrees: float = 0.0) -> ArrayMesh:
 	if tile_type not in custom_meshes:
 		return ArrayMesh.new()
 	
 	var base_mesh = custom_meshes[tile_type]
 	
-	# Determine rotation
-	var rotation_angle = rotation_handler.get_rotation_for_tile(tile_type, neighbors)
 	
 	# Initialize surface data
 	var triangles_by_surface = _initialize_surface_arrays()
 	
+	# Rotate neighbors to match tile orientation for vertex extension
+	var rotated_neighbors = _rotate_neighbors(neighbors, rotation_degrees)
+	
 	# Culling setup
-	var has_block_above = neighbors[NeighborDir.UP] != -1
-	var exposed_corners = culling_manager.find_exposed_corners(pos, neighbors)
+	var has_block_above = rotated_neighbors[NeighborDir.UP] != -1
+	var exposed_corners = culling_manager.find_exposed_corners(pos, rotated_neighbors)
 	var disable_all_culling = has_block_above
 	
-	# Process each surface
+	# Process each surface with rotated neighbors but NO geometry rotation
 	for surface_idx in range(base_mesh.get_surface_count()):
-		_process_mesh_surface(base_mesh, surface_idx, pos, neighbors,
-							  triangles_by_surface, exposed_corners, disable_all_culling, rotation_angle)
+		_process_mesh_surface(base_mesh, surface_idx, pos, rotated_neighbors,
+							  triangles_by_surface, exposed_corners, disable_all_culling)
 	
 	return mesh_builder.build_final_mesh(triangles_by_surface, tile_type, base_mesh)
+
+
+func _rotate_neighbors(neighbors: Dictionary, rotation_degrees: float) -> Dictionary:
+	"""Rotate neighbor dictionary to match tile rotation"""
+	if rotation_degrees == 0.0:
+		return neighbors
+	
+	# Normalize rotation to 0, 90, 180, 270
+	var rot = int(round(rotation_degrees)) % 360
+	if rot < 0:
+		rot += 360
+	
+	var rotated = neighbors.duplicate()
+	
+	# Only rotate cardinal directions (not UP/DOWN)
+	var north = neighbors[NeighborDir.NORTH]
+	var south = neighbors[NeighborDir.SOUTH]
+	var east = neighbors[NeighborDir.EAST]
+	var west = neighbors[NeighborDir.WEST]
+	
+	match rot:
+		90:  # Clockwise 90°
+			rotated[NeighborDir.NORTH] = west
+			rotated[NeighborDir.EAST] = north
+			rotated[NeighborDir.SOUTH] = east
+			rotated[NeighborDir.WEST] = south
+		180:  # 180°
+			rotated[NeighborDir.NORTH] = south
+			rotated[NeighborDir.EAST] = west
+			rotated[NeighborDir.SOUTH] = north
+			rotated[NeighborDir.WEST] = east
+		270:  # Counter-clockwise 90° (or clockwise 270°)
+			rotated[NeighborDir.NORTH] = east
+			rotated[NeighborDir.EAST] = south
+			rotated[NeighborDir.SOUTH] = west
+			rotated[NeighborDir.WEST] = north
+	
+	return rotated
 
 func _initialize_surface_arrays() -> Dictionary:
 	var triangles_by_surface = {}
@@ -96,7 +135,7 @@ func _initialize_surface_arrays() -> Dictionary:
 
 func _process_mesh_surface(base_mesh: ArrayMesh, surface_idx: int, pos: Vector3i, 
 							neighbors: Dictionary, triangles_by_surface: Dictionary,
-							exposed_corners: Array, disable_all_culling: bool, rotation_angle: float):
+							exposed_corners: Array, disable_all_culling: bool):
 	var arrays = base_mesh.surface_get_arrays(surface_idx)
 	var vertices = arrays[Mesh.ARRAY_VERTEX]
 	var normals = arrays[Mesh.ARRAY_NORMAL]
@@ -106,10 +145,10 @@ func _process_mesh_surface(base_mesh: ArrayMesh, surface_idx: int, pos: Vector3i
 	# Store ORIGINAL normals for classification
 	var original_normals = normals
 	
-	# Apply rotation to vertices and normals
-	if rotation_angle != 0.0:
-		vertices = rotation_handler.rotate_vertices_y(vertices, rotation_angle)
-		normals = rotation_handler.rotate_normals_y(normals, rotation_angle)
+	# NOTE: rotation_angle is now 0 (no vertex rotation), but we pass rotation for extension logic
+	var tile_rotation = 0.0
+	if pos in tile_map.tile_rotations:
+		tile_rotation = tile_map.tile_rotations[pos]
 	
 	# Process each triangle
 	for i in range(0, indices.size(), 3):
@@ -133,12 +172,12 @@ func _process_mesh_surface(base_mesh: ArrayMesh, surface_idx: int, pos: Vector3i
 												exposed_corners, disable_all_culling):
 			continue
 		
-		# Extend vertices to boundaries
-		v0 = vertex_processor.extend_to_boundary_if_neighbor(v0, neighbors, 0.35, pos)
-		v1 = vertex_processor.extend_to_boundary_if_neighbor(v1, neighbors, 0.35, pos)
-		v2 = vertex_processor.extend_to_boundary_if_neighbor(v2, neighbors, 0.35, pos)
+		# Extend vertices to boundaries WITH rotation awareness
+		v0 = vertex_processor.extend_to_boundary_if_neighbor_rotated(v0, neighbors, 0.35, pos, tile_rotation)
+		v1 = vertex_processor.extend_to_boundary_if_neighbor_rotated(v1, neighbors, 0.35, pos, tile_rotation)
+		v2 = vertex_processor.extend_to_boundary_if_neighbor_rotated(v2, neighbors, 0.35, pos, tile_rotation)
 		
-		# Add to surface - pass ORIGINAL normals for classification, but rotated normals for the mesh
+		# Add to surface
 		surface_classifier.add_triangle_to_surface(triangles_by_surface, v0, v1, v2, uvs, i0, i1, i2, normals, original_normals)
 
 func generate_tile_mesh(tile_type: int, neighbors: Dictionary) -> ArrayMesh:

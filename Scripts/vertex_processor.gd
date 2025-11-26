@@ -9,58 +9,108 @@ func setup(tilemap: TileMap3D, tiles_ref: Dictionary, grid_sz: float):
 	tiles = tiles_ref
 	grid_size = grid_sz
 
-
-func extend_to_boundary_if_neighbor(v: Vector3, neighbors: Dictionary, threshold: float, pos: Vector3i) -> Vector3:
-	var result = v
-	var NeighborDir = MeshGenerator.NeighborDir
+# Extended version with rotation-aware extension
+func extend_to_boundary_if_neighbor_rotated(vertex: Vector3, neighbors: Dictionary, 
+											threshold: float, _pos: Vector3i, 
+											rotation_degrees: float) -> Vector3:
+	var extended = vertex
+	var s = grid_size
+	var overlap = 0.02
 	
-	var near_x_min = v.x < threshold
-	var near_x_max = v.x > grid_size - threshold
-	var near_y_max = v.y > grid_size - threshold
-	var near_z_min = v.z < threshold
-	var near_z_max = v.z > grid_size - threshold
+	# Get neighbor info
+	var has_west = neighbors[MeshGenerator.NeighborDir.WEST] != -1
+	var has_east = neighbors[MeshGenerator.NeighborDir.EAST] != -1
+	var has_north = neighbors[MeshGenerator.NeighborDir.NORTH] != -1
+	var has_south = neighbors[MeshGenerator.NeighborDir.SOUTH] != -1
+	var has_up = neighbors[MeshGenerator.NeighborDir.UP] != -1
+	var has_down = neighbors[MeshGenerator.NeighborDir.DOWN] != -1
 	
-	# Block above: extend Y but preserve X/Z for top surface
-	if neighbors[NeighborDir.UP] != -1:
-		var current_offset = tile_map.get_offset_for_y(pos.y)
-		var neighbor_offset = tile_map.get_offset_for_y(pos.y + 1)
+	# Check if vertex is near edges
+	var near_x_min = vertex.x < threshold
+	var near_x_max = vertex.x > s - threshold
+	var near_z_min = vertex.z < threshold
+	var near_z_max = vertex.z > s - threshold
+	var near_y_min = vertex.y < threshold
+	var near_y_max = vertex.y > s - threshold
+	
+	# VERTICAL EXTENSION
+	if near_y_min and has_down:
+		extended.y = -overlap
+	if near_y_max and has_up:
+		extended.y = s + overlap
+	
+	# Check if this tile is rotated at a diagonal angle (not 0, 90, 180, 270)
+	var rot = fmod(abs(rotation_degrees) + 360.0, 360.0)
+	var is_diagonal_rotation = abs(fmod(rot, 90.0)) > 1.0
+	
+	if is_diagonal_rotation:
+		# For diagonally rotated tiles, extend corners aggressively to fill gaps
+		var corner_reach = s * 0.15  # Reach into neighboring cells
 		
-		if current_offset.is_equal_approx(neighbor_offset):
-			if near_y_max:
-				result.y = grid_size
-			
-			var is_side_vertex = not near_y_max or (near_y_max and (near_x_min or near_x_max or near_z_min or near_z_max))
-			
-			if is_side_vertex:
-				if near_x_min:
-					result.x = 0
-				elif near_x_max:
-					result.x = grid_size
-				if near_z_min:
-					result.z = 0
-				elif near_z_max:
-					result.z = grid_size
-			return result
+		# Extend corners outward when there are cardinal neighbors
+		# The rotated tile's corners fill the space between cardinal neighbors
+		if near_x_min and near_z_min:
+			if has_west or has_north:
+				extended.x = min(extended.x, -corner_reach)
+				extended.z = min(extended.z, -corner_reach)
+		
+		if near_x_max and near_z_min:
+			if has_east or has_north:
+				extended.x = max(extended.x, s + corner_reach)
+				extended.z = min(extended.z, -corner_reach)
+		
+		if near_x_min and near_z_max:
+			if has_west or has_south:
+				extended.x = min(extended.x, -corner_reach)
+				extended.z = max(extended.z, s + corner_reach)
+		
+		if near_x_max and near_z_max:
+			if has_east or has_south:
+				extended.x = max(extended.x, s + corner_reach)
+				extended.z = max(extended.z, s + corner_reach)
+	else:
+		# For non-rotated or 90° rotated tiles, just extend to boundaries
+		if near_x_min and has_west:
+			extended.x = -overlap
+		if near_x_max and has_east:
+			extended.x = s + overlap
+		if near_z_min and has_north:
+			extended.z = -overlap
+		if near_z_max and has_south:
+			extended.z = s + overlap
 	
-	# Block below: extend bottom
-	if neighbors[NeighborDir.DOWN] != -1 and v.y < grid_size * 0.5:
-		var current_offset = tile_map.get_offset_for_y(pos.y)
-		var neighbor_offset = tile_map.get_offset_for_y(pos.y - 1)
-		var offset_diff = current_offset - neighbor_offset
-		result.y = -abs(offset_diff.y)
+	return extended
+
+
+func extend_to_boundary_if_neighbor(vertex: Vector3, neighbors: Dictionary, threshold: float) -> Vector3:
+	var extended = vertex
+	var s = grid_size
+	var overlap = 0.02
 	
-	# Standard boundary extension - SIMPLIFIED to allow corners
-	if near_x_min and neighbors[NeighborDir.WEST] != -1:
-		result.x = 0
-	elif near_x_max and neighbors[NeighborDir.EAST] != -1:
-		result.x = grid_size
+	# VERTICAL EXTENSION
+	if vertex.y < threshold:
+		if neighbors[MeshGenerator.NeighborDir.DOWN] != -1:
+			extended.y = -overlap
 	
-	if near_y_max and neighbors[NeighborDir.UP] != -1:
-		result.y = grid_size
+	if vertex.y > s - threshold:
+		if neighbors[MeshGenerator.NeighborDir.UP] != -1:
+			extended.y = s + overlap
 	
-	if near_z_min and neighbors[NeighborDir.NORTH] != -1:
-		result.z = 0
-	elif near_z_max and neighbors[NeighborDir.SOUTH] != -1:
-		result.z = grid_size
+	# HORIZONTAL EXTENSION
+	if vertex.x < threshold:
+		if neighbors[MeshGenerator.NeighborDir.WEST] != -1:
+			extended.x = -overlap
 	
-	return result
+	if vertex.x > s - threshold:
+		if neighbors[MeshGenerator.NeighborDir.EAST] != -1:
+			extended.x = s + overlap
+	
+	if vertex.z < threshold:
+		if neighbors[MeshGenerator.NeighborDir.NORTH] != -1:
+			extended.z = -overlap
+	
+	if vertex.z > s - threshold:
+		if neighbors[MeshGenerator.NeighborDir.SOUTH] != -1:
+			extended.z = s + overlap
+	
+	return extended

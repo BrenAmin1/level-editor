@@ -128,6 +128,12 @@ func _handle_keyboard(event: InputEventKey) -> Dictionary:
 		KEY_DELETE, KEY_X:
 			if current_mode == 1:  # SELECT mode
 				selection_manager.mass_delete_tiles()
+		KEY_R:
+			if current_mode == 1:  # SELECT mode
+				if event.shift_pressed:
+					editor.rotate_selection_ccw()
+				else:
+					editor.rotate_selection_cw()
 	
 	return result
 

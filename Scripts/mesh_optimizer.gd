@@ -351,7 +351,7 @@ func append_mesh_surface_to_arrays(mesh: ArrayMesh, surface_idx: int, world_pos:
 
 
 func export_level_to_file(filepath: String, use_multi_material: bool = true):
-	"""Export the entire level as an optimized mesh file"""
+	"""Export the entire level as an optimized mesh file (geometry only, no materials)"""
 	
 	print("Exporting level to: ", filepath)
 	
@@ -360,19 +360,13 @@ func export_level_to_file(filepath: String, use_multi_material: bool = true):
 		optimized_mesh = generate_optimized_level_mesh_multi_material()
 	else:
 		optimized_mesh = generate_optimized_level_mesh()
-	"""
-	# CRITICAL: Duplicate materials so they're embedded in the resource
-	# Without this, material references are lost on save
+	
+	# Remove all materials before saving to avoid import errors
 	for i in range(optimized_mesh.get_surface_count()):
-		var mat = optimized_mesh.surface_get_material(i)
-		if mat:
-			# Duplicate the material so it becomes part of this resource
-			var duplicated_mat = mat.duplicate()
-			optimized_mesh.surface_set_material(i, duplicated_mat)
-			print("  Surface ", i, ": Embedded material (", duplicated_mat.get_class(), ")")
-	"""
-	# Save with FLAG_BUNDLE_RESOURCES to ensure materials are saved with the mesh
-	var success = ResourceSaver.save(optimized_mesh, filepath, ResourceSaver.FLAG_BUNDLE_RESOURCES)
+		optimized_mesh.surface_set_material(i, null)
+	
+	# Save just the geometry
+	var success = ResourceSaver.save(optimized_mesh, filepath)
 	
 	if success == OK:
 		print("✓ Mesh exported successfully!")
