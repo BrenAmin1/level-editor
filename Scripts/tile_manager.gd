@@ -68,6 +68,11 @@ func flush_batch_updates():
 	if dirty_tiles.is_empty():
 		return
 	
+	# If only a few tiles, don't use threading (likely edit mode)
+	if dirty_tiles.size() < 25:
+		_flush_without_threading()
+		return
+		
 	# Prevent overlapping flush operations
 	if is_flushing:
 		print("Flush already in progress, skipping...")
@@ -120,12 +125,29 @@ func flush_batch_updates():
 	cache_hits = 0
 	cache_misses = 0
 	
-	# TECHNIQUE 9: Start worker thread for mesh generation
+	# TECHNIQUE 9: Capture all tile data WITH neighbors before threading
+	# This is critical - neighbors must be captured while all tiles exist in dictionary
 	should_stop_thread = false
 	if generation_mutex == null:
 		generation_mutex = Mutex.new()
-	mesh_generation_queue = positions.duplicate()
+	mesh_generation_queue = []
 	generated_meshes.clear()
+	
+	print("Capturing tile data with neighbors...")
+	for pos in positions:
+		if pos not in tiles:
+			continue
+		
+		var tile_type = tiles[pos]
+		var rotation = tile_map.tile_rotations.get(pos, 0.0)
+		var neighbors = get_neighbors(pos)  # Capture neighbors NOW while all tiles exist
+		
+		mesh_generation_queue.append({
+			"pos": pos,
+			"tile_type": tile_type,
+			"rotation": rotation,
+			"neighbors": neighbors  # Pre-captured with all diagonals
+		})
 	
 	# Create fresh thread object (required in Godot 4 - can't reuse after wait_to_finish)
 	worker_thread = Thread.new()
@@ -233,17 +255,16 @@ func _cleanup_worker_thread():
 		worker_thread = null
 
 
-# TECHNIQUE 9: Worker thread function for mesh generation
+# Worker thread function for mesh generation
 func _generate_meshes_threaded():
 	while not mesh_generation_queue.is_empty() and not should_stop_thread:
-		var pos = mesh_generation_queue.pop_front()
+		var tile_data = mesh_generation_queue.pop_front()
 		
-		if pos not in tiles:
-			continue
-		
-		var tile_type = tiles[pos]
-		var rotation = tile_map.tile_rotations.get(pos, 0.0)
-		var neighbors = get_neighbors(pos)
+		# Unpack pre-captured data
+		var pos = tile_data["pos"]
+		var tile_type = tile_data["tile_type"]
+		var rotation = tile_data["rotation"]
+		var neighbors = tile_data["neighbors"]  # Already has diagonals captured!
 		
 		# MESH CACHING: Create cache key
 		var cache_key = _create_cache_key(tile_type, neighbors, rotation)
@@ -293,7 +314,7 @@ func _create_cache_key(tile_type: int, neighbors: Dictionary, rotation: float) -
 	]
 
 
-# TECHNIQUE 6: Apply pre-generated mesh to scene (main thread only)
+# Apply pre-generated mesh to scene (main thread only)
 func _apply_mesh_to_scene(pos: Vector3i, mesh: ArrayMesh):
 	if not parent_node:
 		return
@@ -390,7 +411,7 @@ func place_tile(pos: Vector3i, tile_type: int):
 		tile_map.tile_rotations[pos] = existing_rotation
 	
 	if batch_mode:
-		# TECHNIQUE 3: In batch mode, ONLY mark this tile as dirty
+		# In batch mode, ONLY mark this tile as dirty
 		# DON'T mark neighbors yet - we'll handle them all at once in flush_batch_updates()
 		mark_dirty(pos)
 	else:
@@ -430,7 +451,7 @@ func remove_tile(pos: Vector3i):
 		tile_meshes.erase(pos)
 	
 	if batch_mode:
-		# TECHNIQUE 3: In batch mode, neighbors will be updated in flush_batch_updates()
+		# In batch mode, neighbors will be updated in flush_batch_updates()
 		# Just mark this position (even though tile is removed, neighbors need to know)
 		dirty_tiles[pos] = true
 	else:
@@ -594,6 +615,13 @@ func _apply_rotation_center_offset(mesh_instance: MeshInstance3D):
 	# Translate mesh vertices back so they stay in place
 	mesh_instance.translate_object_local(-center_offset)
 
+func _flush_without_threading():
+	"""Fast path for small updates (edit mode)"""
+	for pos in dirty_tiles.keys():
+		if pos in tiles:
+			_immediate_update_tile_mesh(pos)
+	
+	dirty_tiles.clear()
 
 # ============================================================================
 # NEIGHBOR QUERIES

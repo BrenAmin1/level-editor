@@ -22,7 +22,11 @@ enum NeighborDir {
 	EAST,
 	WEST,
 	UP,
-	DOWN
+	DOWN,
+	DIAGONAL_NW,
+	DIAGONAL_NE,
+	DIAGONAL_SW,
+	DIAGONAL_SE
 }
 
 # References to parent TileMap3D data
@@ -74,7 +78,7 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 	
 	# Culling setup
 	var has_block_above = rotated_neighbors[NeighborDir.UP] != -1
-	var exposed_corners = culling_manager.find_exposed_corners(pos, rotated_neighbors)
+	var exposed_corners = culling_manager.find_exposed_corners(rotated_neighbors)
 	var disable_all_culling = has_block_above
 	
 	# Process each surface with rotated neighbors but NO geometry rotation

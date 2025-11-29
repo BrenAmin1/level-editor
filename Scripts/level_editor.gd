@@ -55,7 +55,7 @@ func _ready():
 	tilemap.set_custom_material(4, 0, GRASS)
 	tilemap.set_custom_material(4, 1, DIRT)
 	tilemap.set_custom_material(4, 2, DIRT)
-	# Debug: Check surfaces
+	
 	var surfaces = tilemap.get_surface_count(3)
 	print("Loaded ", surfaces, " surfaces")
 	for i in range(surfaces):
@@ -120,7 +120,8 @@ func _input(event):
 		camera.reset_fov()
 	if Input.is_action_just_pressed("export"):
 		export_current_level()
-
+	if Input.is_action_just_pressed("chunk_export"):
+		export_current_level_chunked()
 # ============================================================================
 # CURSOR UPDATE
 # ============================================================================
@@ -279,3 +280,11 @@ func export_current_level_single_material():
 	tilemap.export_level_to_file(filename, false)
 	print("Saved to: ", filename)
 	print("=========================================\n")
+
+func export_current_level_chunked():
+	var timestamp = Time.get_datetime_string_from_system().replace(":", "-")
+	var save_name = "level_" + timestamp
+	
+	print("\n=== EXPORTING LEVEL (CHUNKED) ===")
+	tilemap.export_level_chunked(save_name, Vector3i(32, 32, 32), true)
+	print("==================================\n")

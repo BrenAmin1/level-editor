@@ -384,3 +384,179 @@ func export_level_to_file(filepath: String, use_multi_material: bool = true):
 		push_error("Failed to save mesh: " + str(success))
 	
 	return optimized_mesh
+
+
+# ============================================================================
+# CHUNKED EXPORT - NEW
+# ============================================================================
+
+func export_level_chunked(save_name: String, chunk_size: Vector3i = Vector3i(32, 32, 32), 
+						  use_multi_material: bool = true):
+	"""Export level in spatial chunks for better memory management and streaming"""
+	
+	if tiles.is_empty():
+		print("No tiles to export")
+		return
+	
+	# Create export directory
+	var export_base = "res://exports/"
+	var export_dir = export_base + "exported_level_" + save_name + "/"
+	
+	# Ensure directories exist
+	DirAccess.make_dir_recursive_absolute(export_base)
+	DirAccess.make_dir_recursive_absolute(export_dir)
+	
+	print("\n=== CHUNKED EXPORT START ===")
+	print("Save name: ", save_name)
+	print("Export directory: ", export_dir)
+	print("Chunk size: ", chunk_size)
+	print("Total tiles: ", tiles.size())
+	
+	# Find bounding box of all tiles
+	var bounds = _calculate_tile_bounds()
+	print("Level bounds: ", bounds["min"], " to ", bounds["max"])
+	
+	# Divide into chunks
+	var chunks = _divide_into_chunks(bounds, chunk_size)
+	print("Total chunks: ", chunks.size())
+	
+	# Export each chunk
+	for chunk in chunks:
+		var chunk_tiles = _get_tiles_in_chunk(chunk)
+		
+		if chunk_tiles.is_empty():
+			continue  # Skip empty chunks
+		
+		var chunk_name = "chunk_%d_%d_%d" % [chunk["coord"].x, chunk["coord"].y, chunk["coord"].z]
+		var chunk_filepath = export_dir + chunk_name + ".tres"
+		
+		print("  Exporting chunk [%d, %d, %d]: %d tiles" % [
+			chunk["coord"].x, chunk["coord"].y, chunk["coord"].z, chunk_tiles.size()
+		])
+		
+		# Generate mesh for this chunk only
+		var chunk_mesh = _generate_chunk_mesh(chunk_tiles, chunk["min"], use_multi_material)
+		
+		# Remove materials before saving
+		for i in range(chunk_mesh.get_surface_count()):
+			chunk_mesh.surface_set_material(i, null)
+		
+		# Save chunk
+		var success = ResourceSaver.save(chunk_mesh, chunk_filepath)
+		if success == OK:
+			print("    ✓ Saved: ", chunk_filepath)
+		else:
+			push_error("    ✗ Failed to save chunk: " + str(success))
+		
+	
+	# Save metadata file
+	var metadata = {
+		"save_name": save_name,
+		"chunk_size": {"x": chunk_size.x, "y": chunk_size.y, "z": chunk_size.z},
+		"bounds_min": {"x": bounds["min"].x, "y": bounds["min"].y, "z": bounds["min"].z},
+		"bounds_max": {"x": bounds["max"].x, "y": bounds["max"].y, "z": bounds["max"].z},
+		"total_tiles": tiles.size(),
+		"total_chunks": chunks.size(),
+		"export_date": Time.get_datetime_string_from_system()
+	}
+	
+	var metadata_file = FileAccess.open(export_dir + "metadata.json", FileAccess.WRITE)
+	if metadata_file:
+		metadata_file.store_string(JSON.stringify(metadata, "\t"))
+		metadata_file.close()
+		print("✓ Metadata saved")
+	
+	print("=== CHUNKED EXPORT COMPLETE ===\n")
+
+
+func _calculate_tile_bounds() -> Dictionary:
+	"""Find the min/max coordinates of all tiles"""
+	var min_pos = Vector3i(999999, 999999, 999999)
+	var max_pos = Vector3i(-999999, -999999, -999999)
+	
+	for pos in tiles.keys():
+		min_pos.x = mini(min_pos.x, pos.x)
+		min_pos.y = mini(min_pos.y, pos.y)
+		min_pos.z = mini(min_pos.z, pos.z)
+		max_pos.x = maxi(max_pos.x, pos.x)
+		max_pos.y = maxi(max_pos.y, pos.y)
+		max_pos.z = maxi(max_pos.z, pos.z)
+	
+	return {"min": min_pos, "max": max_pos}
+
+
+func _divide_into_chunks(bounds: Dictionary, chunk_size: Vector3i) -> Array:
+	"""Divide the level space into chunks"""
+	var chunks = []
+	var min_pos = bounds["min"]
+	var max_pos = bounds["max"]
+	
+	# Calculate chunk coordinates
+	var min_chunk = Vector3i(
+		floori(float(min_pos.x) / chunk_size.x),
+		floori(float(min_pos.y) / chunk_size.y),
+		floori(float(min_pos.z) / chunk_size.z)
+	)
+	
+	var max_chunk = Vector3i(
+		floori(float(max_pos.x) / chunk_size.x),
+		floori(float(max_pos.y) / chunk_size.y),
+		floori(float(max_pos.z) / chunk_size.z)
+	)
+	
+	# Create chunk entries
+	for cx in range(min_chunk.x, max_chunk.x + 1):
+		for cy in range(min_chunk.y, max_chunk.y + 1):
+			for cz in range(min_chunk.z, max_chunk.z + 1):
+				var chunk_min = Vector3i(
+					cx * chunk_size.x,
+					cy * chunk_size.y,
+					cz * chunk_size.z
+				)
+				var chunk_max = Vector3i(
+					(cx + 1) * chunk_size.x - 1,
+					(cy + 1) * chunk_size.y - 1,
+					(cz + 1) * chunk_size.z - 1
+				)
+				
+				chunks.append({
+					"coord": Vector3i(cx, cy, cz),
+					"min": chunk_min,
+					"max": chunk_max
+				})
+	
+	return chunks
+
+
+func _get_tiles_in_chunk(chunk: Dictionary) -> Dictionary:
+	"""Get all tiles that fall within a chunk's bounds"""
+	var chunk_tiles = {}
+	
+	for pos in tiles.keys():
+		if pos.x >= chunk["min"].x and pos.x <= chunk["max"].x and \
+		   pos.y >= chunk["min"].y and pos.y <= chunk["max"].y and \
+		   pos.z >= chunk["min"].z and pos.z <= chunk["max"].z:
+			chunk_tiles[pos] = tiles[pos]
+	
+	return chunk_tiles
+
+
+func _generate_chunk_mesh(chunk_tiles: Dictionary, _chunk_origin: Vector3i, 
+						  use_multi_material: bool) -> ArrayMesh:
+	"""Generate optimized mesh for a single chunk"""
+	
+	# Temporarily replace global tiles with chunk tiles
+	var original_tiles = tiles
+	tiles = chunk_tiles
+	
+	# Generate mesh using existing multi-material function
+	var chunk_mesh: ArrayMesh
+	if use_multi_material:
+		chunk_mesh = generate_optimized_level_mesh_multi_material()
+	else:
+		chunk_mesh = generate_optimized_level_mesh()
+	
+	# Restore original tiles
+	tiles = original_tiles
+	
+	return chunk_mesh

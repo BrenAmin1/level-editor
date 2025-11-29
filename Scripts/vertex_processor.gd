@@ -69,7 +69,7 @@ func extend_to_boundary_if_neighbor_rotated(vertex: Vector3, neighbors: Dictiona
 				extended.x = max(extended.x, s + corner_reach)
 				extended.z = max(extended.z, s + corner_reach)
 	else:
-		# For non-rotated or 90° rotated tiles, just extend to boundaries
+		# For non-rotated or 90° rotated tiles, extend to boundaries
 		if near_x_min and has_west:
 			extended.x = -overlap
 		if near_x_max and has_east:
@@ -77,6 +77,24 @@ func extend_to_boundary_if_neighbor_rotated(vertex: Vector3, neighbors: Dictiona
 		if near_z_min and has_north:
 			extended.z = -overlap
 		if near_z_max and has_south:
+			extended.z = s + overlap
+		
+		# ADD THIS: Corner extension for non-rotated tiles
+		# When both perpendicular neighbors exist, extend corner vertices
+		if near_x_min and near_z_min and has_west and has_north:
+			extended.x = -overlap
+			extended.z = -overlap
+		
+		if near_x_max and near_z_min and has_east and has_north:
+			extended.x = s + overlap
+			extended.z = -overlap
+		
+		if near_x_min and near_z_max and has_west and has_south:
+			extended.x = -overlap
+			extended.z = s + overlap
+		
+		if near_x_max and near_z_max and has_east and has_south:
+			extended.x = s + overlap
 			extended.z = s + overlap
 	
 	return extended
