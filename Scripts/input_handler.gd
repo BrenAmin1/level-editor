@@ -79,6 +79,24 @@ func _handle_mouse_motion(event: InputEventMouseMotion):
 func _handle_keyboard(event: InputEventKey) -> Dictionary:
 	var result = {}
 	
+	# Save/Load shortcuts (highest priority - check first)
+	if event.ctrl_pressed:
+		# Quick save (Ctrl+S)
+		if event.keycode == KEY_S and not event.shift_pressed:
+			editor.quick_save_level()
+			return result
+		
+		# Save with custom name (Ctrl+Shift+S)
+		elif event.keycode == KEY_S and event.shift_pressed:
+			editor.save_level_with_name("my_level")
+			return result
+		
+		# Load last save (Ctrl+L)
+		elif event.keycode == KEY_L:
+			editor.load_last_level()
+			return result
+	
+	# Regular editor controls
 	match event.keycode:
 		KEY_TAB:
 			result["action"] = "toggle_mode"
@@ -95,6 +113,9 @@ func _handle_keyboard(event: InputEventKey) -> Dictionary:
 		KEY_3:
 			result["tile_type"] = 3
 			print("Selected: Custom")
+		KEY_4:
+			result["tile_type"] = 4
+			print("Selected: Custom")
 		KEY_BRACKETRIGHT, KEY_MINUS:
 			result["y_level"] = current_y_level - 1
 			y_level_manager.change_y_level(result["y_level"])
@@ -107,6 +128,12 @@ func _handle_keyboard(event: InputEventKey) -> Dictionary:
 		KEY_DELETE, KEY_X:
 			if current_mode == 1:  # SELECT mode
 				selection_manager.mass_delete_tiles()
+		KEY_R:
+			if current_mode == 1:  # SELECT mode
+				if event.shift_pressed:
+					editor.rotate_selection_ccw()
+				else:
+					editor.rotate_selection_cw()
 	
 	return result
 

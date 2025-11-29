@@ -20,6 +20,14 @@ var grid_range: int
 var current_y_level: int
 var current_tile_type: int
 
+# Async processing
+var is_processing: bool = false
+var processing_queue: Array = []
+var processing_type: String = ""
+var tiles_per_frame: int = 100  # Process this many tiles per frame
+var batch_mode: bool = false  # Track if we're in batch operation
+var tiles_placed: Array = []  # Track tiles placed for batch update
+
 # ============================================================================
 # SETUP
 # ============================================================================
@@ -109,7 +117,7 @@ func clear_selection():
 		selection_visualizer.visible = false
 
 # ============================================================================
-# MASS OPERATIONS
+# MASS OPERATIONS - ASYNC PROCESSING
 # ============================================================================
 
 func mass_place_tiles():
@@ -117,26 +125,8 @@ func mass_place_tiles():
 		print("No area selected")
 		return
 	
-	var min_x = mini(selection_start.x, selection_end.x)
-	var max_x = maxi(selection_start.x, selection_end.x)
-	var min_z = mini(selection_start.z, selection_end.z)
-	var max_z = maxi(selection_start.z, selection_end.z)
-	
-	var count = 0
-	for x in range(min_x, max_x + 1):
-		for z in range(min_z, max_z + 1):
-			var pos = Vector3i(x, current_y_level, z)
-			if abs(pos.x) <= grid_range and abs(pos.z) <= grid_range:
-				tilemap.place_tile(pos, current_tile_type)
-				count += 1
-	
-	print("Placed ", count, " tiles")
-	clear_selection()
-
-
-func mass_delete_tiles():
-	if not has_selection:
-		print("No area selected")
+	if is_processing:
+		print("Already processing operation")
 		return
 	
 	var min_x = mini(selection_start.x, selection_end.x)
@@ -144,16 +134,123 @@ func mass_delete_tiles():
 	var min_z = mini(selection_start.z, selection_end.z)
 	var max_z = maxi(selection_start.z, selection_end.z)
 	
-	var count = 0
+	# Build queue of positions
+	processing_queue.clear()
+	tiles_placed.clear()
+	for x in range(min_x, max_x + 1):
+		for z in range(min_z, max_z + 1):
+			var pos = Vector3i(x, current_y_level, z)
+			if abs(pos.x) <= grid_range and abs(pos.z) <= grid_range:
+				processing_queue.append(pos)
+	
+	if processing_queue.is_empty():
+		clear_selection()
+		return
+	
+	is_processing = true
+	batch_mode = true
+	processing_type = "place"
+	
+	# Enable batch mode on tilemap to defer mesh updates
+	tilemap.set_batch_mode(true)
+	
+	print("Queued ", processing_queue.size(), " tiles for placement...")
+
+
+func mass_delete_tiles():
+	if not has_selection:
+		print("No area selected")
+		return
+	
+	if is_processing:
+		print("Already processing operation")
+		return
+	
+	var min_x = mini(selection_start.x, selection_end.x)
+	var max_x = maxi(selection_start.x, selection_end.x)
+	var min_z = mini(selection_start.z, selection_end.z)
+	var max_z = maxi(selection_start.z, selection_end.z)
+	
+	# Build queue of positions with tiles
+	processing_queue.clear()
+	tiles_placed.clear()
 	for x in range(min_x, max_x + 1):
 		for z in range(min_z, max_z + 1):
 			var pos = Vector3i(x, current_y_level, z)
 			if tilemap.has_tile(pos):
-				tilemap.remove_tile(pos)
-				count += 1
+				processing_queue.append(pos)
 	
-	print("Deleted ", count, " tiles")
+	if processing_queue.is_empty():
+		print("No tiles to delete")
+		clear_selection()
+		return
+	
+	is_processing = true
+	batch_mode = true
+	processing_type = "delete"
+	
+	# Enable batch mode on tilemap to defer mesh updates
+	if tilemap.has_method("set_batch_mode"):
+		tilemap.set_batch_mode(true)
+	
+	print("Queued ", processing_queue.size(), " tiles for deletion...")
+
+
+# Call this from your main loop (_process or _physics_process)
+func process_queue():
+	if not is_processing or processing_queue.is_empty():
+		if is_processing and processing_queue.is_empty():
+			_finish_processing()
+		return
+	
+	# Process a batch of tiles this frame
+	var processed = 0
+	while processed < tiles_per_frame and not processing_queue.is_empty():
+		var item = processing_queue.pop_front()
+		
+		if processing_type == "place":
+			tilemap.place_tile(item, current_tile_type)
+			tiles_placed.append(item)
+		elif processing_type == "delete":
+			tilemap.remove_tile(item)
+			tiles_placed.append(item)
+		elif processing_type == "rotate":
+			# item is a dictionary with pos, type, and rotation
+			tilemap.set_tile_rotation(item["pos"], item["rotation"])
+			tiles_placed.append(item["pos"])
+		
+		processed += 1
+	
+	# Optional: print progress every 500 tiles
+	if processing_queue.size() % 500 == 0 and processing_queue.size() > 0:
+		print("Remaining: ", processing_queue.size())
+
+
+func _finish_processing():
+	print("Completed ", processing_type, " operation")
+	
+	# Exit batch mode and trigger all deferred updates
+	if batch_mode:
+		tilemap.set_batch_mode(false)
+	
+	is_processing = false
+	batch_mode = false
+	processing_queue.clear()
+	tiles_placed.clear()
+	processing_type = ""
 	clear_selection()
+
+
+func is_busy() -> bool:
+	return is_processing
+
+
+func get_progress() -> float:
+	if not is_processing:
+		return 0.0
+	
+	var total = processing_queue.size() + tiles_per_frame  # Approximate
+	return 1.0 - (float(processing_queue.size()) / total)
 
 # ============================================================================
 # VISUALIZATION
@@ -225,3 +322,53 @@ func update_visualizer():
 	
 	selection_visualizer.mesh = mesh
 	selection_visualizer.visible = true
+
+
+# ============================================================================
+# ADD: New rotation function to selection_manager.gd
+# ============================================================================
+
+func rotate_selected_tiles(degrees: float):
+	if not has_selection:
+		print("No area selected")
+		return
+	
+	if is_processing:
+		print("Already processing operation")
+		return
+	
+	var min_x = mini(selection_start.x, selection_end.x)
+	var max_x = maxi(selection_start.x, selection_end.x)
+	var min_z = mini(selection_start.z, selection_end.z)
+	var max_z = maxi(selection_start.z, selection_end.z)
+	
+	# Collect all tiles in selection with their types and rotations
+	var tiles_to_rotate = []
+	for x in range(min_x, max_x + 1):
+		for z in range(min_z, max_z + 1):
+			var pos = Vector3i(x, current_y_level, z)
+			if tilemap.has_tile(pos):
+				var current_rotation = tilemap.get_tile_rotation(pos)
+				var new_rotation = fmod(current_rotation + degrees + 360.0, 360.0)
+				
+				tiles_to_rotate.append({
+					"pos": pos,
+					"rotation": new_rotation
+				})
+	
+	if tiles_to_rotate.is_empty():
+		print("No tiles to rotate in selection")
+		return
+	
+	# Queue rotation operations
+	processing_queue.clear()
+	tiles_placed.clear()
+	processing_queue = tiles_to_rotate.duplicate()
+	
+	is_processing = true
+	batch_mode = true
+	processing_type = "rotate"
+	
+	tilemap.set_batch_mode(true)
+	
+	print("Rotating ", processing_queue.size(), " tiles by ", degrees, " degrees...")

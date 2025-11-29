@@ -186,7 +186,10 @@ func extend_mesh_to_boundaries(tile_type: int, threshold: float = 0.15) -> bool:
 	return mesh_editor.edit_mesh_vertices(tile_type, vertices)
 
 
+# Replace the flip_mesh_normals function in mesh_loader.gd:
+
 # Flip normals and reverse winding order for Blender meshes (handles multiple surfaces)
+# ONLY flips normals that are pointing downward (negative Y) - keeps top faces correct
 func flip_mesh_normals(tile_type: int) -> bool:
 	if tile_type not in custom_meshes:
 		return false
@@ -202,11 +205,32 @@ func flip_mesh_normals(tile_type: int) -> bool:
 		var uvs = arrays[Mesh.ARRAY_TEX_UV]
 		var indices = arrays[Mesh.ARRAY_INDEX]
 		
-		# Flip normals
-		for i in range(normals.size()):
-			normals[i] = -normals[i]
+		# Calculate face normals to determine if we should flip
+		# Process per triangle to be selective
+		for i in range(0, indices.size(), 3):
+			var i0 = indices[i]
+			var i1 = indices[i + 1]
+			var i2 = indices[i + 2]
+			
+			var v0 = vertices[i0]
+			var v1 = vertices[i1]
+			var v2 = vertices[i2]
+			
+			# Calculate face normal from vertices (this is the "true" direction)
+			var edge1 = v1 - v0
+			var edge2 = v2 - v0
+			var face_normal = edge1.cross(edge2).normalized()
+			
+			# Check average vertex normal direction
+			var avg_normal = (normals[i0] + normals[i1] + normals[i2]).normalized()
+			
+			# If vertex normals point opposite to face normal, flip them
+			if face_normal.dot(avg_normal) < 0:
+				normals[i0] = -normals[i0]
+				normals[i1] = -normals[i1]
+				normals[i2] = -normals[i2]
 		
-		# Reverse winding order (swap every triangle's last two vertices)
+		# Always reverse winding order for Blender coordinate system
 		for i in range(0, indices.size(), 3):
 			var temp = indices[i + 1]
 			indices[i + 1] = indices[i + 2]

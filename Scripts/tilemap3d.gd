@@ -1,5 +1,6 @@
 class_name TileMap3D extends RefCounted
 
+
 # ============================================================================
 # CORE DATA
 # ============================================================================
@@ -10,6 +11,7 @@ var custom_materials: Dictionary = {}  # tile_type -> Array[Material]
 var grid_size: float = 1.0
 var parent_node: Node3D
 var offset_provider: Callable
+var tile_rotations: Dictionary = {}  # Vector3i -> float (degrees)
 
 # ============================================================================
 # COMPONENTS
@@ -49,7 +51,8 @@ func _setup_components():
 	mesh_generator.setup(self, custom_meshes, tiles, grid_size)
 	mesh_loader.setup(custom_meshes, custom_materials, grid_size, mesh_editor)
 	tile_manager.setup(self, tiles, tile_meshes, custom_meshes, grid_size, parent_node, mesh_generator)
-	mesh_optimizer.setup(self, tiles, custom_meshes, mesh_generator)
+	mesh_optimizer.setup(self, tiles, custom_meshes, mesh_generator, custom_materials)
+
 	material_manager.setup(self, custom_meshes, custom_materials, tiles)
 	
 	print("TileMap3D: Components setup complete")
@@ -182,12 +185,12 @@ func refresh_y_level(y_level: int):
 # MESH GENERATION (Delegate to MeshGenerator)
 # ============================================================================
 
-func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Dictionary) -> ArrayMesh:
-	return mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors)
+func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Dictionary, rotation_degrees: float = 0.0) -> ArrayMesh:
+	return mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation_degrees)
 
 
-func generate_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Dictionary) -> ArrayMesh:
-	return mesh_generator.generate_tile_mesh(pos, tile_type, neighbors)
+func generate_tile_mesh(tile_type: int, neighbors: Dictionary) -> ArrayMesh:
+	return mesh_generator.generate_tile_mesh(tile_type, neighbors)
 
 
 func should_render_vertical_face(current_pos: Vector3i, neighbor_pos: Vector3i) -> bool:
@@ -207,3 +210,39 @@ func generate_optimized_level_mesh_multi_material() -> ArrayMesh:
 
 func export_level_to_file(filepath: String, use_multi_material: bool = true):
 	return mesh_optimizer.export_level_to_file(filepath, use_multi_material)
+
+func export_level_chunked(save_name: String, chunk_size: Vector3i = Vector3i(32, 32, 32), 
+						  use_multi_material: bool = true):
+	return mesh_optimizer.export_level_chunked(save_name, chunk_size, use_multi_material)
+
+# ============================================================================
+# Rotation methods (delegates to TileManager)
+# ============================================================================
+
+func get_tile_rotation(pos: Vector3i) -> float:
+	"""Get the rotation of a tile in degrees (0-360)"""
+	return tile_rotations.get(pos, 0.0)
+
+func set_tile_rotation(pos: Vector3i, rotation_degrees: float):
+	"""Set the rotation of a tile and regenerate its mesh"""
+	if pos not in tiles:
+		return
+	
+	tile_rotations[pos] = rotation_degrees
+	
+	# Delegate to tile_manager to regenerate the tile
+	tile_manager.regenerate_tile_with_rotation(pos, rotation_degrees)
+
+
+# ============================================================================
+# BATCH MODE OPERATIONS
+# ============================================================================
+
+func set_batch_mode(enabled: bool):
+	"""Enable or disable batch mode for mass tile operations"""
+	tile_manager.set_batch_mode(enabled)
+
+
+func flush_batch_updates():
+	"""Manually flush all pending tile updates (only needed if batch mode is still enabled)"""
+	tile_manager.flush_batch_updates()
