@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://dns5w660ju6u6"
-path="res://.godot/imported/half_bevel.blend-2b8028d378c75b6aaf6ce4f3b93a6441.scn"
+uid="uid://ba3pamv67xirq"
+path="res://.godot/imported/bulging_cube.blend-4fd9cae48558b85f2868321e55e56aab.scn"
 
 [deps]
 
-source_file="res://half_bevel.blend"
-dest_files=["res://.godot/imported/half_bevel.blend-2b8028d378c75b6aaf6ce4f3b93a6441.scn"]
+source_file="res://cubes/bulging_cube.blend"
+dest_files=["res://.godot/imported/bulging_cube.blend-4fd9cae48558b85f2868321e55e56aab.scn"]
 
 [params]
 
@@ -48,6 +48,7 @@ blender/meshes/colors=false
 blender/meshes/uvs=true
 blender/meshes/normals=true
 blender/meshes/export_geometry_nodes_instances=false
+blender/meshes/gpu_instances=false
 blender/meshes/tangents=true
 blender/meshes/skins=2
 blender/meshes/export_bones_deforming_mesh_only=false

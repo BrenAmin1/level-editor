@@ -1,10 +1,13 @@
-[gd_scene load_steps=9 format=3 uid="uid://biburdoup3tys"]
+[gd_scene format=3 uid="uid://biburdoup3tys"]
 
 [ext_resource type="Script" uid="uid://fu5g1qykfyrg" path="res://Scripts/level_editor.gd" id="1_5o76e"]
 [ext_resource type="Script" uid="uid://dvthn52pxarsw" path="res://Scripts/camera_controller.gd" id="2_s1b0e"]
 [ext_resource type="Script" uid="uid://b12pccb6bgt2j" path="res://Scripts/grid_visualizer.gd" id="3_n1xa8"]
 [ext_resource type="Script" uid="uid://d2w0q8uv3eeuf" path="res://Scripts/cursor_visualizer.gd" id="4_rot6e"]
 [ext_resource type="Script" uid="uid://vy5kk1hqmj06" path="res://Scripts/right_side_menu.gd" id="5_wchaa"]
+[ext_resource type="Script" uid="uid://c75ehuws5po5n" path="res://Scripts/export_filedialog.gd" id="6_i8l5y"]
+[ext_resource type="Script" uid="uid://b2t4yav0slfc5" path="res://Scripts/save_filedialog.gd" id="7_fhsmn"]
+[ext_resource type="Script" uid="uid://dtm42xqkessre" path="res://Scripts/load_filedialog.gd" id="8_5ogug"]
 
 [sub_resource type="PhysicalSkyMaterial" id="PhysicalSkyMaterial_5o76e"]
 
@@ -15,26 +18,26 @@ sky_material = SubResource("PhysicalSkyMaterial_5o76e")
 background_mode = 2
 sky = SubResource("Sky_s1b0e")
 
-[node name="level_editor" type="Node3D"]
+[node name="level_editor" type="Node3D" unique_id=1129799652]
 script = ExtResource("1_5o76e")
 
-[node name="Camera3D" type="Camera3D" parent="."]
+[node name="Camera3D" type="Camera3D" parent="." unique_id=775226364]
 script = ExtResource("2_s1b0e")
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=724399968]
 environment = SubResource("Environment_n1xa8")
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1876656079]
 transform = Transform3D(1, 0, 0, 0, -0.0335913, 0.9994356, 0, -0.9994356, -0.0335913, 0, 0, 0)
 shadow_enabled = true
 
-[node name="GridVisualizer" type="Node3D" parent="."]
+[node name="GridVisualizer" type="Node3D" parent="." unique_id=1582843959]
 script = ExtResource("3_n1xa8")
 
-[node name="CursorVisualizer" type="Node3D" parent="."]
+[node name="CursorVisualizer" type="Node3D" parent="." unique_id=946274075]
 script = ExtResource("4_rot6e")
 
-[node name="UI" type="Control" parent="."]
+[node name="UI" type="Control" parent="." unique_id=1312141011]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -42,7 +45,7 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="RightSideMenu" type="VBoxContainer" parent="UI"]
+[node name="RightSideMenu" type="VBoxContainer" parent="UI" unique_id=1295311782]
 layout_mode = 1
 anchors_preset = 1
 anchor_left = 1.0
@@ -52,25 +55,25 @@ offset_bottom = 221.0
 grow_horizontal = 0
 script = ExtResource("5_wchaa")
 
-[node name="YLevel" type="Label" parent="UI/RightSideMenu"]
+[node name="YLevel" type="Label" parent="UI/RightSideMenu" unique_id=2086835068]
 layout_mode = 2
 text = "Current Y-Level: 0"
 
-[node name="OffsetFold" type="FoldableContainer" parent="UI/RightSideMenu"]
+[node name="OffsetFold" type="FoldableContainer" parent="UI/RightSideMenu" unique_id=1761972278]
 layout_mode = 2
 title = "Offset"
 
-[node name="PanelContainer" type="PanelContainer" parent="UI/RightSideMenu/OffsetFold"]
+[node name="PanelContainer" type="PanelContainer" parent="UI/RightSideMenu/OffsetFold" unique_id=2063741915]
 layout_mode = 2
 
-[node name="OffsetVContain" type="VBoxContainer" parent="UI/RightSideMenu/OffsetFold/PanelContainer"]
+[node name="OffsetVContain" type="VBoxContainer" parent="UI/RightSideMenu/OffsetFold/PanelContainer" unique_id=1210596733]
 layout_mode = 2
 
-[node name="XOffsetLabel" type="Label" parent="UI/RightSideMenu/OffsetFold/PanelContainer/OffsetVContain"]
+[node name="XOffsetLabel" type="Label" parent="UI/RightSideMenu/OffsetFold/PanelContainer/OffsetVContain" unique_id=65445157]
 layout_mode = 2
 text = "X Offset"
 
-[node name="XSpin" type="SpinBox" parent="UI/RightSideMenu/OffsetFold/PanelContainer/OffsetVContain"]
+[node name="XSpin" type="SpinBox" parent="UI/RightSideMenu/OffsetFold/PanelContainer/OffsetVContain" unique_id=57524378]
 layout_mode = 2
 min_value = -0.999
 max_value = 0.999
@@ -79,11 +82,11 @@ value = 0.0010000000000000009
 allow_greater = true
 allow_lesser = true
 
-[node name="YOffsetLabel" type="Label" parent="UI/RightSideMenu/OffsetFold/PanelContainer/OffsetVContain"]
+[node name="YOffsetLabel" type="Label" parent="UI/RightSideMenu/OffsetFold/PanelContainer/OffsetVContain" unique_id=358320358]
 layout_mode = 2
 text = "Z Offset"
 
-[node name="ZSpin" type="SpinBox" parent="UI/RightSideMenu/OffsetFold/PanelContainer/OffsetVContain"]
+[node name="ZSpin" type="SpinBox" parent="UI/RightSideMenu/OffsetFold/PanelContainer/OffsetVContain" unique_id=1839422213]
 layout_mode = 2
 min_value = -0.999
 max_value = 0.999
@@ -92,11 +95,11 @@ value = 0.0010000000000000009
 allow_greater = true
 allow_lesser = true
 
-[node name="OffsetConfirmButton" type="Button" parent="UI/RightSideMenu/OffsetFold/PanelContainer/OffsetVContain"]
+[node name="OffsetConfirmButton" type="Button" parent="UI/RightSideMenu/OffsetFold/PanelContainer/OffsetVContain" unique_id=555990946]
 layout_mode = 2
 text = "Confirm"
 
-[node name="Controls" type="Label" parent="UI"]
+[node name="Controls" type="Label" parent="UI" unique_id=1335712705]
 layout_mode = 0
 offset_right = 225.0
 offset_bottom = 319.0
@@ -112,6 +115,45 @@ BACKSPACE -> DEFAULT VIEW
 [ --> LAYER UP
 ] --> LAYER DOWN
 1... 2... -> BLOCK TYPE"
+
+[node name="Export" type="FileDialog" parent="UI" unique_id=2124544959]
+oversampling_override = 1.0
+title = "Export a Level"
+initial_position = 1
+always_on_top = true
+ok_button_text = "Export"
+access = 1
+root_subfolder = "user://exports/"
+filters = PackedStringArray("*.tres", "*.gltf")
+use_native_dialog = true
+option_count = 1
+option_0/name = "Format"
+option_0/values = PackedStringArray("Single", "Chunks", "glTF")
+option_0/default = 2
+script = ExtResource("6_i8l5y")
+
+[node name="Save" type="FileDialog" parent="UI" unique_id=1966042830]
+oversampling_override = 1.0
+initial_position = 1
+always_on_top = true
+access = 1
+root_subfolder = "user://saved_levels"
+filters = PackedStringArray("*.json")
+use_native_dialog = true
+script = ExtResource("7_fhsmn")
+
+[node name="Load" type="FileDialog" parent="UI" unique_id=1152813888]
+oversampling_override = 1.0
+title = "Load a Level"
+initial_position = 1
+always_on_top = true
+ok_button_text = "Load"
+file_mode = 0
+access = 1
+root_subfolder = "user://saved_levels"
+filters = PackedStringArray("*.json", "*.tres")
+use_native_dialog = true
+script = ExtResource("8_5ogug")
 
 [connection signal="level_changed" from="GridVisualizer" to="UI/RightSideMenu" method="_on_grid_visualizer_level_changed"]
 [connection signal="pressed" from="UI/RightSideMenu/OffsetFold/PanelContainer/OffsetVContain/OffsetConfirmButton" to="UI/RightSideMenu" method="_on_offset_confirm_button_pressed"]

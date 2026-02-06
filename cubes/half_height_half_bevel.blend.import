@@ -4,12 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://mw0rgkhirhh4"
-path="res://.godot/imported/half_height_half_bevel.blend-de275a482b20d76dfc8ee0517ecd0802.scn"
+path="res://.godot/imported/half_height_half_bevel.blend-ee2a3fdde980afe06b318dc9cb7578c5.scn"
 
 [deps]
 
-source_file="res://half_height_half_bevel.blend"
-dest_files=["res://.godot/imported/half_height_half_bevel.blend-de275a482b20d76dfc8ee0517ecd0802.scn"]
+source_file="res://cubes/half_height_half_bevel.blend"
+dest_files=["res://.godot/imported/half_height_half_bevel.blend-ee2a3fdde980afe06b318dc9cb7578c5.scn"]
 
 [params]
 

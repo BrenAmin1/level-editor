@@ -37,62 +37,50 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary, face_center: Vec
 						  face_normal: Vector3, exposed_corners: Array, disable_all_culling: bool) -> bool:
 	if batch_mode_skip_culling:
 		return false
+	
 	var NeighborDir = MeshGenerator.NeighborDir
-	var interior_margin = 0.15
-	var s = grid_size
 	
-	# Determine if we're in top half or bottom half
-	var is_top_half = face_center.y >= s * 0.5
+	# Cull based on face normal direction, NOT position
+	# If face points toward a neighbor at same Y level, cull it
 	
-	# West side
-	if neighbors[NeighborDir.WEST] != -1 and not _should_render_vertical_face(pos, pos + Vector3i(-1, 0, 0)):
-		if face_center.x < interior_margin:
-			var is_near_corner = (NeighborDir.DIAGONAL_NW in exposed_corners and face_center.z < s * 0.5) or \
-								 (NeighborDir.DIAGONAL_SW in exposed_corners and face_center.z > s * 0.5)
-			if not is_near_corner and face_normal.x < -0.7:
-				# Don't cull top half if there's a block above (needs to be visible)
-				if is_top_half and disable_all_culling:
-					return false
+	# West face (normal pointing in -X direction)
+	if face_normal.x < -0.7:
+		if neighbors[NeighborDir.WEST] != -1:
+			var neighbor_pos = pos + Vector3i(-1, 0, 0)
+			if neighbor_pos.y == pos.y or not _should_render_vertical_face(pos, neighbor_pos):
 				return true
 	
-	# East side
-	if neighbors[NeighborDir.EAST] != -1 and not _should_render_vertical_face(pos, pos + Vector3i(1, 0, 0)):
-		if face_center.x > s - interior_margin:
-			var is_near_corner = (NeighborDir.DIAGONAL_NE in exposed_corners and face_center.z < s * 0.5) or \
-								 (NeighborDir.DIAGONAL_SE in exposed_corners and face_center.z > s * 0.5)
-			if not is_near_corner and face_normal.x > 0.7:
-				if is_top_half and disable_all_culling:
-					return false
+	# East face (normal pointing in +X direction)
+	if face_normal.x > 0.7:
+		if neighbors[NeighborDir.EAST] != -1:
+			var neighbor_pos = pos + Vector3i(1, 0, 0)
+			if neighbor_pos.y == pos.y or not _should_render_vertical_face(pos, neighbor_pos):
 				return true
 	
-	# Bottom face - cull if neighbor below
-	if neighbors[NeighborDir.DOWN] != -1 and not _should_render_vertical_face(pos, pos + Vector3i(0, -1, 0)):
-		if face_center.y < interior_margin and face_normal.y < -0.7:
+	# North face (normal pointing in -Z direction)
+	if face_normal.z < -0.7:
+		if neighbors[NeighborDir.NORTH] != -1:
+			var neighbor_pos = pos + Vector3i(0, 0, -1)
+			if neighbor_pos.y == pos.y or not _should_render_vertical_face(pos, neighbor_pos):
+				return true
+	
+	# South face (normal pointing in +Z direction)
+	if face_normal.z > 0.7:
+		if neighbors[NeighborDir.SOUTH] != -1:
+			var neighbor_pos = pos + Vector3i(0, 0, 1)
+			if neighbor_pos.y == pos.y or not _should_render_vertical_face(pos, neighbor_pos):
+				return true
+	
+	# Bottom face (normal pointing in -Y direction)
+	if face_normal.y < -0.7:
+		if neighbors[NeighborDir.DOWN] != -1:
 			return true
 	
-	# Top face - cull if block above
-	if neighbors[NeighborDir.UP] != -1 and not _should_render_vertical_face(pos, pos + Vector3i(0, 1, 0)):
-		if face_center.y > s - interior_margin and face_normal.y > 0.7:
-			return true
-	
-	# North side
-	if neighbors[NeighborDir.NORTH] != -1 and not _should_render_vertical_face(pos, pos + Vector3i(0, 0, -1)):
-		if face_center.z < interior_margin:
-			var is_near_corner = (NeighborDir.DIAGONAL_NW in exposed_corners and face_center.x < s * 0.5) or \
-								 (NeighborDir.DIAGONAL_NE in exposed_corners and face_center.x > s * 0.5)
-			if not is_near_corner and face_normal.z < -0.7:
-				if is_top_half and disable_all_culling:
-					return false
-				return true
-	
-	# South side
-	if neighbors[NeighborDir.SOUTH] != -1 and not _should_render_vertical_face(pos, pos + Vector3i(0, 0, 1)):
-		if face_center.z > s - interior_margin:
-			var is_near_corner = (NeighborDir.DIAGONAL_SW in exposed_corners and face_center.x < s * 0.5) or \
-								 (NeighborDir.DIAGONAL_SE in exposed_corners and face_center.x > s * 0.5)
-			if not is_near_corner and face_normal.z > 0.7:
-				if is_top_half and disable_all_culling:
-					return false
+	# Top face (normal pointing in +Y direction)
+	if face_normal.y > 0.7:
+		if neighbors[NeighborDir.UP] != -1:
+			var neighbor_pos = pos + Vector3i(0, 1, 0)
+			if neighbor_pos.y == pos.y or not _should_render_vertical_face(pos, neighbor_pos):
 				return true
 	
 	return false

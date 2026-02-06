@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://b7d4ctb7uyvbt"
-path="res://.godot/imported/half_height_bulging_cube.blend-c63233191e0c7a9aa5e3c955306fa285.scn"
+uid="uid://dns5w660ju6u6"
+path="res://.godot/imported/half_bevel.blend-b559049251daeb9f0156f89e7c5b3de7.scn"
 
 [deps]
 
-source_file="res://half_height_bulging_cube.blend"
-dest_files=["res://.godot/imported/half_height_bulging_cube.blend-c63233191e0c7a9aa5e3c955306fa285.scn"]
+source_file="res://cubes/half_bevel.blend"
+dest_files=["res://.godot/imported/half_bevel.blend-b559049251daeb9f0156f89e7c5b3de7.scn"]
 
 [params]
 

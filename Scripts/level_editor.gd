@@ -21,6 +21,7 @@ var current_tile_type = 0
 var current_y_level = 0
 var grid_size = 1.0
 var rotation_increment: float = 15.0  # degrees
+var current_save_file: String = ""  # Tracks the currently loaded/saved file
 
 # ============================================================================
 # SETTINGS
@@ -41,17 +42,22 @@ func _ready():
 	# Ensure save directory exists
 	LevelSaveLoad.ensure_save_directory()
 	
+	# Connect FileDialog signals
+	export_dialog.export_confirmed.connect(_on_export_confirmed)
+	save_dialog.save_confirmed.connect(_on_save_confirmed)
+	load_dialog.load_confirmed.connect(_on_load_confirmed)
+	
 	# Initialize TileMap3D
 	tilemap = TileMap3D.new(grid_size)
 	tilemap.set_parent(self)
 	tilemap.set_offset_provider(Callable(self, "get_y_level_offset"))
 	
 	# Load custom mesh
-	tilemap.load_obj_for_tile_type(3, "res://cube_bulge.obj")
+	tilemap.load_obj_for_tile_type(3, "res://cubes/cube_bulge.obj")
 	tilemap.set_custom_material(3, 0, GRASS)
 	tilemap.set_custom_material(3, 1, DIRT)
 	tilemap.set_custom_material(3, 2, DIRT)
-	tilemap.load_obj_for_tile_type(4, "res://half_bevel.obj")
+	tilemap.load_obj_for_tile_type(4, "res://cubes/half_bevel.obj")
 	tilemap.set_custom_material(4, 0, GRASS)
 	tilemap.set_custom_material(4, 1, DIRT)
 	tilemap.set_custom_material(4, 2, DIRT)
@@ -76,9 +82,10 @@ func _ready():
 	
 	print("Mode: EDIT (Press TAB to toggle)")
 	print("\nSave/Load Controls:")
-	print("  Ctrl+S - Quick save")
-	print("  Ctrl+L - Load last save")
-	print("  Ctrl+Shift+S - Save with custom name")
+	print("  Ctrl+S - Quick save (saves to current file, or quicksave.json if none)")
+	print("  Ctrl+Shift+S - Save as... (opens dialog, becomes new quick save target)")
+	print("  Ctrl+L - Load level (opens dialog, becomes new quick save target)")
+	print("  Ctrl+E - Export mesh (opens dialog with format options)")
 
 # ============================================================================
 # MAIN LOOP
@@ -118,10 +125,16 @@ func _input(event):
 	# Reset FOV
 	if Input.is_action_just_pressed("reset_fov"):
 		camera.reset_fov()
+	
+	# File operations with dialogs
 	if Input.is_action_just_pressed("export"):
-		export_current_level()
-	if Input.is_action_just_pressed("chunk_export"):
-		export_current_level_chunked()
+		show_export_dialog()
+	if Input.is_action_just_pressed("save_as"):  # Ctrl+Shift+S
+		show_save_dialog()
+	if Input.is_action_just_pressed("load"):  # Ctrl+L
+		show_load_dialog()
+	if Input.is_action_just_pressed("quick_save"):  # Ctrl+S
+		quick_save_level()
 # ============================================================================
 # CURSOR UPDATE
 # ============================================================================
@@ -204,10 +217,24 @@ func rotate_selection_ccw():
 # ============================================================================
 
 func quick_save_level():
-	var filepath = LevelSaveLoad.get_save_filepath("quicksave")
+	"""Quick save - overwrites the current file, or quicksave.json if no file is loaded"""
+	var filepath: String
+	
+	if current_save_file != "":
+		# Save to the currently loaded/saved file
+		filepath = current_save_file
+	else:
+		# No file loaded, use default quicksave.json
+		filepath = "user://saved_levels/quicksave.json"
+	
+	# Ensure directory exists
+	DirAccess.make_dir_recursive_absolute("user://saved_levels/")
+	
 	if LevelSaveLoad.save_level(tilemap, y_level_manager, filepath):
+		current_save_file = filepath  # Remember this file
 		print("\n=== QUICK SAVE ===")
-		print("Saved to: ", filepath)
+		var real_path = ProjectSettings.globalize_path(filepath)
+		print("Saved to: ", real_path)
 		print("==================\n")
 
 
@@ -261,30 +288,117 @@ func list_saved_levels():
 	print("====================\n")
 
 # ============================================================================
-# EXPORT FUNCTIONS (Mesh Export - separate from save/load)
+# FILE DIALOG HANDLERS
 # ============================================================================
 
-func export_current_level():
-	var timestamp = Time.get_datetime_string_from_system().replace(":", "-")
-	var filename = "res://exported_level_" + timestamp + ".tres"
+@onready var export_dialog: FileDialog = $UI/Export
+@onready var save_dialog: FileDialog = $UI/Save
+@onready var load_dialog: FileDialog = $UI/Load
+
+func _on_export_confirmed(format_index: int, path: String):
+	"""Handle export confirmation from export dialog"""
 	print("\n=== EXPORTING LEVEL ===")
-	tilemap.export_level_to_file(filename, true)
-	print("Saved to: ", filename)
+	print("Format: ", ["Single", "Chunks", "glTF"][format_index])
+	print("Path: ", path)
+	
+	match format_index:
+		0: # Single .tres
+			_export_single_mesh(path)
+		1: # Chunked .tres (path is directory)
+			_export_chunked_meshes(path)
+		2: # glTF
+			_export_gltf(path)
+	
 	print("======================\n")
 
 
-func export_current_level_single_material():
-	var timestamp = Time.get_datetime_string_from_system().replace(":", "-")
-	var filename = "res://exported_level_single_" + timestamp + ".tres"
-	print("\n=== EXPORTING LEVEL (Single Material) ===")
-	tilemap.export_level_to_file(filename, false)
-	print("Saved to: ", filename)
-	print("=========================================\n")
-
-func export_current_level_chunked():
-	var timestamp = Time.get_datetime_string_from_system().replace(":", "-")
-	var save_name = "level_" + timestamp
+func _export_single_mesh(filepath: String):
+	"""Export as single optimized mesh"""
+	# Ensure .tres extension
+	if not filepath.ends_with(".tres"):
+		filepath += ".tres"
 	
-	print("\n=== EXPORTING LEVEL (CHUNKED) ===")
+	tilemap.export_level_to_file(filepath, true)
+	print("✓ Single mesh exported!")
+	
+	# Show actual path
+	var real_path = ProjectSettings.globalize_path(filepath)
+	print("Saved to: ", real_path)
+
+
+func _export_chunked_meshes(directory: String):
+	"""Export as chunked meshes"""
+	# Extract folder name from path
+	var save_name = directory.get_file()
+	if save_name == "":
+		save_name = "level_chunks"
+	
 	tilemap.export_level_chunked(save_name, Vector3i(32, 32, 32), true)
-	print("==================================\n")
+	print("✓ Chunked meshes exported!")
+	
+	# Show actual path
+	var export_path = "user://exports/" + save_name + "/"
+	var real_path = ProjectSettings.globalize_path(export_path)
+	print("Saved to: ", real_path)
+
+
+func _export_gltf(filepath: String):
+	"""Export as glTF 2.0"""
+	# Ensure .gltf or .glb extension
+	if not filepath.ends_with(".gltf") and not filepath.ends_with(".glb"):
+		filepath += ".gltf"
+	
+	# TODO: Implement glTF export
+	# For now, use single mesh export as placeholder
+	print("⚠ glTF export not yet implemented")
+	print("Using single mesh export as temporary fallback...")
+	
+	var temp_path = filepath.replace(".gltf", ".tres").replace(".glb", ".tres")
+	tilemap.export_level_to_file(temp_path, true)
+	
+	print("Note: Full glTF export with textures coming soon!")
+
+
+func _on_save_confirmed(path: String):
+	"""Handle save confirmation from save dialog"""
+	if LevelSaveLoad.save_level(tilemap, y_level_manager, path):
+		current_save_file = path  # Remember this file for quick save
+		print("\n=== LEVEL SAVED ===")
+		var real_path = ProjectSettings.globalize_path(path)
+		print("Saved to: ", real_path)
+		print("===================\n")
+
+
+func _on_load_confirmed(path: String):
+	"""Handle load confirmation from load dialog"""
+	if LevelSaveLoad.load_level(tilemap, y_level_manager, path):
+		current_save_file = path  # Remember this file for quick save
+		print("\n=== LEVEL LOADED ===")
+		var real_path = ProjectSettings.globalize_path(path)
+		print("Loaded from: ", real_path)
+		print("====================\n")
+		
+		# Update grid visualizer to current y level
+		y_level_manager.change_y_level(current_y_level)
+	else:
+		push_error("Failed to load level from: " + path)
+		print("ERROR: Load failed!")
+
+
+# ============================================================================
+# FUNCTIONS TO SHOW FILE DIALOGS (call these from UI buttons)
+# ============================================================================
+
+func show_export_dialog():
+	"""Show the export file dialog"""
+	export_dialog.popup_centered_ratio(0.6)
+
+
+func show_save_dialog():
+	"""Show the save file dialog"""
+	save_dialog.popup_centered_ratio(0.6)
+
+
+func show_load_dialog():
+	"""Show the load file dialog"""
+	load_dialog.popup_centered_ratio(0.6)
