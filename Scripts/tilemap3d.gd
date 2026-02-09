@@ -246,3 +246,11 @@ func set_batch_mode(enabled: bool):
 func flush_batch_updates():
 	"""Manually flush all pending tile updates (only needed if batch mode is still enabled)"""
 	tile_manager.flush_batch_updates()
+
+# ============================================================================
+# DEBUG HELPERS
+# ============================================================================
+
+func print_corner_debug():
+	"""Print corner culling debug summary - call after placing tiles"""
+	tile_manager.print_corner_debug()

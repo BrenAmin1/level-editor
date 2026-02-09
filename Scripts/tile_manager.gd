@@ -238,6 +238,10 @@ func flush_batch_updates():
 	dirty_tiles.clear()
 	print("=== BATCH FLUSH END ===\n")
 	
+	# Print corner summary for debugging
+	if mesh_generator and mesh_generator.culling_manager:
+		mesh_generator.culling_manager.print_corner_summary()
+	
 	is_flushing = false
 
 
@@ -622,6 +626,10 @@ func _flush_without_threading():
 			_immediate_update_tile_mesh(pos)
 	
 	dirty_tiles.clear()
+	
+	# Print corner summary for debugging
+	if mesh_generator and mesh_generator.culling_manager:
+		mesh_generator.culling_manager.print_corner_summary()
 
 # ============================================================================
 # NEIGHBOR QUERIES
@@ -629,10 +637,27 @@ func _flush_without_threading():
 
 func get_neighbors(pos: Vector3i) -> Dictionary:
 	var neighbors : Dictionary = {}
+	# Cardinal neighbors
 	neighbors[MeshGenerator.NeighborDir.NORTH] = tiles.get(pos + Vector3i(0, 0, -1), -1)
 	neighbors[MeshGenerator.NeighborDir.SOUTH] = tiles.get(pos + Vector3i(0, 0, 1), -1)
 	neighbors[MeshGenerator.NeighborDir.EAST] = tiles.get(pos + Vector3i(1, 0, 0), -1)
 	neighbors[MeshGenerator.NeighborDir.WEST] = tiles.get(pos + Vector3i(-1, 0, 0), -1)
 	neighbors[MeshGenerator.NeighborDir.UP] = tiles.get(pos + Vector3i(0, 1, 0), -1)
 	neighbors[MeshGenerator.NeighborDir.DOWN] = tiles.get(pos + Vector3i(0, -1, 0), -1)
+	# Diagonal neighbors
+	neighbors[MeshGenerator.NeighborDir.DIAGONAL_NW] = tiles.get(pos + Vector3i(-1, 0, -1), -1)
+	neighbors[MeshGenerator.NeighborDir.DIAGONAL_NE] = tiles.get(pos + Vector3i(1, 0, -1), -1)
+	neighbors[MeshGenerator.NeighborDir.DIAGONAL_SW] = tiles.get(pos + Vector3i(-1, 0, 1), -1)
+	neighbors[MeshGenerator.NeighborDir.DIAGONAL_SE] = tiles.get(pos + Vector3i(1, 0, 1), -1)
 	return neighbors
+
+# ============================================================================
+# DEBUG HELPERS
+# ============================================================================
+
+func print_corner_debug():
+	"""Manually print the corner summary - call this after placing tiles"""
+	if mesh_generator and mesh_generator.culling_manager:
+		mesh_generator.culling_manager.print_corner_summary()
+	else:
+		print("Corner debug not available - culling_manager not initialized")

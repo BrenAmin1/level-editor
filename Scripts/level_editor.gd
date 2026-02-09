@@ -103,7 +103,9 @@ func _process(_delta):
 
 func _input(event):
 	var result = input_handler.process_input(event, current_mode, current_tile_type, current_y_level)
-	
+	if event is InputEventKey and event.pressed:
+		if event.keycode == KEY_F5:  # Or any key you want
+			debug_corner_culling()
 	if result:
 		if result.has("action") and result["action"] == "toggle_mode":
 			_toggle_mode()
@@ -402,3 +404,10 @@ func show_save_dialog():
 func show_load_dialog():
 	"""Show the load file dialog"""
 	load_dialog.popup_centered_ratio(0.6)
+
+func debug_corner_culling():
+	"""Print corner culling debug info - call this after placing tiles"""
+	if tilemap:
+		tilemap.print_corner_debug()
+	else:
+		print("TileMap not initialized")

@@ -144,7 +144,7 @@ script = ExtResource("7_fhsmn")
 
 [node name="Load" type="FileDialog" parent="UI" unique_id=1152813888]
 oversampling_override = 1.0
-title = "Load a Level"
+title = "Open a File"
 initial_position = 1
 always_on_top = true
 ok_button_text = "Load"
