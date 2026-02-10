@@ -57,8 +57,8 @@ func _ready() -> void:
 	# Setup file dialog
 	_setup_file_dialog()
 	
-	# Setup 3D preview
-	_setup_3d_preview()
+	# Setup 3D preview asynchronously to avoid startup lag
+	_setup_3d_preview_async()
 	
 	# Connect to popup signals
 	popup_hide.connect(_on_popup_hide)
@@ -76,16 +76,22 @@ func _setup_file_dialog() -> void:
 	# Prevent popup from closing when file dialog opens
 	set_exclusive(false)
 
+
+func _setup_3d_preview_async() -> void:
+	"""Async version: defers heavy work to avoid blocking startup"""
+	# Defer the setup to next frame to avoid blocking startup
+	call_deferred("_setup_3d_preview")
+
+
 func _setup_3d_preview() -> void:
-	print("=== SETTING UP 3D PREVIEW ===")
-	
-	# Create SubViewport for 3D rendering (completely isolated from main world)
+	"""Setup 3D preview - now called deferred to not block startup"""
+	# Create SubViewport for 3D rendering with its own isolated world
 	preview_viewport = SubViewport.new()
 	preview_viewport.size = Vector2i(160, 160)
 	preview_viewport.transparent_bg = true
 	preview_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-	add_child(preview_viewport)  # Added to popup, NOT to level editor
-	print("Viewport created (isolated from level editor world)")
+	preview_viewport.own_world_3d = true  # Create isolated world - won't show main scene
+	add_child(preview_viewport)
 	
 	# Create camera
 	preview_camera = Camera3D.new()
@@ -93,14 +99,12 @@ func _setup_3d_preview() -> void:
 	var look_target = Vector3(0.5, 0.5, 0.5)
 	preview_camera.look_at_from_position(cam_pos, look_target, Vector3.UP)
 	preview_viewport.add_child(preview_camera)
-	print("Camera created")
 	
 	# Create light
 	var light := DirectionalLight3D.new()
 	light.rotation_degrees = Vector3(-45, 45, 0)
 	light.light_energy = 1.0
 	preview_viewport.add_child(light)
-	print("Light created")
 	
 	# Add environment for better lighting
 	var environment = Environment.new()
@@ -112,14 +116,15 @@ func _setup_3d_preview() -> void:
 	world_env.environment = environment
 	preview_viewport.add_child(world_env)
 	
-	# Load cube_bulge.obj
-	print("Loading cube_bulge.obj...")
+	# Load cube_bulge.obj and RECLASSIFY triangles by normal direction
 	var mesh_resource := load("res://cubes/cube_bulge.obj")
 	if mesh_resource:
-		print("Mesh loaded successfully, surfaces: ", mesh_resource.get_surface_count())
+		# Rebuild the mesh with proper surface classification (like the tilemap does)
+		var reclassified_mesh = _reclassify_mesh_by_normals(mesh_resource)
+		
 		preview_mesh = MeshInstance3D.new()
-		preview_mesh.mesh = mesh_resource
-		preview_viewport.add_child(preview_mesh)  # Added to isolated viewport
+		preview_mesh.mesh = reclassified_mesh
+		preview_viewport.add_child(preview_mesh)
 		
 		_update_preview_material()
 	else:
@@ -127,20 +132,171 @@ func _setup_3d_preview() -> void:
 	
 	# Set viewport texture to preview rect
 	preview_rect.texture = preview_viewport.get_texture()
-	print("Viewport texture set to preview_rect")
 	
-	# Start rotation timer
-	var timer := Timer.new()
-	add_child(timer)
-	timer.timeout.connect(_rotate_preview)
-	timer.wait_time = 0.016
-	timer.start()
-	print("=== 3D PREVIEW SETUP COMPLETE ===\n")
+	# Enable mouse input on the preview rect for rotation
+	preview_rect.gui_input.connect(_on_preview_input)
 
 
-func _rotate_preview() -> void:
-	if preview_mesh:
-		preview_mesh.rotate_y(0.01)
+func _reclassify_mesh_by_normals(source_mesh: ArrayMesh) -> ArrayMesh:
+	"""Reclassify mesh triangles by normal direction, matching the tilemap's SurfaceClassifier logic"""
+	
+	# Initialize arrays for each surface type
+	var top_verts = PackedVector3Array()
+	var top_normals = PackedVector3Array()
+	var top_uvs = PackedVector2Array()
+	var top_indices = PackedInt32Array()
+	
+	var sides_verts = PackedVector3Array()
+	var sides_normals = PackedVector3Array()
+	var sides_uvs = PackedVector2Array()
+	var sides_indices = PackedInt32Array()
+	
+	var bottom_verts = PackedVector3Array()
+	var bottom_normals = PackedVector3Array()
+	var bottom_uvs = PackedVector2Array()
+	var bottom_indices = PackedInt32Array()
+	
+	# Process all surfaces from the source mesh
+	for surf_idx in range(source_mesh.get_surface_count()):
+		var arrays = source_mesh.surface_get_arrays(surf_idx)
+		var vertices = arrays[Mesh.ARRAY_VERTEX]
+		var normals = arrays[Mesh.ARRAY_NORMAL]
+		var uvs = arrays[Mesh.ARRAY_TEX_UV]
+		var indices = arrays[Mesh.ARRAY_INDEX]
+		
+		# Process each triangle
+		for i in range(0, indices.size(), 3):
+			var i0 = indices[i]
+			var i1 = indices[i + 1]
+			var i2 = indices[i + 2]
+			
+			var v0 = vertices[i0]
+			var v1 = vertices[i1]
+			var v2 = vertices[i2]
+			
+			var n0 = normals[i0]
+			var n1 = normals[i1]
+			var n2 = normals[i2]
+			
+			# Safe UV handling - uvs might be null
+			var uv0 = Vector2.ZERO
+			var uv1 = Vector2.ZERO
+			var uv2 = Vector2.ZERO
+			if uvs != null and uvs.size() > 0:
+				uv0 = uvs[i0] if i0 < uvs.size() else Vector2.ZERO
+				uv1 = uvs[i1] if i1 < uvs.size() else Vector2.ZERO
+				uv2 = uvs[i2] if i2 < uvs.size() else Vector2.ZERO
+			
+			# Calculate average normal (same as SurfaceClassifier)
+			var avg_normal = (n0 + n1 + n2).normalized()
+			
+			# Classify based on Y component (same thresholds as SurfaceClassifier)
+			if avg_normal.y > 0.8:
+				# TOP surface
+				var start_idx = top_verts.size()
+				top_verts.append(v0)
+				top_verts.append(v1)
+				top_verts.append(v2)
+				top_normals.append(n0)
+				top_normals.append(n1)
+				top_normals.append(n2)
+				top_uvs.append(uv0)
+				top_uvs.append(uv1)
+				top_uvs.append(uv2)
+				top_indices.append(start_idx)
+				top_indices.append(start_idx + 1)
+				top_indices.append(start_idx + 2)
+			elif avg_normal.y < -0.8:
+				# BOTTOM surface
+				var start_idx = bottom_verts.size()
+				bottom_verts.append(v0)
+				bottom_verts.append(v1)
+				bottom_verts.append(v2)
+				bottom_normals.append(n0)
+				bottom_normals.append(n1)
+				bottom_normals.append(n2)
+				bottom_uvs.append(uv0)
+				bottom_uvs.append(uv1)
+				bottom_uvs.append(uv2)
+				bottom_indices.append(start_idx)
+				bottom_indices.append(start_idx + 1)
+				bottom_indices.append(start_idx + 2)
+			else:
+				# SIDES surface
+				var start_idx = sides_verts.size()
+				sides_verts.append(v0)
+				sides_verts.append(v1)
+				sides_verts.append(v2)
+				sides_normals.append(n0)
+				sides_normals.append(n1)
+				sides_normals.append(n2)
+				sides_uvs.append(uv0)
+				sides_uvs.append(uv1)
+				sides_uvs.append(uv2)
+				sides_indices.append(start_idx)
+				sides_indices.append(start_idx + 1)
+				sides_indices.append(start_idx + 2)
+	
+	# Build the reclassified mesh with 3 surfaces: TOP, SIDES, BOTTOM
+	var new_mesh = ArrayMesh.new()
+	
+	# Surface 0: TOP
+	if top_verts.size() > 0:
+		var surface_array = []
+		surface_array.resize(Mesh.ARRAY_MAX)
+		surface_array[Mesh.ARRAY_VERTEX] = top_verts
+		surface_array[Mesh.ARRAY_NORMAL] = top_normals
+		surface_array[Mesh.ARRAY_TEX_UV] = top_uvs
+		surface_array[Mesh.ARRAY_INDEX] = top_indices
+		new_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
+	
+	# Surface 1: SIDES
+	if sides_verts.size() > 0:
+		var surface_array = []
+		surface_array.resize(Mesh.ARRAY_MAX)
+		surface_array[Mesh.ARRAY_VERTEX] = sides_verts
+		surface_array[Mesh.ARRAY_NORMAL] = sides_normals
+		surface_array[Mesh.ARRAY_TEX_UV] = sides_uvs
+		surface_array[Mesh.ARRAY_INDEX] = sides_indices
+		new_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
+	
+	# Surface 2: BOTTOM
+	if bottom_verts.size() > 0:
+		var surface_array = []
+		surface_array.resize(Mesh.ARRAY_MAX)
+		surface_array[Mesh.ARRAY_VERTEX] = bottom_verts
+		surface_array[Mesh.ARRAY_NORMAL] = bottom_normals
+		surface_array[Mesh.ARRAY_TEX_UV] = bottom_uvs
+		surface_array[Mesh.ARRAY_INDEX] = bottom_indices
+		new_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
+	
+	return new_mesh
+
+
+
+func _on_preview_input(event: InputEvent) -> void:
+	"""Handle mouse input on the preview for manual rotation"""
+	if event is InputEventMouseButton:
+		if event.button_index == MOUSE_BUTTON_LEFT or event.button_index == MOUSE_BUTTON_RIGHT:
+			if event.pressed:
+				# Start dragging
+				preview_rect.set_default_cursor_shape(Control.CURSOR_DRAG)
+			else:
+				# Stop dragging
+				preview_rect.set_default_cursor_shape(Control.CURSOR_ARROW)
+	
+	elif event is InputEventMouseMotion:
+		if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+			# Left drag: rotate Y and X
+			if preview_mesh:
+				preview_mesh.rotate_y(event.relative.x * 0.01)
+				preview_mesh.rotate_x(event.relative.y * 0.01)
+		
+		elif Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
+			# Right drag: rotate on Z axis for different perspective
+			if preview_mesh:
+				preview_mesh.rotate_z(event.relative.x * 0.01)
+				preview_mesh.rotate_x(event.relative.y * 0.01)
 
 
 func _update_preview_material() -> void:
@@ -148,35 +304,27 @@ func _update_preview_material() -> void:
 		return
 	
 	var surface_count = preview_mesh.mesh.get_surface_count()
-	print("Updating materials for ", surface_count, " surfaces")
 	
 	if surface_count >= 3:
-		# Surface 0 = TOP
+		# Surface 0 = TOP, Surface 1 = SIDES, Surface 2 = BOTTOM (after reclassification)
 		var top_material = _create_material_for_surface("top")
 		preview_mesh.set_surface_override_material(0, top_material)
 		
-		# Surface 1 = SIDES
 		var side_material = _create_material_for_surface("side")
 		preview_mesh.set_surface_override_material(1, side_material)
 		
-		# Surface 2 = BOTTOM
 		var bottom_material = _create_material_for_surface("bottom")
 		preview_mesh.set_surface_override_material(2, bottom_material)
-		
-		print("Materials applied to all 3 surfaces")
 
 
 func _create_material_for_surface(surface_type: String) -> StandardMaterial3D:
 	"""Create a material for a specific surface (top, side, or bottom)"""
 	var material := StandardMaterial3D.new()
 	
-	# CRITICAL: Use triplanar mapping like the actual tiles do!
-	# This is how cube_bulge.obj is designed to be used
+	# Use triplanar mapping to match the actual tiles
 	material.uv1_triplanar = true
 	material.uv1_world_triplanar = true
 	material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-	
-	# Triplanar blend sharpness (higher = sharper transitions between axes)
 	material.uv1_triplanar_sharpness = 4.0
 	
 	# Load the appropriate texture and normal map
@@ -187,16 +335,16 @@ func _create_material_for_surface(surface_type: String) -> StandardMaterial3D:
 		var texture := load(material_data[texture_key])
 		if texture:
 			material.albedo_texture = texture
-			print("Loaded ", surface_type, " texture: ", material_data[texture_key])
 	
 	if material_data.get(normal_key, "") != "":
 		var normal := load(material_data[normal_key])
 		if normal:
 			material.normal_enabled = true
 			material.normal_texture = normal
-			print("Loaded ", surface_type, " normal: ", material_data[normal_key])
 	
 	return material
+
+
 
 
 func _on_texture_button_pressed(texture_type: String) -> void:
