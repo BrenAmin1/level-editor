@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://ccqufmmdyvelr"
-path.s3tc="res://.godot/imported/Grass_3.png-ffa33f665a6db13e1d0fd7482ab95d94.s3tc.ctex"
+uid="uid://bjokllhuct7b0"
+path.s3tc="res://.godot/imported/Gravle_3.png-e7dec3c39777afb95888febe0464d765.s3tc.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc"],
 "vram_texture": true
@@ -11,8 +11,8 @@ metadata={
 
 [deps]
 
-source_file="res://Resources/Grass_3.png"
-dest_files=["res://.godot/imported/Grass_3.png-ffa33f665a6db13e1d0fd7482ab95d94.s3tc.ctex"]
+source_file="res://Images/Gravle_3.png"
+dest_files=["res://.godot/imported/Gravle_3.png-e7dec3c39777afb95888febe0464d765.s3tc.ctex"]
 
 [params]
 

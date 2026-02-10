@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://trkxtroxgkpx"
-path.s3tc="res://.godot/imported/dirt.png-5bb8ebc0372a5da85fd2e1c49fc200ef.s3tc.ctex"
+uid="uid://cxklurghvpogm"
+path.s3tc="res://.godot/imported/keynote.jpg-ae6e676f3bb1753632e3b2cd041e80c7.s3tc.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc"],
 "vram_texture": true
@@ -11,8 +11,8 @@ metadata={
 
 [deps]
 
-source_file="res://Resources/dirt.png"
-dest_files=["res://.godot/imported/dirt.png-5bb8ebc0372a5da85fd2e1c49fc200ef.s3tc.ctex"]
+source_file="res://Images/keynote.jpg"
+dest_files=["res://.godot/imported/keynote.jpg-ae6e676f3bb1753632e3b2cd041e80c7.s3tc.ctex"]
 
 [params]
 

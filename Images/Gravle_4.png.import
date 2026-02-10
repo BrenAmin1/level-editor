@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://hwtp10g0dlb2"
-path="res://.godot/imported/wall_texture.png-368e9c4640784163cf576d833f5741c4.ctex"
+uid="uid://bptf5m0o3toxf"
+path="res://.godot/imported/Gravle_4.png-6905ba589e9492abbe68652dc98b9c27.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://Resources/wall_texture.png"
-dest_files=["res://.godot/imported/wall_texture.png-368e9c4640784163cf576d833f5741c4.ctex"]
+source_file="res://Images/Gravle_4.png"
+dest_files=["res://.godot/imported/Gravle_4.png-6905ba589e9492abbe68652dc98b9c27.ctex"]
 
 [params]
 

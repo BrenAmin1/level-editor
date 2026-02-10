@@ -1,0 +1,11 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://bxl8k6n4i56yn"]
+
+[ext_resource type="Texture2D" uid="uid://trkxtroxgkpx" path="res://Images/dirt.png" id="1_gsiar"]
+[ext_resource type="Texture2D" uid="uid://3q63frbf477r" path="res://Images/dirt_n.png" id="2_06m4p"]
+
+[resource]
+albedo_texture = ExtResource("1_gsiar")
+normal_texture = ExtResource("2_06m4p")
+uv1_triplanar = true
+uv1_world_triplanar = true
+texture_filter = 0

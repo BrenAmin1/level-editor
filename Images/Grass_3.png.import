@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cxklurghvpogm"
-path.s3tc="res://.godot/imported/keynote.jpg-c31595b0c7807f6d154f57f52b55b96b.s3tc.ctex"
+uid="uid://ccqufmmdyvelr"
+path.s3tc="res://.godot/imported/Grass_3.png-4c103ff8280aead1278417040a3a314b.s3tc.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc"],
 "vram_texture": true
@@ -11,8 +11,8 @@ metadata={
 
 [deps]
 
-source_file="res://Resources/keynote.jpg"
-dest_files=["res://.godot/imported/keynote.jpg-c31595b0c7807f6d154f57f52b55b96b.s3tc.ctex"]
+source_file="res://Images/Grass_3.png"
+dest_files=["res://.godot/imported/Grass_3.png-4c103ff8280aead1278417040a3a314b.s3tc.ctex"]
 
 [params]
 

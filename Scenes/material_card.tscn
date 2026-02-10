@@ -1,5 +1,7 @@
 [gd_scene format=3 uid="uid://c1n33a3t6tvqa"]
 
+[ext_resource type="Script" uid="uid://ctmktj6py8x2r" path="res://Scripts/material_card.gd" id="1_card_script"]
+
 [sub_resource type="PlaceholderTexture2D" id="PlaceholderTexture2D_j1aja"]
 size = Vector2(64, 64)
 
@@ -36,13 +38,13 @@ Button/styles/normal = SubResource("StyleBoxFlat_j1aja")
 Button/styles/pressed = SubResource("StyleBoxFlat_drwpp")
 
 [node name="MaterialCard" type="Control" unique_id=1970806949]
+custom_minimum_size = Vector2(96, 128)
 layout_mode = 3
-anchor_right = 0.056
+anchor_right = 0.083000004
 anchor_bottom = 0.19800001
-offset_right = 31.487999
+offset_right = 0.38399506
 offset_bottom = -0.3040161
-grow_horizontal = 2
-grow_vertical = 2
+script = ExtResource("1_card_script")
 
 [node name="Panel" type="Panel" parent="." unique_id=634590485]
 layout_mode = 1
@@ -73,14 +75,16 @@ theme_override_constants/margin_top = 6
 theme_override_constants/margin_bottom = 8
 
 [node name="Preview" type="TextureRect" parent="MarginContainer/VBoxContainer/MarginContainer" unique_id=1412803218]
+unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 4
 texture = SubResource("PlaceholderTexture2D_j1aja")
 
 [node name="Label" type="Label" parent="MarginContainer/VBoxContainer" unique_id=2024559476]
+unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 38)
 layout_mode = 2
-text = "I am a label"
+text = "Material"
 label_settings = SubResource("LabelSettings_k13ba")
 horizontal_alignment = 1
 vertical_alignment = 1
@@ -88,6 +92,7 @@ autowrap_mode = 2
 text_overrun_behavior = 3
 
 [node name="Button" type="Button" parent="." unique_id=1217636638]
+unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0

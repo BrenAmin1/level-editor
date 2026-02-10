@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bptf5m0o3toxf"
-path="res://.godot/imported/Gravle_4.png-191f15dc977e2537318d9dfb43ff0fca.ctex"
+uid="uid://bdvmwo6f2dr8f"
+path="res://.godot/imported/gravel_2.png-9da68474495b22c055a9182e56591c70.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://Resources/Gravle_4.png"
-dest_files=["res://.godot/imported/Gravle_4.png-191f15dc977e2537318d9dfb43ff0fca.ctex"]
+source_file="res://Images/gravel_2.png"
+dest_files=["res://.godot/imported/gravel_2.png-9da68474495b22c055a9182e56591c70.ctex"]
 
 [params]
 
