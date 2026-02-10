@@ -5,6 +5,7 @@
 [ext_resource type="Script" uid="uid://b12pccb6bgt2j" path="res://Scripts/grid_visualizer.gd" id="3_n1xa8"]
 [ext_resource type="Script" uid="uid://d2w0q8uv3eeuf" path="res://Scripts/cursor_visualizer.gd" id="4_rot6e"]
 [ext_resource type="Script" uid="uid://vy5kk1hqmj06" path="res://Scripts/right_side_menu.gd" id="5_wchaa"]
+[ext_resource type="PackedScene" uid="uid://c1n33a3t6tvqa" path="res://Scenes/material_card.tscn" id="6_fhsmn"]
 [ext_resource type="Script" uid="uid://c75ehuws5po5n" path="res://Scripts/export_filedialog.gd" id="6_i8l5y"]
 [ext_resource type="Script" uid="uid://b2t4yav0slfc5" path="res://Scripts/save_filedialog.gd" id="7_fhsmn"]
 [ext_resource type="Script" uid="uid://dtm42xqkessre" path="res://Scripts/load_filedialog.gd" id="8_5ogug"]
@@ -98,6 +99,54 @@ allow_lesser = true
 [node name="OffsetConfirmButton" type="Button" parent="UI/RightSideMenu/OffsetFold/PanelContainer/OffsetVContain" unique_id=555990946]
 layout_mode = 2
 text = "Confirm"
+
+[node name="MaterialPallete" type="FoldableContainer" parent="UI" unique_id=2040455013]
+layout_mode = 1
+anchors_preset = -1
+anchor_top = 0.88600004
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = 42.87195
+grow_horizontal = 2
+grow_vertical = 0
+folded = true
+title = "Material Palette"
+title_alignment = 1
+
+[node name="VBoxContainer" type="VBoxContainer" parent="UI/MaterialPallete" unique_id=1720585167]
+visible = false
+layout_mode = 2
+
+[node name="ToolBar" type="HBoxContainer" parent="UI/MaterialPallete/VBoxContainer" unique_id=1931648724]
+layout_mode = 2
+alignment = 2
+
+[node name="AddMaterialButton" type="Button" parent="UI/MaterialPallete/VBoxContainer/ToolBar" unique_id=44910113]
+layout_mode = 2
+text = "Add Material"
+
+[node name="EditMaterialButton" type="Button" parent="UI/MaterialPallete/VBoxContainer/ToolBar" unique_id=1681692013]
+layout_mode = 2
+text = "Edit Material"
+
+[node name="DeleteMaterialButton" type="Button" parent="UI/MaterialPallete/VBoxContainer/ToolBar" unique_id=98406832]
+layout_mode = 2
+text = "Delete Material"
+
+[node name="ScrollContainer" type="ScrollContainer" parent="UI/MaterialPallete/VBoxContainer" unique_id=909211302]
+custom_minimum_size = Vector2(0, 128)
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="MaterialGrid" type="GridContainer" parent="UI/MaterialPallete/VBoxContainer/ScrollContainer" unique_id=1180219864]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+columns = 3
+
+[node name="MaterialCard" parent="UI/MaterialPallete/VBoxContainer/ScrollContainer/MaterialGrid" unique_id=1970806949 instance=ExtResource("6_fhsmn")]
+custom_minimum_size = Vector2(96, 128)
+layout_mode = 2
 
 [node name="Controls" type="Label" parent="UI" unique_id=1335712705]
 layout_mode = 0

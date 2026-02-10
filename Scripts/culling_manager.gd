@@ -36,7 +36,7 @@ func find_exposed_corners(neighbors: Dictionary) -> Array:
 	return exposed_corners
 
 func should_cull_triangle(pos: Vector3i, neighbors: Dictionary, face_center: Vector3, 
-						  face_normal: Vector3, exposed_corners: Array, disable_all_culling: bool) -> bool:
+						  face_normal: Vector3, exposed_corners: Array, _disable_all_culling: bool) -> bool:
 	if batch_mode_skip_culling:
 		return false
 	

@@ -1,0 +1,98 @@
+[gd_scene format=3 uid="uid://c1n33a3t6tvqa"]
+
+[sub_resource type="PlaceholderTexture2D" id="PlaceholderTexture2D_j1aja"]
+size = Vector2(64, 64)
+
+[sub_resource type="LabelSettings" id="LabelSettings_k13ba"]
+font_size = 9
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_u0iw8"]
+bg_color = Color(0.6, 0.6, 0.6, 0)
+border_width_left = 4
+border_width_top = 4
+border_width_right = 4
+border_width_bottom = 4
+border_color = Color(0.8939879, 0.8248045, 3.85046e-07, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_j1aja"]
+bg_color = Color(0.6, 0.6, 0.6, 0)
+border_width_left = 4
+border_width_top = 4
+border_width_right = 4
+border_width_bottom = 4
+border_color = Color(0.32172796, 0.321728, 0.32172775, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_drwpp"]
+bg_color = Color(0.23529412, 0.23529412, 0.23529412, 0.5411765)
+border_width_left = 4
+border_width_top = 4
+border_width_right = 4
+border_width_bottom = 4
+border_color = Color(0.6827527, 0.59252995, 0.083660476, 1)
+
+[sub_resource type="Theme" id="Theme_u0iw8"]
+Button/styles/hover = SubResource("StyleBoxFlat_u0iw8")
+Button/styles/normal = SubResource("StyleBoxFlat_j1aja")
+Button/styles/pressed = SubResource("StyleBoxFlat_drwpp")
+
+[node name="MaterialCard" type="Control" unique_id=1970806949]
+layout_mode = 3
+anchor_right = 0.056
+anchor_bottom = 0.19800001
+offset_right = 31.487999
+offset_bottom = -0.3040161
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Panel" type="Panel" parent="." unique_id=634590485]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MarginContainer" type="MarginContainer" parent="." unique_id=1611832155]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 4
+theme_override_constants/margin_top = 4
+theme_override_constants/margin_right = 4
+theme_override_constants/margin_bottom = 4
+
+[node name="VBoxContainer" type="VBoxContainer" parent="MarginContainer" unique_id=1507999312]
+layout_mode = 2
+
+[node name="MarginContainer" type="MarginContainer" parent="MarginContainer/VBoxContainer" unique_id=876222159]
+layout_mode = 2
+theme_override_constants/margin_top = 6
+theme_override_constants/margin_bottom = 8
+
+[node name="Preview" type="TextureRect" parent="MarginContainer/VBoxContainer/MarginContainer" unique_id=1412803218]
+layout_mode = 2
+size_flags_horizontal = 4
+texture = SubResource("PlaceholderTexture2D_j1aja")
+
+[node name="Label" type="Label" parent="MarginContainer/VBoxContainer" unique_id=2024559476]
+custom_minimum_size = Vector2(0, 38)
+layout_mode = 2
+text = "I am a label"
+label_settings = SubResource("LabelSettings_k13ba")
+horizontal_alignment = 1
+vertical_alignment = 1
+autowrap_mode = 2
+text_overrun_behavior = 3
+
+[node name="Button" type="Button" parent="." unique_id=1217636638]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme = SubResource("Theme_u0iw8")
+toggle_mode = true
