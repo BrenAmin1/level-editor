@@ -2,6 +2,7 @@ extends FoldableContainer
 
 signal ui_hover_changed(is_hovered: bool)
 signal material_selected(material_index: int)
+signal popup_state_changed(is_open: bool)  # NEW
 
 var is_mouse_inside: bool = false
 var materials: Array[Dictionary] = []
@@ -27,6 +28,9 @@ func _ready():
 	# Connect popup signal
 	if material_maker_popup:
 		material_maker_popup.material_created.connect(_on_material_created)
+		# NEW: Connect to popup state signals
+		material_maker_popup.popup_opened.connect(_on_popup_opened)
+		material_maker_popup.popup_closed.connect(_on_popup_closed)
 	
 	# Initially disable edit/delete buttons
 	edit_material_button.disabled = true
@@ -91,6 +95,16 @@ func _on_material_created(material_dict: Dictionary) -> void:
 	_create_material_card(material_dict, materials.size() - 1)
 
 
+# NEW: Forward popup opened signal to level editor
+func _on_popup_opened() -> void:
+	popup_state_changed.emit(true)
+
+
+# NEW: Forward popup closed signal to level editor
+func _on_popup_closed() -> void:
+	popup_state_changed.emit(false)
+
+
 func _create_godot_material(material_dict: Dictionary) -> StandardMaterial3D:
 	"""Convert material data dictionary into a Godot StandardMaterial3D"""
 	var m_material = StandardMaterial3D.new()
@@ -134,10 +148,6 @@ func _create_godot_material(material_dict: Dictionary) -> StandardMaterial3D:
 			m_material.albedo_color = Color(0.5, 0.5, 0.5)
 		elif mat_name.contains("gravel"):
 			m_material.albedo_color = Color(0.6, 0.6, 0.6)
-	
-	# Optional: Save the material as a resource file
-	#var save_path = "res://materials/" + material_dict.name.to_lower().replace(" ", "_") + ".tres"
-	# Uncomment to save: ResourceSaver.save(material, save_path)
 	
 	return m_material
 

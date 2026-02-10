@@ -25,6 +25,7 @@ var grid_size = 1.0
 var rotation_increment: float = 15.0  # degrees
 var current_save_file: String = ""  # Tracks the currently loaded/saved file
 var window_has_focus: bool = true
+var is_popup_open: bool = false  # NEW: Track if material popup is open
 
 # ============================================================================
 # SETTINGS
@@ -89,6 +90,7 @@ func _ready():
 	# Connect material palette hover signal
 	if material_palette:
 		material_palette.ui_hover_changed.connect(_on_material_palette_hover_changed)
+		material_palette.popup_state_changed.connect(_on_popup_state_changed)
 	if right_side_menu:
 		right_side_menu.ui_hover_changed.connect(_on_material_palette_hover_changed)
 	
@@ -114,6 +116,10 @@ func _process(_delta):
 # ============================================================================
 
 func _input(event):
+	# Block all input when popup is open (except closing the popup itself)
+	if is_popup_open:
+		return
+	
 	var result = input_handler.process_input(event, current_mode, current_tile_type, current_y_level)
 	if event is InputEventKey and event.pressed:
 		if event.keycode == KEY_F5:  # Or any key you want
@@ -214,6 +220,19 @@ func _on_material_palette_hover_changed(is_hovered: bool):
 	if input_handler:
 		input_handler.is_ui_hovered = is_hovered
 
+
+func _on_popup_state_changed(is_open: bool) -> void:
+	"""Handle material popup opening/closing"""
+	is_popup_open = is_open
+	
+	# Hide cursor preview when popup is open
+	if cursor_visualizer:
+		cursor_visualizer.set_visible(!is_open)
+	
+	if is_open:
+		print("Material popup opened - editor input disabled")
+	else:
+		print("Material popup closed - editor input enabled")
 # ============================================================================
 # Y-LEVEL OFFSET (for TileMap3D)
 # ============================================================================
@@ -246,25 +265,21 @@ func rotate_selection_ccw():
 # ============================================================================
 
 func quick_save_level():
-	"""Quick save - overwrites the current file, or quicksave.json if no file is loaded"""
-	var filepath: String
+	"""Quick save - overwrites the current file, or opens save dialog if no file is loaded"""
 	
 	if current_save_file != "":
 		# Save to the currently loaded/saved file
-		filepath = current_save_file
+		var filepath = current_save_file
+		
+		if LevelSaveLoad.save_level(tilemap, y_level_manager, filepath):
+			print("\n=== QUICK SAVE ===")
+			var real_path = ProjectSettings.globalize_path(filepath)
+			print("Saved to: ", real_path)
+			print("==================\n")
 	else:
-		# No file loaded, use default quicksave.json
-		filepath = "user://saved_levels/quicksave.json"
-	
-	# Ensure directory exists
-	DirAccess.make_dir_recursive_absolute("user://saved_levels/")
-	
-	if LevelSaveLoad.save_level(tilemap, y_level_manager, filepath):
-		current_save_file = filepath  # Remember this file
-		print("\n=== QUICK SAVE ===")
-		var real_path = ProjectSettings.globalize_path(filepath)
-		print("Saved to: ", real_path)
-		print("==================\n")
+		# No file loaded yet - open the save dialog instead
+		print("No file loaded - opening Save As dialog...")
+		show_save_dialog()
 
 
 func save_level_with_name(level_name: String):
