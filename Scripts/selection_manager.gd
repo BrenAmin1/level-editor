@@ -27,6 +27,8 @@ var processing_type: String = ""
 var tiles_per_frame: int = 100  # Process this many tiles per frame
 var batch_mode: bool = false  # Track if we're in batch operation
 var tiles_placed: Array = []  # Track tiles placed for batch update
+var processing_material_index: int = -1  # Material index for paint operations
+var material_palette_ref = null  # Reference to material palette
 
 # ============================================================================
 # SETUP
@@ -46,6 +48,70 @@ func setup(tm: TileMap3D, cam: CameraController, y_mgr: YLevelManager,
 func update_state(y_level: int, tile_type: int):
 	current_y_level = y_level
 	current_tile_type = tile_type
+
+# ============================================================================
+# MATERIAL PAINTING
+# ============================================================================
+
+func set_material_palette_reference(palette):
+	"""Set reference to material palette"""
+	material_palette_ref = palette
+
+
+func mass_paint_tiles(material_index: int):
+	"""Paint all tiles in selection with the specified material"""
+	if not has_selection:
+		print("No area selected")
+		return
+	
+	if is_processing:
+		print("Already processing operation")
+		return
+	
+	# Get all positions in selection
+	var positions = _get_selected_positions()
+	
+	# Filter to only tiles that exist
+	var existing_tiles = []
+	for pos in positions:
+		if tilemap.has_tile(pos):
+			existing_tiles.append(pos)
+	
+	if existing_tiles.is_empty():
+		print("No tiles to paint")
+		clear_selection()
+		return
+	
+	# Start async processing
+	processing_queue = existing_tiles.duplicate()
+	tiles_placed.clear()
+	processing_type = "paint"
+	processing_material_index = material_index
+	is_processing = true
+	batch_mode = true
+	
+	# Enable batch mode on tilemap to defer mesh updates
+	if tilemap.has_method("set_batch_mode"):
+		tilemap.set_batch_mode(true)
+	
+	print("Queued ", processing_queue.size(), " tiles for painting...")
+
+
+func _get_selected_positions() -> Array:
+	"""Get all positions in the current selection"""
+	var positions = []
+	var min_x = mini(selection_start.x, selection_end.x)
+	var max_x = maxi(selection_start.x, selection_end.x)
+	var min_z = mini(selection_start.z, selection_end.z)
+	var max_z = maxi(selection_start.z, selection_end.z)
+	
+	for x in range(min_x, max_x + 1):
+		for z in range(min_z, max_z + 1):
+			var pos = Vector3i(x, current_y_level, z)
+			if abs(pos.x) <= grid_range and abs(pos.z) <= grid_range:
+				positions.append(pos)
+	
+	return positions
 
 # ============================================================================
 # SELECTION
@@ -218,6 +284,10 @@ func process_queue():
 			# item is a dictionary with pos, type, and rotation
 			tilemap.set_tile_rotation(item["pos"], item["rotation"])
 			tiles_placed.append(item["pos"])
+		elif processing_type == "paint":
+			# Paint existing tile with material
+			tilemap.apply_material_to_tile(item, processing_material_index, material_palette_ref)
+			tiles_placed.append(item)
 		
 		processed += 1
 	
