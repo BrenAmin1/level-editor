@@ -6,7 +6,7 @@ size = Vector2(280, 280)
 [node name="MaterialMakerPopup" type="PopupPanel" unique_id=1325598331]
 oversampling_override = 1.0
 title = "Material Maker"
-position = Vector2i(0, 36)
+initial_position = 1
 size = Vector2i(640, 580)
 visible = true
 borderless = false
