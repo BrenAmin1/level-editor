@@ -46,6 +46,55 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary, face_center: Vec
 	
 	var NeighborDir = MeshGenerator.NeighborDir
 	
+	# ============================================================================
+	# DEBUG FOR POSITION (0, 0, -5) - Print info about ALL triangles
+	# ============================================================================
+	if pos == Vector3i(0, 0, -5):
+		var face_type = "UNKNOWN"
+		if face_normal.z < -0.7:
+			face_type = "NORTH"
+		elif face_normal.z > 0.7:
+			face_type = "SOUTH"
+		elif face_normal.x < -0.7:
+			face_type = "WEST"
+		elif face_normal.x > 0.7:
+			face_type = "EAST"
+		elif face_normal.y < -0.7:
+			face_type = "BOTTOM"
+		elif face_normal.y > 0.7:
+			face_type = "TOP"
+		
+		print("\n=== DEBUG: Position (0,0,-5) - ", face_type, " FACE ===")
+		print("face_center: ", face_center)
+		print("face_normal: ", face_normal)
+		
+		if face_type == "NORTH":
+			print("at_west_corner (face_center.x < 0): ", face_center.x < 0, " (x=", face_center.x, ")")
+			print("at_east_corner (face_center.x > 0): ", face_center.x > 0)
+		elif face_type == "SOUTH":
+			print("at_west_corner (face_center.x < 0): ", face_center.x < 0, " (x=", face_center.x, ")")
+			print("at_east_corner (face_center.x > 0): ", face_center.x > 0)
+		elif face_type == "WEST":
+			print("at_north_corner (face_center.z < 0): ", face_center.z < 0, " (z=", face_center.z, ")")
+			print("at_south_corner (face_center.z > 0): ", face_center.z > 0)
+		elif face_type == "EAST":
+			print("at_north_corner (face_center.z < 0): ", face_center.z < 0, " (z=", face_center.z, ")")
+			print("at_south_corner (face_center.z > 0): ", face_center.z > 0)
+		
+		print("Neighbors:")
+		print("  NORTH: ", neighbors[NeighborDir.NORTH])
+		print("  SOUTH: ", neighbors[NeighborDir.SOUTH])
+		print("  EAST: ", neighbors[NeighborDir.EAST])
+		print("  WEST: ", neighbors[NeighborDir.WEST])
+		print("  DIAGONAL_NW: ", neighbors.get(NeighborDir.DIAGONAL_NW, -1))
+		print("  DIAGONAL_NE: ", neighbors.get(NeighborDir.DIAGONAL_NE, -1))
+		print("  DIAGONAL_SW: ", neighbors.get(NeighborDir.DIAGONAL_SW, -1))
+		print("  DIAGONAL_SE: ", neighbors.get(NeighborDir.DIAGONAL_SE, -1))
+		print("=== END DEBUG ===\n")
+	# ============================================================================
+	# END DEBUG
+	# ============================================================================
+	
 	# Debug flag - set to true to track corner keeps
 	var DEBUG_CULLING = true
 	
