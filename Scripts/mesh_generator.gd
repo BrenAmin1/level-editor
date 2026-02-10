@@ -101,11 +101,17 @@ func _rotate_neighbors(neighbors: Dictionary, rotation_degrees: float) -> Dictio
 	
 	var rotated = neighbors.duplicate()
 	
-	# Only rotate cardinal directions (not UP/DOWN)
+	# Get all neighbor values
 	var north = neighbors[NeighborDir.NORTH]
 	var south = neighbors[NeighborDir.SOUTH]
 	var east = neighbors[NeighborDir.EAST]
 	var west = neighbors[NeighborDir.WEST]
+	
+	# Get diagonal neighbors (with safe defaults)
+	var nw = neighbors.get(NeighborDir.DIAGONAL_NW, -1)
+	var ne = neighbors.get(NeighborDir.DIAGONAL_NE, -1)
+	var sw = neighbors.get(NeighborDir.DIAGONAL_SW, -1)
+	var se = neighbors.get(NeighborDir.DIAGONAL_SE, -1)
 	
 	match rot:
 		90:  # Clockwise 90°
@@ -113,16 +119,31 @@ func _rotate_neighbors(neighbors: Dictionary, rotation_degrees: float) -> Dictio
 			rotated[NeighborDir.EAST] = north
 			rotated[NeighborDir.SOUTH] = east
 			rotated[NeighborDir.WEST] = south
+			# Rotate diagonals: NW->NE, NE->SE, SE->SW, SW->NW
+			rotated[NeighborDir.DIAGONAL_NE] = nw
+			rotated[NeighborDir.DIAGONAL_SE] = ne
+			rotated[NeighborDir.DIAGONAL_SW] = se
+			rotated[NeighborDir.DIAGONAL_NW] = sw
 		180:  # 180°
 			rotated[NeighborDir.NORTH] = south
 			rotated[NeighborDir.EAST] = west
 			rotated[NeighborDir.SOUTH] = north
 			rotated[NeighborDir.WEST] = east
+			# Rotate diagonals: NW->SE, NE->SW, SE->NW, SW->NE
+			rotated[NeighborDir.DIAGONAL_SE] = nw
+			rotated[NeighborDir.DIAGONAL_SW] = ne
+			rotated[NeighborDir.DIAGONAL_NW] = se
+			rotated[NeighborDir.DIAGONAL_NE] = sw
 		270:  # Counter-clockwise 90° (or clockwise 270°)
 			rotated[NeighborDir.NORTH] = east
 			rotated[NeighborDir.EAST] = south
 			rotated[NeighborDir.SOUTH] = west
 			rotated[NeighborDir.WEST] = north
+			# Rotate diagonals: NW->SW, SW->SE, SE->NE, NE->NW
+			rotated[NeighborDir.DIAGONAL_SW] = nw
+			rotated[NeighborDir.DIAGONAL_SE] = sw
+			rotated[NeighborDir.DIAGONAL_NE] = se
+			rotated[NeighborDir.DIAGONAL_NW] = ne
 	
 	return rotated
 

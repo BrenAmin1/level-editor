@@ -46,89 +46,31 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary, face_center: Vec
 	
 	var NeighborDir = MeshGenerator.NeighborDir
 	
-	# ============================================================================
-	# DEBUG FOR POSITION (0, 0, -5) - Print info about ALL triangles
-	# ============================================================================
-	if pos == Vector3i(0, 0, -5):
-		var face_type = "UNKNOWN"
-		if face_normal.z < -0.7:
-			face_type = "NORTH"
-		elif face_normal.z > 0.7:
-			face_type = "SOUTH"
-		elif face_normal.x < -0.7:
-			face_type = "WEST"
-		elif face_normal.x > 0.7:
-			face_type = "EAST"
-		elif face_normal.y < -0.7:
-			face_type = "BOTTOM"
-		elif face_normal.y > 0.7:
-			face_type = "TOP"
-		
-		print("\n=== DEBUG: Position (0,0,-5) - ", face_type, " FACE ===")
-		print("face_center: ", face_center)
-		print("face_normal: ", face_normal)
-		
-		if face_type == "NORTH":
-			print("at_west_corner (face_center.x < 0): ", face_center.x < 0, " (x=", face_center.x, ")")
-			print("at_east_corner (face_center.x > 0): ", face_center.x > 0)
-		elif face_type == "SOUTH":
-			print("at_west_corner (face_center.x < 0): ", face_center.x < 0, " (x=", face_center.x, ")")
-			print("at_east_corner (face_center.x > 0): ", face_center.x > 0)
-		elif face_type == "WEST":
-			print("at_north_corner (face_center.z < 0): ", face_center.z < 0, " (z=", face_center.z, ")")
-			print("at_south_corner (face_center.z > 0): ", face_center.z > 0)
-		elif face_type == "EAST":
-			print("at_north_corner (face_center.z < 0): ", face_center.z < 0, " (z=", face_center.z, ")")
-			print("at_south_corner (face_center.z > 0): ", face_center.z > 0)
-		
-		print("Neighbors:")
-		print("  NORTH: ", neighbors[NeighborDir.NORTH])
-		print("  SOUTH: ", neighbors[NeighborDir.SOUTH])
-		print("  EAST: ", neighbors[NeighborDir.EAST])
-		print("  WEST: ", neighbors[NeighborDir.WEST])
-		print("  DIAGONAL_NW: ", neighbors.get(NeighborDir.DIAGONAL_NW, -1))
-		print("  DIAGONAL_NE: ", neighbors.get(NeighborDir.DIAGONAL_NE, -1))
-		print("  DIAGONAL_SW: ", neighbors.get(NeighborDir.DIAGONAL_SW, -1))
-		print("  DIAGONAL_SE: ", neighbors.get(NeighborDir.DIAGONAL_SE, -1))
-		print("=== END DEBUG ===\n")
-	# ============================================================================
-	# END DEBUG
-	# ============================================================================
-	
 	# Debug flag - set to true to track corner keeps
 	var DEBUG_CULLING = true
 	
 	# Check if this cube has a cube on top
 	var has_cube_above = neighbors[NeighborDir.UP] != -1
 	
-	# Cull based on face normal direction, NOT position
-	# If face points toward a neighbor at same Y level, cull it
-	
 	# West face (normal pointing in -X direction)
 	if face_normal.x < -0.7:
-		var at_north_corner = face_center.z < 0  # Negative Z = north side
-		var at_south_corner = face_center.z > 0  # Positive Z = south side
+		# Check if this face is part of ANY exposed corner
+		var is_part_of_nw_corner = NeighborDir.DIAGONAL_NW in exposed_corners
+		var is_part_of_sw_corner = NeighborDir.DIAGONAL_SW in exposed_corners
 		
-		# CHECK CORNERS FIRST
-		# Northwest corner: need NORTH neighbor AND missing NW diagonal
-		if at_north_corner and neighbors[NeighborDir.NORTH] != -1:
-			if neighbors.get(NeighborDir.DIAGONAL_NW, -1) == -1:
-				if DEBUG_CULLING:
+		# If this face is part of an exposed corner, DON'T cull ANY of it
+		if is_part_of_nw_corner or is_part_of_sw_corner:
+			if DEBUG_CULLING:
+				if is_part_of_nw_corner:
 					_track_corner_keep(pos, "WEST at NW")
-				return false  # Exposed corner, don't cull
-		
-		# Southwest corner: need SOUTH neighbor AND missing SW diagonal
-		if at_south_corner and neighbors[NeighborDir.SOUTH] != -1:
-			if neighbors.get(NeighborDir.DIAGONAL_SW, -1) == -1:
-				if DEBUG_CULLING:
+				if is_part_of_sw_corner:
 					_track_corner_keep(pos, "WEST at SW")
-				return false  # Exposed corner, don't cull
+			return false  # Keep the ENTIRE face
 		
-		# NOW check face culling
+		# Otherwise, apply normal face culling
 		if neighbors[NeighborDir.WEST] != -1:
 			var neighbor_pos = pos + Vector3i(-1, 0, 0)
 			if neighbor_pos.y == pos.y:
-				# Otherwise, apply normal culling
 				if not _should_render_side_face(face_center, has_cube_above):
 					return true
 			elif not _should_render_vertical_face(pos, neighbor_pos):
@@ -136,25 +78,20 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary, face_center: Vec
 	
 	# East face (normal pointing in +X direction)
 	if face_normal.x > 0.7:
-		var at_north_corner = face_center.z < 0
-		var at_south_corner = face_center.z > 0
+		# Check if this face is part of ANY exposed corner
+		var is_part_of_ne_corner = NeighborDir.DIAGONAL_NE in exposed_corners
+		var is_part_of_se_corner = NeighborDir.DIAGONAL_SE in exposed_corners
 		
-		# CHECK CORNERS FIRST
-		# Northeast corner: need NORTH neighbor AND missing NE diagonal
-		if at_north_corner and neighbors[NeighborDir.NORTH] != -1:
-			if neighbors.get(NeighborDir.DIAGONAL_NE, -1) == -1:
-				if DEBUG_CULLING:
+		# If this face is part of an exposed corner, DON'T cull ANY of it
+		if is_part_of_ne_corner or is_part_of_se_corner:
+			if DEBUG_CULLING:
+				if is_part_of_ne_corner:
 					_track_corner_keep(pos, "EAST at NE")
-				return false
-		
-		# Southeast corner: need SOUTH neighbor AND missing SE diagonal
-		if at_south_corner and neighbors[NeighborDir.SOUTH] != -1:
-			if neighbors.get(NeighborDir.DIAGONAL_SE, -1) == -1:
-				if DEBUG_CULLING:
+				if is_part_of_se_corner:
 					_track_corner_keep(pos, "EAST at SE")
-				return false
+			return false  # Keep the ENTIRE face
 		
-		# NOW check face culling
+		# Otherwise, apply normal face culling
 		if neighbors[NeighborDir.EAST] != -1:
 			var neighbor_pos = pos + Vector3i(1, 0, 0)
 			if neighbor_pos.y == pos.y:
@@ -165,25 +102,20 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary, face_center: Vec
 	
 	# North face (normal pointing in -Z direction)
 	if face_normal.z < -0.7:
-		var at_west_corner = face_center.x < 0
-		var at_east_corner = face_center.x > 0
+		# Check if this face is part of ANY exposed corner
+		var is_part_of_nw_corner = NeighborDir.DIAGONAL_NW in exposed_corners
+		var is_part_of_ne_corner = NeighborDir.DIAGONAL_NE in exposed_corners
 		
-		# CHECK CORNERS FIRST - independent of whether NORTH neighbor exists
-		# Northwest corner: need WEST neighbor AND missing NW diagonal
-		if at_west_corner and neighbors[NeighborDir.WEST] != -1:
-			if neighbors.get(NeighborDir.DIAGONAL_NW, -1) == -1:
-				if DEBUG_CULLING:
+		# If this face is part of an exposed corner, DON'T cull ANY of it
+		if is_part_of_nw_corner or is_part_of_ne_corner:
+			if DEBUG_CULLING:
+				if is_part_of_nw_corner:
 					_track_corner_keep(pos, "NORTH at NW")
-				return false
-		
-		# Northeast corner: need EAST neighbor AND missing NE diagonal
-		if at_east_corner and neighbors[NeighborDir.EAST] != -1:
-			if neighbors.get(NeighborDir.DIAGONAL_NE, -1) == -1:
-				if DEBUG_CULLING:
+				if is_part_of_ne_corner:
 					_track_corner_keep(pos, "NORTH at NE")
-				return false
+			return false  # Keep the ENTIRE face
 		
-		# NOW check face culling (only if NORTH neighbor exists)
+		# Otherwise, apply normal face culling
 		if neighbors[NeighborDir.NORTH] != -1:
 			var neighbor_pos = pos + Vector3i(0, 0, -1)
 			if neighbor_pos.y == pos.y:
@@ -194,25 +126,20 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary, face_center: Vec
 	
 	# South face (normal pointing in +Z direction)
 	if face_normal.z > 0.7:
-		var at_west_corner = face_center.x < 0
-		var at_east_corner = face_center.x > 0
+		# Check if this face is part of ANY exposed corner
+		var is_part_of_sw_corner = NeighborDir.DIAGONAL_SW in exposed_corners
+		var is_part_of_se_corner = NeighborDir.DIAGONAL_SE in exposed_corners
 		
-		# CHECK CORNERS FIRST
-		# Southwest corner: need WEST neighbor AND missing SW diagonal
-		if at_west_corner and neighbors[NeighborDir.WEST] != -1:
-			if neighbors.get(NeighborDir.DIAGONAL_SW, -1) == -1:
-				if DEBUG_CULLING:
+		# If this face is part of an exposed corner, DON'T cull ANY of it
+		if is_part_of_sw_corner or is_part_of_se_corner:
+			if DEBUG_CULLING:
+				if is_part_of_sw_corner:
 					_track_corner_keep(pos, "SOUTH at SW")
-				return false
-		
-		# Southeast corner: need EAST neighbor AND missing SE diagonal
-		if at_east_corner and neighbors[NeighborDir.EAST] != -1:
-			if neighbors.get(NeighborDir.DIAGONAL_SE, -1) == -1:
-				if DEBUG_CULLING:
+				if is_part_of_se_corner:
 					_track_corner_keep(pos, "SOUTH at SE")
-				return false
+			return false  # Keep the ENTIRE face
 		
-		# NOW check face culling
+		# Otherwise, apply normal face culling
 		if neighbors[NeighborDir.SOUTH] != -1:
 			var neighbor_pos = pos + Vector3i(0, 0, 1)
 			if neighbor_pos.y == pos.y:
@@ -275,6 +202,42 @@ func _face_is_in_bulge(face_center: Vector3) -> bool:
 	var bulge_threshold = grid_size * 0.4
 	return face_center.y > bulge_threshold
 
+func _track_corner_keep(pos: Vector3i, corner_desc: String):
+	var pos_str = str(pos)
+	if not corner_keeps.has(pos_str):
+		corner_keeps[pos_str] = {}  # Use dictionary as a set
+	corner_keeps[pos_str][corner_desc] = true  # Only track unique corner types
+
+func print_corner_summary():
+	print("\n--- Corner Keep Summary ---")
+	print("Total positions processed: ", positions_processed.size())
+	
+	if corner_keeps.is_empty():
+		print("No corners kept at any position!")
+	else:
+		print("\nPositions WITH corners kept:")
+		var positions = corner_keeps.keys()
+		positions.sort()
+		for pos_str in positions:
+			var corner_types = corner_keeps[pos_str].keys()  # Get unique corner types
+			corner_types.sort()
+			print("  Pos:", pos_str, " → ", corner_types.size(), " unique corner(s): ", corner_types)
+	
+	# Show positions that were processed but have NO corners
+	var all_positions = positions_processed.keys()
+	all_positions.sort()
+	var positions_without_corners = []
+	for pos_str in all_positions:
+		if not corner_keeps.has(pos_str):
+			positions_without_corners.append(pos_str)
+	
+	if not positions_without_corners.is_empty():
+		print("\nPositions WITHOUT any corners kept:")
+		for pos_str in positions_without_corners:
+			print("  Pos:", pos_str, " → 0 corners")
+	
+	print("--- End Summary ---\n")
+
 func _is_face_at_corner(face_center: Vector3, face_normal: Vector3) -> bool:
 	"""
 	Check if a face is positioned at a corner of the cube.
@@ -282,7 +245,7 @@ func _is_face_at_corner(face_center: Vector3, face_normal: Vector3) -> bool:
 	
 	The mesh vertices are in range -0.5 to 0.5, so we check against those bounds.
 	"""
-	var corner_threshold = 0.35  # Must be within 0.15 units of the edge (0.35 to 0.5)
+	var corner_threshold = 0.4  # Must be within 0.15 units of the edge (0.35 to 0.5)
 	
 	# For each cardinal direction, check if face is very close to the perpendicular edges
 	# West-facing or East-facing: check if near north or south edges
@@ -335,39 +298,3 @@ func _corner_is_exposed(face_center: Vector3, face_normal: Vector3, exposed_corn
 			return NeighborDir.DIAGONAL_SE in exposed_corners
 	
 	return false
-
-func _track_corner_keep(pos: Vector3i, corner_desc: String):
-	var pos_str = str(pos)
-	if not corner_keeps.has(pos_str):
-		corner_keeps[pos_str] = {}  # Use dictionary as a set
-	corner_keeps[pos_str][corner_desc] = true  # Only track unique corner types
-
-func print_corner_summary():
-	print("\n--- Corner Keep Summary ---")
-	print("Total positions processed: ", positions_processed.size())
-	
-	if corner_keeps.is_empty():
-		print("No corners kept at any position!")
-	else:
-		print("\nPositions WITH corners kept:")
-		var positions = corner_keeps.keys()
-		positions.sort()
-		for pos_str in positions:
-			var corner_types = corner_keeps[pos_str].keys()  # Get unique corner types
-			corner_types.sort()
-			print("  Pos:", pos_str, " → ", corner_types.size(), " unique corner(s): ", corner_types)
-	
-	# Show positions that were processed but have NO corners
-	var all_positions = positions_processed.keys()
-	all_positions.sort()
-	var positions_without_corners = []
-	for pos_str in all_positions:
-		if not corner_keeps.has(pos_str):
-			positions_without_corners.append(pos_str)
-	
-	if not positions_without_corners.is_empty():
-		print("\nPositions WITHOUT any corners kept:")
-		for pos_str in positions_without_corners:
-			print("  Pos:", pos_str, " → 0 corners")
-	
-	print("--- End Summary ---\n")
