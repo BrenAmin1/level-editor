@@ -6,6 +6,8 @@ extends Node3D
 @onready var camera: CameraController = $Camera3D
 @onready var grid_visualizer: GridVisualizer = $GridVisualizer
 @onready var cursor_visualizer: CursorVisualizer = $CursorVisualizer
+@onready var material_palette: FoldableContainer = $UI/MaterialPalette  # Note: Your typo "Pallete"
+@onready var right_side_menu: VBoxContainer = $UI/RightSideMenu
 
 var tilemap: TileMap3D
 var input_handler: InputHandler
@@ -22,6 +24,7 @@ var current_y_level = 0
 var grid_size = 1.0
 var rotation_increment: float = 15.0  # degrees
 var current_save_file: String = ""  # Tracks the currently loaded/saved file
+var window_has_focus: bool = true
 
 # ============================================================================
 # SETTINGS
@@ -79,6 +82,15 @@ func _ready():
 	input_handler = InputHandler.new()
 	input_handler.setup(self, camera, tilemap, cursor_visualizer, selection_manager, 
 						y_level_manager, grid_size, grid_range)
+	
+	get_window().focus_entered.connect(_on_window_focus_entered)
+	get_window().focus_exited.connect(_on_window_focus_exited)
+	
+	# Connect material palette hover signal
+	if material_palette:
+		material_palette.ui_hover_changed.connect(_on_material_palette_hover_changed)
+	if right_side_menu:
+		right_side_menu.ui_hover_changed.connect(_on_material_palette_hover_changed)
 	
 	print("Mode: EDIT (Press TAB to toggle)")
 	print("\nSave/Load Controls:")
@@ -186,6 +198,21 @@ func _toggle_mode():
 		selection_manager.clear_selection()
 		print("Mode: EDIT")
 
+
+func _on_window_focus_entered():
+	window_has_focus = true
+
+
+func _on_window_focus_exited():
+	window_has_focus = false
+	# Release mouse press state when window loses focus
+	if input_handler:
+		input_handler.mouse_pressed = false
+
+
+func _on_material_palette_hover_changed(is_hovered: bool):
+	if input_handler:
+		input_handler.is_ui_hovered = is_hovered
 
 # ============================================================================
 # Y-LEVEL OFFSET (for TileMap3D)

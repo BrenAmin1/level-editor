@@ -1,4 +1,5 @@
 extends VBoxContainer
+
 @onready var level_editor: Node3D = $"../.."
 @onready var camera: CameraController = $"../../Camera3D"
 
@@ -7,6 +8,8 @@ extends VBoxContainer
 @onready var y_level: Label = $YLevel
 
 @onready var offset_confirm_button: Button = $OffsetFold/PanelContainer/OffsetVContain/OffsetConfirmButton
+
+signal ui_hover_changed(is_hovered: bool)
 
 var old_text := ""
 var is_spinbox_focused := false
@@ -20,6 +23,10 @@ func _ready() -> void:
 	x_spin.get_line_edit().focus_exited.connect(_on_spinbox_focus_exited)
 	z_spin.get_line_edit().focus_entered.connect(_on_spinbox_focus_entered)
 	z_spin.get_line_edit().focus_exited.connect(_on_spinbox_focus_exited)
+	
+	mouse_entered.connect(_on_mouse_entered)
+	mouse_exited.connect(_on_mouse_exited)
+	mouse_filter = Control.MOUSE_FILTER_STOP
 
 func _something(text: String, box: SpinBox) -> void:
 	# Allow empty, valid float, or just a minus sign (for typing negatives)
@@ -29,8 +36,18 @@ func _something(text: String, box: SpinBox) -> void:
 		box.get_line_edit().text = old_text
 		box.get_line_edit().caret_column = old_text.length()
 
+func _on_mouse_entered():
+	ui_hover_changed.emit(true)
+
+
+func _on_mouse_exited():
+	ui_hover_changed.emit(false)
+
+
 func _on_spinbox_focus_entered() -> void:
 	is_spinbox_focused = true
+	ui_hover_changed.emit(true)  # Also signal hover when focused
+	
 	# Disable ALL processing and input
 	level_editor.set_process(false)
 	level_editor.set_physics_process(false)
@@ -44,8 +61,11 @@ func _on_spinbox_focus_entered() -> void:
 	
 	print("All input blocked - spinbox focused")
 
+
 func _on_spinbox_focus_exited() -> void:
 	is_spinbox_focused = false
+	ui_hover_changed.emit(false)  # Clear hover when unfocused
+	
 	# Re-enable ALL processing and input
 	level_editor.set_process(true)
 	level_editor.set_physics_process(true)

@@ -11,6 +11,7 @@ var y_level_manager: YLevelManager
 # Input state
 var mouse_pressed: bool = false
 var current_mouse_button: InputEventMouseButton
+var is_ui_hovered: bool = false
 
 # Grid settings
 var grid_size: float
@@ -57,6 +58,9 @@ func process_input(event: InputEvent, mode: int, tile_type: int, y_level: int):
 
 
 func _handle_mouse_button(event: InputEventMouseButton):
+	if is_ui_hovered:
+		return
+	
 	if event.pressed:
 		mouse_pressed = true
 		current_mouse_button = event
@@ -141,6 +145,12 @@ func handle_mouse_wheel(delta: float):
 
 
 func handle_continuous_input(_delta: float):
+	# Block input if:
+	# 1. Mouse is over UI (material palette, spinboxes, etc.)
+	# 2. Window doesn't have focus
+	if is_ui_hovered or not editor.window_has_focus:
+		return
+	
 	# Handle held mouse buttons in EDIT mode
 	if mouse_pressed and current_mode == 0:  # EDIT mode
 		if current_mouse_button:
@@ -149,6 +159,7 @@ func handle_continuous_input(_delta: float):
 				_attempt_tile_placement(current_mouse_button.position, false)
 			elif current_mouse_button.button_index == MOUSE_BUTTON_RIGHT:
 				_attempt_tile_removal(current_mouse_button.position)
+
 
 
 # ============================================================================
