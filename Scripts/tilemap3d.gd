@@ -23,6 +23,7 @@ var mesh_editor: MeshEditor
 var material_manager: MaterialManager
 var tile_manager: TileManager
 var mesh_optimizer: MeshOptimizer
+var material_palette_ref = null  # Reference to material palette for applying materials
 
 # ============================================================================
 # INITIALIZATION
@@ -69,6 +70,11 @@ func set_parent(node: Node3D):
 
 func set_offset_provider(provider: Callable):
 	offset_provider = provider
+
+
+func set_material_palette_reference(palette):
+	"""Set reference to material palette for applying materials to tiles"""
+	material_palette_ref = palette
 
 
 func get_offset_for_y(y_level: int) -> Vector2:

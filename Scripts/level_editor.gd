@@ -57,6 +57,7 @@ func _ready():
 	tilemap = TileMap3D.new(grid_size)
 	tilemap.set_parent(self)
 	tilemap.set_offset_provider(Callable(self, "get_y_level_offset"))
+	tilemap.set_material_palette_reference(material_palette)
 	
 	# Load custom mesh
 	tilemap.load_obj_for_tile_type(3, "res://cubes/cube_bulge.obj")
