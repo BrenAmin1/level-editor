@@ -5,7 +5,7 @@
 [ext_resource type="Script" uid="uid://b12pccb6bgt2j" path="res://Scripts/grid_visualizer.gd" id="3_n1xa8"]
 [ext_resource type="Script" uid="uid://d2w0q8uv3eeuf" path="res://Scripts/cursor_visualizer.gd" id="4_rot6e"]
 [ext_resource type="Script" uid="uid://vy5kk1hqmj06" path="res://Scripts/right_side_menu.gd" id="5_wchaa"]
-[ext_resource type="PackedScene" uid="uid://ul0bm45ob3bd" path="res://Scenes/material_pallete.tscn" id="6_fhsmn"]
+[ext_resource type="PackedScene" uid="uid://ul0bm45ob3bd" path="res://Scenes/material_palette.tscn" id="6_fhsmn"]
 [ext_resource type="Script" uid="uid://c75ehuws5po5n" path="res://Scripts/export_filedialog.gd" id="6_i8l5y"]
 [ext_resource type="Script" uid="uid://b2t4yav0slfc5" path="res://Scripts/save_filedialog.gd" id="7_fhsmn"]
 [ext_resource type="Script" uid="uid://dtm42xqkessre" path="res://Scripts/load_filedialog.gd" id="8_5ogug"]
@@ -100,9 +100,17 @@ allow_lesser = true
 layout_mode = 2
 text = "Confirm"
 
-[node name="MaterialPallete" parent="UI" unique_id=49067143 instance=ExtResource("6_fhsmn")]
+[node name="MaterialPalette" parent="UI" unique_id=49067143 instance=ExtResource("6_fhsmn")]
 layout_mode = 0
 anchors_preset = 0
+anchor_top = 0.0
+anchor_right = 0.0
+anchor_bottom = 0.0
+offset_top = 0.0
+offset_right = 24.0
+offset_bottom = 32.0
+grow_horizontal = 1
+grow_vertical = 1
 
 [node name="Controls" type="Label" parent="UI" unique_id=1335712705]
 layout_mode = 0
