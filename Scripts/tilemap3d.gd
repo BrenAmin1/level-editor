@@ -12,6 +12,7 @@ var grid_size: float = 1.0
 var parent_node: Node3D
 var offset_provider: Callable
 var tile_rotations: Dictionary = {}  # Vector3i -> float (degrees)
+var tile_materials: Dictionary = {}  # Vector3i -> int (material_index)
 
 # ============================================================================
 # COMPONENTS
@@ -153,8 +154,38 @@ func place_tile(pos: Vector3i, tile_type: int):
 	tile_manager.place_tile(pos, tile_type)
 
 
+func place_tile_with_material(pos: Vector3i, tile_type: int, material_index: int, material_palette_ref):
+	"""Place a tile and apply a material to it"""
+	tile_manager.place_tile(pos, tile_type)
+	apply_material_to_tile(pos, material_index, material_palette_ref)
+
+
+func apply_material_to_tile(pos: Vector3i, material_index: int, material_palette_ref):
+	"""Apply a material to an existing tile"""
+	if pos not in tiles:
+		return
+	
+	# Store material index
+	tile_materials[pos] = material_index
+	
+	# Get material from palette
+	var material = material_palette_ref.get_material_at_index(material_index)
+	
+	# Apply to mesh instance if it exists
+	if pos in tile_meshes and material:
+		tile_meshes[pos].set_surface_override_material(0, material)
+
+
+func get_tile_material_index(pos: Vector3i) -> int:
+	"""Get the material index for a tile at the given position"""
+	return tile_materials.get(pos, -1)
+
+
 func remove_tile(pos: Vector3i):
 	tile_manager.remove_tile(pos)
+	# Clean up material data
+	if pos in tile_materials:
+		tile_materials.erase(pos)
 
 
 func has_tile(pos: Vector3i) -> bool:

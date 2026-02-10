@@ -7,17 +7,22 @@ const SAVE_VERSION = 1
 # SAVE LEVEL DATA
 # ============================================================================
 
-static func save_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filepath: String) -> bool:
+static func save_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filepath: String, material_palette = null) -> bool:
 	var save_data = {
 		"version": SAVE_VERSION,
 		"grid_size": tilemap.grid_size,
 		"tiles": _serialize_tiles(tilemap.tiles),
+		"tile_materials": _serialize_tile_materials(tilemap.tile_materials),
 		"y_level_offsets": _serialize_offsets(y_level_manager.y_level_offsets),
 		"metadata": {
 			"saved_at": Time.get_datetime_string_from_system(),
 			"tile_count": tilemap.tiles.size()
 		}
 	}
+	
+	# Add materials palette if provided
+	if material_palette and material_palette.has_method("get_material_data_at_index"):
+		save_data["materials_palette"] = _serialize_materials_palette(material_palette)
 	
 	var json_string = JSON.stringify(save_data, "\t")
 	var file = FileAccess.open(filepath, FileAccess.WRITE)
@@ -31,6 +36,7 @@ static func save_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 	
 	print("Level saved successfully to: ", filepath)
 	print("  - Tiles saved: ", tilemap.tiles.size())
+	print("  - Tile materials saved: ", tilemap.tile_materials.size())
 	print("  - Y-levels with offsets: ", y_level_manager.y_level_offsets.size())
 	
 	return true
@@ -40,7 +46,7 @@ static func save_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 # LOAD LEVEL DATA
 # ============================================================================
 
-static func load_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filepath: String) -> bool:
+static func load_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filepath: String, material_palette = null) -> bool:
 	var file = FileAccess.open(filepath, FileAccess.READ)
 	
 	if file == null:
@@ -75,13 +81,23 @@ static func load_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 	# Load Y-level offsets first
 	_deserialize_offsets(save_data["y_level_offsets"], y_level_manager)
 	
+	# Load materials palette if present
+	if save_data.has("materials_palette") and material_palette:
+		_deserialize_materials_palette(save_data["materials_palette"], material_palette)
+	
 	# Load tiles with batch mode for performance
 	tilemap.set_batch_mode(true)
 	var tiles_loaded = _deserialize_tiles(save_data["tiles"], tilemap)
+	
+	# Load tile materials if present
+	if save_data.has("tile_materials"):
+		_deserialize_tile_materials(save_data["tile_materials"], tilemap)
+	
 	tilemap.set_batch_mode(false)
 	
 	print("Level loaded successfully from: ", filepath)
 	print("  - Tiles loaded: ", tiles_loaded)
+	print("  - Tile materials loaded: ", tilemap.tile_materials.size())
 	print("  - Y-levels with offsets: ", y_level_manager.y_level_offsets.size())
 	if save_data.has("metadata") and save_data["metadata"].has("saved_at"):
 		print("  - Originally saved: ", save_data["metadata"]["saved_at"])
@@ -121,6 +137,39 @@ static func _serialize_offsets(offsets: Dictionary) -> Dictionary:
 	return offset_data
 
 
+static func _serialize_tile_materials(tile_materials: Dictionary) -> Array:
+	"""Serialize tile materials dictionary to array"""
+	var material_array = []
+	
+	for pos in tile_materials.keys():
+		var material_index = tile_materials[pos]
+		material_array.append({
+			"x": pos.x,
+			"y": pos.y,
+			"z": pos.z,
+			"material_index": material_index
+		})
+	
+	return material_array
+
+
+static func _serialize_materials_palette(palette) -> Array:
+	"""Serialize materials palette"""
+	var materials_array = []
+	
+	# Get count by checking materials array
+	if palette.has_method("get_material_data_at_index"):
+		var idx = 0
+		while true:
+			var material_data = palette.get_material_data_at_index(idx)
+			if material_data.is_empty():
+				break
+			materials_array.append(material_data)
+			idx += 1
+	
+	return materials_array
+
+
 # ============================================================================
 # DESERIALIZATION HELPERS
 # ============================================================================
@@ -152,6 +201,33 @@ static func _deserialize_offsets(offset_data: Dictionary, y_level_manager: YLeve
 		
 		if offset.has("x") and offset.has("z"):
 			y_level_manager.set_offset(y_level, offset["x"], offset["z"])
+
+
+static func _deserialize_tile_materials(material_array: Array, tilemap: TileMap3D):
+	"""Deserialize tile materials from array"""
+	for material_data in material_array:
+		if not material_data is Dictionary:
+			continue
+		
+		if not (material_data.has("x") and material_data.has("y") and 
+				material_data.has("z") and material_data.has("material_index")):
+			continue
+		
+		var pos = Vector3i(material_data["x"], material_data["y"], material_data["z"])
+		var material_index = material_data["material_index"]
+		
+		tilemap.tile_materials[pos] = material_index
+
+
+static func _deserialize_materials_palette(materials_array: Array, palette):
+	"""Deserialize materials palette"""
+	# Clear existing materials (except defaults?)
+	# For now, just add materials
+	for material_data in materials_array:
+		if material_data is Dictionary and material_data.has("name"):
+			# Call the material creation method
+			if palette.has_method("_on_material_created"):
+				palette._on_material_created(material_data)
 
 
 # ============================================================================

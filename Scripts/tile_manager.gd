@@ -358,6 +358,15 @@ func _apply_mesh_to_scene(pos: Vector3i, mesh: ArrayMesh):
 		
 		parent_node.add_child(mesh_instance)
 		tile_meshes[pos] = mesh_instance
+	
+	# Apply stored material if exists
+	if pos in tile_map.tile_materials:
+		var material_index = tile_map.tile_materials[pos]
+		var material_palette = tile_map.parent_node.material_palette if tile_map.parent_node else null
+		if material_palette and material_palette.has_method("get_material_at_index"):
+			var material = material_palette.get_material_at_index(material_index)
+			if material and pos in tile_meshes:
+				tile_meshes[pos].set_surface_override_material(0, material)
 
 
 func mark_dirty(pos: Vector3i):
@@ -546,6 +555,15 @@ func _immediate_update_tile_mesh(pos: Vector3i):
 		
 		parent_node.add_child(mesh_instance)
 		tile_meshes[pos] = mesh_instance
+	
+	# Apply stored material if exists
+	if pos in tile_map.tile_materials:
+		var material_index = tile_map.tile_materials[pos]
+		var material_palette = tile_map.parent_node.material_palette if tile_map.parent_node else null
+		if material_palette and material_palette.has_method("get_material_at_index"):
+			var material = material_palette.get_material_at_index(material_index)
+			if material and pos in tile_meshes:
+				tile_meshes[pos].set_surface_override_material(0, material)
 
 
 # ============================================================================

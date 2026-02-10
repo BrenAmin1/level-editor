@@ -13,6 +13,11 @@ var mouse_pressed: bool = false
 var current_mouse_button: InputEventMouseButton
 var is_ui_hovered: bool = false
 
+# Paint mode
+var paint_mode: bool = false  # If true, only change materials without replacing tiles
+var current_material_index: int = -1
+var material_palette_ref = null  # Reference to material palette
+
 # Grid settings
 var grid_size: float
 var grid_range: int
@@ -37,6 +42,28 @@ func setup(level_editor: Node3D, cam: CameraController, tm: TileMap3D,
 	y_level_manager = y_mgr
 	grid_size = grid_sz
 	grid_range = grid_rng
+
+# ============================================================================
+# MATERIAL PAINTING
+# ============================================================================
+
+func set_painting_material(material_index: int):
+	"""Set the current material index for painting"""
+	current_material_index = material_index
+
+
+func set_material_palette_reference(palette):
+	"""Set reference to material palette"""
+	material_palette_ref = palette
+
+
+func toggle_paint_mode():
+	"""Toggle paint mode on/off"""
+	paint_mode = not paint_mode
+	if paint_mode:
+		print("Paint Mode: ON (change materials without replacing tiles)")
+	else:
+		print("Paint Mode: OFF (normal tile placement)")
 
 # ============================================================================
 # INPUT PROCESSING
@@ -100,6 +127,8 @@ func _handle_keyboard(event: InputEventKey) -> Dictionary:
 	
 	# Regular editor controls
 	match event.keycode:
+		KEY_P:
+			toggle_paint_mode()
 		KEY_TAB:
 			result["action"] = "toggle_mode"
 		KEY_ENTER:
@@ -187,10 +216,25 @@ func _attempt_tile_placement(mouse_pos: Vector2, single_click: bool):
 		if abs(grid_pos.x) > grid_range or abs(grid_pos.z) > grid_range:
 			return
 		
+		# Paint mode: only change material on existing tiles
+		if paint_mode and tilemap.has_tile(grid_pos):
+			if current_material_index >= 0 and material_palette_ref:
+				tilemap.apply_material_to_tile(grid_pos, current_material_index, material_palette_ref)
+				var material_data = material_palette_ref.get_material_data_at_index(current_material_index)
+				var material_name = material_data.get("name", "Unknown")
+				if single_click:
+					print("Painted tile at ", grid_pos, " with material: ", material_name)
+			return
+		
+		# Normal placement mode
 		if not single_click and tilemap.has_tile(grid_pos):
 			return
 		
-		tilemap.place_tile(grid_pos, current_tile_type)
+		# Place tile with material if selected
+		if current_material_index >= 0 and material_palette_ref:
+			tilemap.place_tile_with_material(grid_pos, current_tile_type, current_material_index, material_palette_ref)
+		else:
+			tilemap.place_tile(grid_pos, current_tile_type)
 
 
 func _attempt_tile_removal(mouse_pos: Vector2):

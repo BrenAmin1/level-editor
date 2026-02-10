@@ -26,6 +26,8 @@ var rotation_increment: float = 15.0  # degrees
 var current_save_file: String = ""  # Tracks the currently loaded/saved file
 var window_has_focus: bool = true
 var is_popup_open: bool = false  # NEW: Track if material popup is open
+var current_painting_material: StandardMaterial3D = null
+var current_painting_material_index: int = -1
 
 # ============================================================================
 # SETTINGS
@@ -83,6 +85,8 @@ func _ready():
 	input_handler = InputHandler.new()
 	input_handler.setup(self, camera, tilemap, cursor_visualizer, selection_manager, 
 						y_level_manager, grid_size, grid_range)
+	input_handler.set_material_palette_reference(material_palette)
+	selection_manager.set_material_palette_reference(material_palette)
 	
 	get_window().focus_entered.connect(_on_window_focus_entered)
 	get_window().focus_exited.connect(_on_window_focus_exited)
@@ -91,6 +95,7 @@ func _ready():
 	if material_palette:
 		material_palette.ui_hover_changed.connect(_on_material_palette_hover_changed)
 		material_palette.popup_state_changed.connect(_on_popup_state_changed)
+		material_palette.material_selected.connect(_on_material_selected)
 	if right_side_menu:
 		right_side_menu.ui_hover_changed.connect(_on_material_palette_hover_changed)
 	
@@ -100,6 +105,27 @@ func _ready():
 	print("  Ctrl+Shift+S - Save as... (opens dialog, becomes new quick save target)")
 	print("  Ctrl+L - Load level (opens dialog, becomes new quick save target)")
 	print("  Ctrl+E - Export mesh (opens dialog with format options)")
+	print("\nPaint Controls:")
+	print("  P - Toggle paint mode (change materials without replacing tiles)")
+
+# ============================================================================
+# MATERIAL SELECTION
+# ============================================================================
+
+func _on_material_selected(material_index: int):
+	"""Handle material selection from the material palette"""
+	current_painting_material_index = material_index
+	current_painting_material = material_palette.get_material_at_index(material_index)
+	
+	if current_painting_material:
+		var material_data = material_palette.get_material_data_at_index(material_index)
+		var material_name = material_data.get("name", "Unknown")
+		print("Material selected for painting: ", material_name, " (index: ", material_index, ")")
+		
+		# Pass material index to input handler
+		input_handler.set_painting_material(material_index)
+	else:
+		print("Warning: Material at index ", material_index, " is null")
 
 # ============================================================================
 # MAIN LOOP
@@ -271,7 +297,7 @@ func quick_save_level():
 		# Save to the currently loaded/saved file
 		var filepath = current_save_file
 		
-		if LevelSaveLoad.save_level(tilemap, y_level_manager, filepath):
+		if LevelSaveLoad.save_level(tilemap, y_level_manager, filepath, material_palette):
 			print("\n=== QUICK SAVE ===")
 			var real_path = ProjectSettings.globalize_path(filepath)
 			print("Saved to: ", real_path)
@@ -284,7 +310,7 @@ func quick_save_level():
 
 func save_level_with_name(level_name: String):
 	var filepath = LevelSaveLoad.get_save_filepath(level_name)
-	if LevelSaveLoad.save_level(tilemap, y_level_manager, filepath):
+	if LevelSaveLoad.save_level(tilemap, y_level_manager, filepath, material_palette):
 		print("\n=== LEVEL SAVED ===")
 		print("Saved to: ", filepath)
 		print("===================\n")
@@ -301,7 +327,7 @@ func load_last_level():
 	var last_level = levels[-1]
 	var filepath = "user://saved_levels/" + last_level
 	
-	if LevelSaveLoad.load_level(tilemap, y_level_manager, filepath):
+	if LevelSaveLoad.load_level(tilemap, y_level_manager, filepath, material_palette):
 		print("\n=== LEVEL LOADED ===")
 		print("Loaded from: ", filepath)
 		print("====================\n")
@@ -312,7 +338,7 @@ func load_last_level():
 
 func load_level_by_name(filename: String):
 	var filepath = "user://saved_levels/" + filename
-	if LevelSaveLoad.load_level(tilemap, y_level_manager, filepath):
+	if LevelSaveLoad.load_level(tilemap, y_level_manager, filepath, material_palette):
 		print("\n=== LEVEL LOADED ===")
 		print("Loaded from: ", filepath)
 		print("====================\n")
@@ -405,7 +431,7 @@ func _export_gltf(filepath: String):
 
 func _on_save_confirmed(path: String):
 	"""Handle save confirmation from save dialog"""
-	if LevelSaveLoad.save_level(tilemap, y_level_manager, path):
+	if LevelSaveLoad.save_level(tilemap, y_level_manager, path, material_palette):
 		current_save_file = path  # Remember this file for quick save
 		print("\n=== LEVEL SAVED ===")
 		var real_path = ProjectSettings.globalize_path(path)
@@ -415,7 +441,7 @@ func _on_save_confirmed(path: String):
 
 func _on_load_confirmed(path: String):
 	"""Handle load confirmation from load dialog"""
-	if LevelSaveLoad.load_level(tilemap, y_level_manager, path):
+	if LevelSaveLoad.load_level(tilemap, y_level_manager, path, material_palette):
 		current_save_file = path  # Remember this file for quick save
 		print("\n=== LEVEL LOADED ===")
 		var real_path = ProjectSettings.globalize_path(path)
