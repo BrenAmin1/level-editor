@@ -351,9 +351,29 @@ func _create_material_for_surface(surface_type: String) -> StandardMaterial3D:
 
 
 
+# Modify the existing _on_texture_button_pressed function:
 func _on_texture_button_pressed(texture_type: String) -> void:
+	# Check if it's a normal map and already has a value
+	if texture_type.ends_with("_normal") and material_data.get(texture_type, "") != "":
+		# Show a confirmation dialog or just clear it
+		material_data[texture_type] = ""
+		_update_button_text(texture_type, "Choose")
+		_update_preview_material()
+		return
+	
 	current_texture_type = texture_type
 	file_dialog.popup_centered(Vector2i(800, 600))
+
+
+# Add helper function to update button text
+func _update_button_text(texture_type: String, text: String) -> void:
+	match texture_type:
+		"top_normal":
+			top_normal_btn.text = text
+		"side_normal":
+			side_normal_btn.text = text
+		"bottom_normal":
+			bottom_normal_btn.text = text
 
 
 func _on_file_selected(path: String) -> void:

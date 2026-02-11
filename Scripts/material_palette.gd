@@ -2,7 +2,7 @@ extends FoldableContainer
 
 signal ui_hover_changed(is_hovered: bool)
 signal material_selected(material_index: int)
-signal popup_state_changed(is_open: bool)  # NEW
+signal popup_state_changed(is_open: bool)
 
 var is_mouse_inside: bool = false
 var materials: Array[Dictionary] = []
@@ -11,11 +11,17 @@ var selected_material_index: int = -1
 @onready var add_material_button: Button = %AddMaterialButton
 @onready var edit_material_button: Button = %EditMaterialButton
 @onready var delete_material_button: Button = %DeleteMaterialButton
+@onready var save_palette_button: Button = %SaveButton
+@onready var load_palette_button: Button = %LoadButton
 @onready var material_grid: GridContainer = %MaterialGrid
 @onready var material_maker_popup: PopupPanel = %MaterialMakerPopup
 
 # Preload the material card scene
 const MATERIAL_CARD_SCENE = preload("res://Scenes/material_card.tscn")
+
+# File dialogs for palette save/load
+var save_palette_dialog: FileDialog
+var load_palette_dialog: FileDialog
 
 func _ready():
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -24,13 +30,17 @@ func _ready():
 	add_material_button.pressed.connect(_on_add_material_pressed)
 	edit_material_button.pressed.connect(_on_edit_material_pressed)
 	delete_material_button.pressed.connect(_on_delete_material_pressed)
+	save_palette_button.pressed.connect(_on_save_palette_pressed)
+	load_palette_button.pressed.connect(_on_load_palette_pressed)
 	
 	# Connect popup signal
 	if material_maker_popup:
 		material_maker_popup.material_created.connect(_on_material_created)
-		# NEW: Connect to popup state signals
 		material_maker_popup.popup_opened.connect(_on_popup_opened)
 		material_maker_popup.popup_closed.connect(_on_popup_closed)
+	
+	# Setup palette file dialogs
+	_setup_palette_dialogs()
 	
 	# Initially disable edit/delete buttons
 	edit_material_button.disabled = true
@@ -61,6 +71,50 @@ func _is_mouse_over_ui() -> bool:
 	return rect.has_point(mouse_pos)
 
 
+# ============================================================================
+# PALETTE FILE DIALOGS SETUP
+# ============================================================================
+
+func _setup_palette_dialogs():
+	# Ensure save directory exists
+	_ensure_palette_directory()
+	
+	# Save palette dialog
+	save_palette_dialog = FileDialog.new()
+	add_child(save_palette_dialog)
+	save_palette_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
+	save_palette_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	save_palette_dialog.filters = PackedStringArray(["*.palette.json ; Material Palette"])
+	save_palette_dialog.file_selected.connect(_on_palette_save_confirmed)
+	save_palette_dialog.current_dir = ProjectSettings.globalize_path("user://saved_palettes/")
+	save_palette_dialog.use_native_dialog = true
+	
+	# Load palette dialog
+	load_palette_dialog = FileDialog.new()
+	add_child(load_palette_dialog)
+	load_palette_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	load_palette_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	load_palette_dialog.filters = PackedStringArray(["*.palette.json ; Material Palette"])
+	load_palette_dialog.file_selected.connect(_on_palette_load_confirmed)
+	load_palette_dialog.current_dir = ProjectSettings.globalize_path("user://saved_palettes/")
+	load_palette_dialog.use_native_dialog = true
+
+
+func _ensure_palette_directory():
+	"""Ensure the saved_palettes directory exists"""
+	var dir = DirAccess.open("user://")
+	if dir and not dir.dir_exists("saved_palettes"):
+		var err = dir.make_dir("saved_palettes")
+		if err == OK:
+			print("Created saved_palettes directory")
+		else:
+			push_error("Failed to create saved_palettes directory: ", err)
+
+
+# ============================================================================
+# BUTTON CALLBACKS
+# ============================================================================
+
 func _on_add_material_pressed() -> void:
 	if material_maker_popup:
 		material_maker_popup.popup_centered()
@@ -76,6 +130,14 @@ func _on_edit_material_pressed() -> void:
 func _on_delete_material_pressed() -> void:
 	if selected_material_index >= 0 and selected_material_index < materials.size():
 		_delete_material(selected_material_index)
+
+
+func _on_save_palette_pressed() -> void:
+	save_palette_dialog.popup_centered_ratio(0.6)
+
+
+func _on_load_palette_pressed() -> void:
+	load_palette_dialog.popup_centered_ratio(0.6)
 
 
 func _on_material_created(material_dict: Dictionary) -> void:
@@ -95,15 +157,116 @@ func _on_material_created(material_dict: Dictionary) -> void:
 	_create_material_card(material_dict, materials.size() - 1)
 
 
-# NEW: Forward popup opened signal to level editor
 func _on_popup_opened() -> void:
 	popup_state_changed.emit(true)
 
 
-# NEW: Forward popup closed signal to level editor
 func _on_popup_closed() -> void:
 	popup_state_changed.emit(false)
 
+
+# ============================================================================
+# PALETTE SAVE/LOAD
+# ============================================================================
+
+func _on_palette_save_confirmed(path: String) -> void:
+	if save_palette(path):
+		print("\n=== PALETTE SAVED ===")
+		print("Saved to: ", path)
+		print("Materials: ", materials.size())
+		print("=====================\n")
+	else:
+		push_error("Failed to save palette")
+
+
+func _on_palette_load_confirmed(path: String) -> void:
+	if load_palette(path):
+		print("\n=== PALETTE LOADED ===")
+		print("Loaded from: ", path)
+		print("Materials: ", materials.size())
+		print("======================\n")
+	else:
+		push_error("Failed to load palette")
+
+
+func save_palette(filepath: String) -> bool:
+	"""Save the entire material palette to a JSON file"""
+	var palette_data = {
+		"version": 1,
+		"materials": []
+	}
+	
+	# Extract just the data portion of each material entry
+	for material_entry in materials:
+		palette_data["materials"].append(material_entry["data"])
+	
+	var json_string = JSON.stringify(palette_data, "\t")
+	var file = FileAccess.open(filepath, FileAccess.WRITE)
+	
+	if file == null:
+		push_error("Failed to open file for writing: " + filepath)
+		return false
+	
+	file.store_string(json_string)
+	file.close()
+	
+	return true
+
+
+func load_palette(filepath: String) -> bool:
+	"""Load a material palette from a JSON file"""
+	var file = FileAccess.open(filepath, FileAccess.READ)
+	
+	if file == null:
+		push_error("Failed to open file for reading: " + filepath)
+		return false
+	
+	var json_string = file.get_as_text()
+	file.close()
+	
+	var json = JSON.new()
+	var parse_result = json.parse(json_string)
+	
+	if parse_result != OK:
+		push_error("Failed to parse JSON: " + json.get_error_message())
+		return false
+	
+	var palette_data = json.data
+	
+	# Validate
+	if not palette_data is Dictionary or not palette_data.has("materials"):
+		push_error("Invalid palette file format")
+		return false
+	
+	# Clear existing materials
+	_clear_all_materials()
+	
+	# Load materials
+	for material_data in palette_data["materials"]:
+		if material_data is Dictionary:
+			_on_material_created(material_data)
+	
+	return true
+
+
+func _clear_all_materials() -> void:
+	"""Clear all materials from the palette"""
+	# Clear materials array
+	materials.clear()
+	
+	# Clear all cards from grid
+	for child in material_grid.get_children():
+		child.queue_free()
+	
+	# Reset selection
+	selected_material_index = -1
+	edit_material_button.disabled = true
+	delete_material_button.disabled = true
+
+
+# ============================================================================
+# MATERIAL CREATION AND MANAGEMENT
+# ============================================================================
 
 func _create_godot_material(material_dict: Dictionary) -> StandardMaterial3D:
 	"""Convert material data dictionary into a Godot StandardMaterial3D"""
@@ -129,24 +292,21 @@ func _create_godot_material(material_dict: Dictionary) -> StandardMaterial3D:
 			if texture:
 				m_material.albedo_texture = texture
 	
-	# Load normal map
+	# Load normal map if available
 	var normal_path = material_dict.get("top_normal", "")
 	if normal_path != "" and FileAccess.file_exists(normal_path):
-		var normal = load(normal_path) as Texture2D
-		if normal:
+		var normal_map = load(normal_path) as Texture2D
+		if normal_map:
 			m_material.normal_enabled = true
-			m_material.normal_texture = normal
+			m_material.normal_texture = normal_map
 	
-	# Set a default color based on material name if no texture
+	# If no textures, set a default color
 	if m_material.albedo_texture == null:
-		var mat_name = material_dict.get("name", "").to_lower()
-		if mat_name.contains("grass"):
-			m_material.albedo_color = Color(0.3, 0.6, 0.2)
-		elif mat_name.contains("dirt"):
-			m_material.albedo_color = Color(0.5, 0.35, 0.2)
-		elif mat_name.contains("stone"):
-			m_material.albedo_color = Color(0.5, 0.5, 0.5)
-		elif mat_name.contains("gravel"):
+		if material_dict.get("name", "").to_lower().contains("grass"):
+			m_material.albedo_color = Color(0.3, 0.6, 0.3)
+		elif material_dict.get("name", "").to_lower().contains("dirt"):
+			m_material.albedo_color = Color(0.5, 0.3, 0.2)
+		else:
 			m_material.albedo_color = Color(0.6, 0.6, 0.6)
 	
 	return m_material
@@ -224,14 +384,18 @@ func _refresh_card_indices() -> void:
 			card.update_index(i)
 
 
+# ============================================================================
+# DEFAULT MATERIALS
+# ============================================================================
+
 func _add_default_materials() -> void:
 	# Add default materials using your existing textures
 	var default_grass_data = {
 		"name": "Grass",
-		"top_texture": "res://Images/Grass_3.png",
-		"top_normal": "res://Images/Grass_3_n.png",
-		"side_texture": "res://Images/Grass_3.png",
-		"side_normal": "res://Images/Grass_3_n.png",
+		"top_texture": "res://Images/Grass.png",
+		"top_normal": "",
+		"side_texture": "res://Images/dirt.png",
+		"side_normal": "",
 		"bottom_texture": "res://Images/dirt.png",
 		"bottom_normal": "res://Images/dirt_n.png"
 	}
@@ -270,6 +434,10 @@ func _add_default_materials() -> void:
 	_create_material_card(default_dirt_data, 1)
 	_create_material_card(default_gravel_data, 2)
 
+
+# ============================================================================
+# PUBLIC API FOR LEVEL EDITOR
+# ============================================================================
 
 func get_selected_material() -> StandardMaterial3D:
 	"""Get the actual Godot material resource for the selected material"""
