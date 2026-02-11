@@ -9,7 +9,7 @@ var parent_node: Node3D  # Reference to TileMap3D.parent_node
 var tile_map: TileMap3D  # Reference to parent for calling methods
 var mesh_generator: MeshGenerator  # Reference to MeshGenerator component
 var diagonal_selector: DiagonalTileSelector
-
+var disable_caching_this_flush: bool = false
 # Auto-detection control
 var auto_tile_selection_enabled: bool = false  # DISABLED for manual placement only
 
@@ -375,11 +375,11 @@ func _generate_meshes_threaded():
 
 # MESH CACHING: Create unique cache key for mesh variations
 func _create_cache_key(tile_type: int, neighbors: Dictionary, rotation: float, is_fully_enclosed: bool = false) -> String:
-	# Hash: tile_type + 6 neighbors + rotation + enclosed status
+	# Hash: tile_type + 6 cardinal neighbors + 4 diagonal neighbors + rotation + is_fully_enclosed
 	var rounded_rotation = round(rotation / 15.0) * 15.0
 	var n = neighbors
 	var enclosed_flag = 1 if is_fully_enclosed else 0
-	return "%d_%d%d%d%d%d%d_%.0f_%d" % [
+	return "%d_%d%d%d%d%d%d_%d%d%d%d_%.0f_%d" % [
 		tile_type,
 		n[MeshGenerator.NeighborDir.NORTH],
 		n[MeshGenerator.NeighborDir.SOUTH],
@@ -387,8 +387,12 @@ func _create_cache_key(tile_type: int, neighbors: Dictionary, rotation: float, i
 		n[MeshGenerator.NeighborDir.WEST],
 		n[MeshGenerator.NeighborDir.UP],
 		n[MeshGenerator.NeighborDir.DOWN],
+		n.get(MeshGenerator.NeighborDir.DIAGONAL_NW, -1),
+		n.get(MeshGenerator.NeighborDir.DIAGONAL_NE, -1),
+		n.get(MeshGenerator.NeighborDir.DIAGONAL_SW, -1),
+		n.get(MeshGenerator.NeighborDir.DIAGONAL_SE, -1),
 		rounded_rotation,
-		enclosed_flag
+		enclosed_flag  # Add this to the cache key
 	]
 
 
