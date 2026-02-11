@@ -15,7 +15,7 @@ func extend_to_boundary_if_neighbor_rotated(vertex: Vector3, neighbors: Dictiona
 											rotation_degrees: float) -> Vector3:
 	var extended = vertex
 	var s = grid_size
-	var overlap = 0.02
+	var overlap = 0.0
 	
 	# Get neighbor info
 	var has_west = neighbors[MeshGenerator.NeighborDir.WEST] != -1
@@ -103,7 +103,7 @@ func extend_to_boundary_if_neighbor_rotated(vertex: Vector3, neighbors: Dictiona
 func extend_to_boundary_if_neighbor(vertex: Vector3, neighbors: Dictionary, threshold: float) -> Vector3:
 	var extended = vertex
 	var s = grid_size
-	var overlap = 0.02
+	var overlap = 0.0
 	
 	# VERTICAL EXTENSION
 	if vertex.y < threshold:

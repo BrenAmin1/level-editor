@@ -34,9 +34,14 @@ var material_data := {
 var file_dialog: FileDialog
 var current_texture_type := ""
 
+# EDIT MODE TRACKING
+var is_editing: bool = false
+var editing_index: int = -1
+
 signal material_created(material_dict: Dictionary)
-signal popup_opened()  # NEW: Emitted when popup opens
-signal popup_closed()  # NEW: Emitted when popup closes
+signal material_edited(index: int, material_dict: Dictionary)  # NEW SIGNAL
+signal popup_opened()
+signal popup_closed()
 
 func _ready() -> void:
 	# Prevent popup from closing when clicking outside or losing focus
@@ -62,7 +67,7 @@ func _ready() -> void:
 	
 	# Connect to popup signals
 	popup_hide.connect(_on_popup_hide)
-	about_to_popup.connect(_on_about_to_popup)  # NEW: Connect to built-in signal
+	about_to_popup.connect(_on_about_to_popup)
 	var level_editor = get_tree().current_scene
 	if level_editor and level_editor.has_node("InputHandler"):
 		var input_handler = level_editor.input_handler
@@ -74,7 +79,7 @@ func _setup_file_dialog() -> void:
 	file_dialog.access = FileDialog.ACCESS_FILESYSTEM
 	file_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
 	file_dialog.filters = PackedStringArray(["*.png, *.jpg, *.jpeg ; Image Files"])
-	file_dialog.use_native_dialog = true  # Use native OS file dialog
+	file_dialog.use_native_dialog = true
 	file_dialog.file_selected.connect(_on_file_selected)
 	
 	# Prevent popup from closing when file dialog opens
@@ -83,7 +88,6 @@ func _setup_file_dialog() -> void:
 
 func _setup_3d_preview_async() -> void:
 	"""Async version: defers heavy work to avoid blocking startup"""
-	# Defer the setup to next frame to avoid blocking startup
 	call_deferred("_setup_3d_preview")
 
 
@@ -94,7 +98,7 @@ func _setup_3d_preview() -> void:
 	preview_viewport.size = Vector2i(160, 160)
 	preview_viewport.transparent_bg = true
 	preview_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-	preview_viewport.own_world_3d = true  # Create isolated world - won't show main scene
+	preview_viewport.own_world_3d = true
 	add_child(preview_viewport)
 	
 	# Create camera
@@ -123,7 +127,6 @@ func _setup_3d_preview() -> void:
 	# Load cube_bulge.obj and RECLASSIFY triangles by normal direction
 	var mesh_resource := load("res://cubes/cube_bulge.obj")
 	if mesh_resource:
-		# Rebuild the mesh with proper surface classification (like the tilemap does)
 		var reclassified_mesh = _reclassify_mesh_by_normals(mesh_resource)
 		
 		preview_mesh = MeshInstance3D.new()
@@ -182,7 +185,7 @@ func _reclassify_mesh_by_normals(source_mesh: ArrayMesh) -> ArrayMesh:
 			var n1 = normals[i1]
 			var n2 = normals[i2]
 			
-			# Safe UV handling - uvs might be null
+			# Safe UV handling
 			var uv0 = Vector2.ZERO
 			var uv1 = Vector2.ZERO
 			var uv2 = Vector2.ZERO
@@ -191,10 +194,10 @@ func _reclassify_mesh_by_normals(source_mesh: ArrayMesh) -> ArrayMesh:
 				uv1 = uvs[i1] if i1 < uvs.size() else Vector2.ZERO
 				uv2 = uvs[i2] if i2 < uvs.size() else Vector2.ZERO
 			
-			# Calculate average normal (same as SurfaceClassifier)
+			# Calculate average normal
 			var avg_normal = (n0 + n1 + n2).normalized()
 			
-			# Classify based on Y component (same thresholds as SurfaceClassifier)
+			# Classify based on Y component
 			if avg_normal.y > 0.8:
 				# TOP surface
 				var start_idx = top_verts.size()
@@ -283,21 +286,17 @@ func _on_preview_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_LEFT or event.button_index == MOUSE_BUTTON_RIGHT:
 			if event.pressed:
-				# Start dragging
 				preview_rect.set_default_cursor_shape(Control.CURSOR_DRAG)
 			else:
-				# Stop dragging
 				preview_rect.set_default_cursor_shape(Control.CURSOR_ARROW)
 	
 	elif event is InputEventMouseMotion:
 		if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
-			# Left drag: rotate Y and X
 			if preview_mesh:
 				preview_mesh.rotate_y(event.relative.x * 0.01)
 				preview_mesh.rotate_x(event.relative.y * 0.01)
 		
 		elif Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
-			# Right drag: rotate on Z axis for different perspective
 			if preview_mesh:
 				preview_mesh.rotate_z(event.relative.x * 0.01)
 				preview_mesh.rotate_x(event.relative.y * 0.01)
@@ -310,7 +309,7 @@ func _update_preview_material() -> void:
 	var surface_count = preview_mesh.mesh.get_surface_count()
 	
 	if surface_count >= 3:
-		# Surface 0 = TOP, Surface 1 = SIDES, Surface 2 = BOTTOM (after reclassification)
+		# Surface 0 = TOP, Surface 1 = SIDES, Surface 2 = BOTTOM
 		var top_material = _create_material_for_surface("top")
 		preview_mesh.set_surface_override_material(0, top_material)
 		
@@ -325,13 +324,11 @@ func _create_material_for_surface(surface_type: String) -> StandardMaterial3D:
 	"""Create a material for a specific surface (top, side, or bottom)"""
 	var material := StandardMaterial3D.new()
 	
-	# Use triplanar mapping to match the actual tiles
 	material.uv1_triplanar = true
 	material.uv1_world_triplanar = true
 	material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	material.uv1_triplanar_sharpness = 4.0
 	
-	# Load the appropriate texture and normal map
 	var texture_key = surface_type + "_texture"
 	var normal_key = surface_type + "_normal"
 	
@@ -351,11 +348,8 @@ func _create_material_for_surface(surface_type: String) -> StandardMaterial3D:
 
 
 
-# Modify the existing _on_texture_button_pressed function:
 func _on_texture_button_pressed(texture_type: String) -> void:
-	# Check if it's a normal map and already has a value
 	if texture_type.ends_with("_normal") and material_data.get(texture_type, "") != "":
-		# Show a confirmation dialog or just clear it
 		material_data[texture_type] = ""
 		_update_button_text(texture_type, "Choose")
 		_update_preview_material()
@@ -365,7 +359,6 @@ func _on_texture_button_pressed(texture_type: String) -> void:
 	file_dialog.popup_centered(Vector2i(800, 600))
 
 
-# Add helper function to update button text
 func _update_button_text(texture_type: String, text: String) -> void:
 	match texture_type:
 		"top_normal":
@@ -379,7 +372,6 @@ func _update_button_text(texture_type: String, text: String) -> void:
 func _on_file_selected(path: String) -> void:
 	material_data[current_texture_type] = path
 	
-	# Update button text to show filename
 	var filename := path.get_file()
 	match current_texture_type:
 		"top_texture":
@@ -401,13 +393,18 @@ func _on_file_selected(path: String) -> void:
 func _on_save_pressed() -> void:
 	material_data.name = material_name_input.text
 	
-	# Validate that at least a name is provided
 	if material_data.name == "":
 		push_warning("Material needs a name!")
 		return
 	
-	# Emit signal with material data
-	material_created.emit(material_data.duplicate())
+	# FIXED: Check if we're editing or creating new
+	if is_editing:
+		material_edited.emit(editing_index, material_data.duplicate())
+		print("Material edited at index ", editing_index)
+	else:
+		material_created.emit(material_data.duplicate())
+		print("New material created")
+	
 	hide()
 
 
@@ -416,6 +413,10 @@ func _on_cancel_pressed() -> void:
 
 
 func _reset_form() -> void:
+	# FIXED: Clear edit mode
+	is_editing = false
+	editing_index = -1
+	
 	material_name_input.text = ""
 	material_data = {
 		"name": "",
@@ -427,7 +428,6 @@ func _reset_form() -> void:
 		"bottom_normal": ""
 	}
 	
-	# Reset button texts
 	top_texture_btn.text = "Choose"
 	top_normal_btn.text = "Choose"
 	side_texture_btn.text = "Choose"
@@ -438,18 +438,18 @@ func _reset_form() -> void:
 	_update_preview_material()
 
 
-# Call this to show the popup
 func show_popup() -> void:
 	popup_centered()
 
 
-# Call this to edit an existing material
-func edit_material(material_dict: Dictionary) -> void:
-	# Populate the form with existing data
+# FIXED: Pass index when editing
+func edit_material(material_dict: Dictionary, index: int) -> void:
+	is_editing = true
+	editing_index = index
+	
 	material_data = material_dict.duplicate()
 	material_name_input.text = material_dict.get("name", "")
 	
-	# Set texture paths and update button labels
 	if material_dict.get("top_texture", "") != "":
 		top_texture_btn.text = material_dict.top_texture.get_file()
 	if material_dict.get("top_normal", "") != "":
@@ -463,21 +463,14 @@ func edit_material(material_dict: Dictionary) -> void:
 	if material_dict.get("bottom_normal", "") != "":
 		bottom_normal_btn.text = material_dict.bottom_normal.get_file()
 	
-	# Update preview
 	_update_preview_material()
-	
-	# Show the popup
 	popup_centered()
 
 
 func _on_about_to_popup() -> void:
-	"""Called right before popup is shown"""
 	popup_opened.emit()
 
 
 func _on_popup_hide() -> void:
-	# Emit signal that popup is closing
 	popup_closed.emit()
-	
-	# Clear data when popup closes
 	_reset_form()

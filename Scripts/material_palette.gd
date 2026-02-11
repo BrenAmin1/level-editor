@@ -16,41 +16,35 @@ var selected_material_index: int = -1
 @onready var material_grid: GridContainer = %MaterialGrid
 @onready var material_maker_popup: PopupPanel = %MaterialMakerPopup
 
-# Preload the material card scene
 const MATERIAL_CARD_SCENE = preload("res://Scenes/material_card.tscn")
 
-# File dialogs for palette save/load
 var save_palette_dialog: FileDialog
 var load_palette_dialog: FileDialog
 
 func _ready():
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	
-	# Connect button signals
 	add_material_button.pressed.connect(_on_add_material_pressed)
 	edit_material_button.pressed.connect(_on_edit_material_pressed)
 	delete_material_button.pressed.connect(_on_delete_material_pressed)
 	save_palette_button.pressed.connect(_on_save_palette_pressed)
 	load_palette_button.pressed.connect(_on_load_palette_pressed)
 	
-	# Connect popup signal
+	# FIXED: Connect material_edited signal
 	if material_maker_popup:
 		material_maker_popup.material_created.connect(_on_material_created)
+		material_maker_popup.material_edited.connect(_on_material_edited)
 		material_maker_popup.popup_opened.connect(_on_popup_opened)
 		material_maker_popup.popup_closed.connect(_on_popup_closed)
 	
-	# Setup palette file dialogs
 	_setup_palette_dialogs()
 	
-	# Initially disable edit/delete buttons
 	edit_material_button.disabled = true
 	delete_material_button.disabled = true
 	
-	# Clear the default material card from the grid
 	for child in material_grid.get_children():
 		child.queue_free()
 	
-	# Add some default materials for testing
 	_add_default_materials()
 
 
@@ -76,10 +70,8 @@ func _is_mouse_over_ui() -> bool:
 # ============================================================================
 
 func _setup_palette_dialogs():
-	# Ensure save directory exists
 	_ensure_palette_directory()
 	
-	# Save palette dialog
 	save_palette_dialog = FileDialog.new()
 	add_child(save_palette_dialog)
 	save_palette_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
@@ -89,7 +81,6 @@ func _setup_palette_dialogs():
 	save_palette_dialog.current_dir = ProjectSettings.globalize_path("user://saved_palettes/")
 	save_palette_dialog.use_native_dialog = true
 	
-	# Load palette dialog
 	load_palette_dialog = FileDialog.new()
 	add_child(load_palette_dialog)
 	load_palette_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
@@ -101,7 +92,6 @@ func _setup_palette_dialogs():
 
 
 func _ensure_palette_directory():
-	"""Ensure the saved_palettes directory exists"""
 	var dir = DirAccess.open("user://")
 	if dir and not dir.dir_exists("saved_palettes"):
 		var err = dir.make_dir("saved_palettes")
@@ -120,11 +110,11 @@ func _on_add_material_pressed() -> void:
 		material_maker_popup.popup_centered()
 
 
+# FIXED: Pass index when editing
 func _on_edit_material_pressed() -> void:
 	if selected_material_index >= 0 and selected_material_index < materials.size():
-		# Pass the material data dictionary to the popup
 		if material_maker_popup:
-			material_maker_popup.edit_material(materials[selected_material_index].data)
+			material_maker_popup.edit_material(materials[selected_material_index].data, selected_material_index)
 
 
 func _on_delete_material_pressed() -> void:
@@ -143,18 +133,35 @@ func _on_load_palette_pressed() -> void:
 func _on_material_created(material_dict: Dictionary) -> void:
 	print("Material created: ", material_dict.name)
 	
-	# Create actual Godot material resource from the data
 	var godot_material = _create_godot_material(material_dict)
 	
-	# Store both the data and the material resource
 	var material_entry = {
 		"data": material_dict,
 		"resource": godot_material
 	}
 	materials.append(material_entry)
 	
-	# Create visual card for the material
 	_create_material_card(material_dict, materials.size() - 1)
+
+
+# FIXED: New handler for editing materials
+func _on_material_edited(index: int, material_dict: Dictionary) -> void:
+	if index >= 0 and index < materials.size():
+		print("Material edited at index ", index, ": ", material_dict.name)
+		
+		# Create updated Godot material resource
+		var godot_material = _create_godot_material(material_dict)
+		
+		# Update the materials array
+		materials[index] = {
+			"data": material_dict,
+			"resource": godot_material
+		}
+		
+		# Update the card
+		var card = _get_card_at_index(index)
+		if card and card.has_method("setup"):
+			card.setup(material_dict, index)
 
 
 func _on_popup_opened() -> void:
@@ -190,13 +197,11 @@ func _on_palette_load_confirmed(path: String) -> void:
 
 
 func save_palette(filepath: String) -> bool:
-	"""Save the entire material palette to a JSON file"""
 	var palette_data = {
 		"version": 1,
 		"materials": []
 	}
 	
-	# Extract just the data portion of each material entry
 	for material_entry in materials:
 		palette_data["materials"].append(material_entry["data"])
 	
@@ -214,7 +219,6 @@ func save_palette(filepath: String) -> bool:
 
 
 func load_palette(filepath: String) -> bool:
-	"""Load a material palette from a JSON file"""
 	var file = FileAccess.open(filepath, FileAccess.READ)
 	
 	if file == null:
@@ -233,15 +237,12 @@ func load_palette(filepath: String) -> bool:
 	
 	var palette_data = json.data
 	
-	# Validate
 	if not palette_data is Dictionary or not palette_data.has("materials"):
 		push_error("Invalid palette file format")
 		return false
 	
-	# Clear existing materials
 	_clear_all_materials()
 	
-	# Load materials
 	for material_data in palette_data["materials"]:
 		if material_data is Dictionary:
 			_on_material_created(material_data)
@@ -250,15 +251,11 @@ func load_palette(filepath: String) -> bool:
 
 
 func _clear_all_materials() -> void:
-	"""Clear all materials from the palette"""
-	# Clear materials array
 	materials.clear()
 	
-	# Clear all cards from grid
 	for child in material_grid.get_children():
 		child.queue_free()
 	
-	# Reset selection
 	selected_material_index = -1
 	edit_material_button.disabled = true
 	delete_material_button.disabled = true
@@ -269,30 +266,24 @@ func _clear_all_materials() -> void:
 # ============================================================================
 
 func _create_godot_material(material_dict: Dictionary) -> StandardMaterial3D:
-	"""Convert material data dictionary into a Godot StandardMaterial3D"""
 	var m_material = StandardMaterial3D.new()
 	
-	# Apply settings to match your existing materials
 	m_material.uv1_triplanar = true
 	m_material.uv1_world_triplanar = true
-	m_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST  # Pixel art look
+	m_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	
-	# Load textures and apply to material
-	# For now, we'll use the top texture as the main albedo
 	var texture_path = material_dict.get("top_texture", "")
 	if texture_path != "" and FileAccess.file_exists(texture_path):
 		var texture = load(texture_path) as Texture2D
 		if texture:
 			m_material.albedo_texture = texture
 	elif material_dict.get("side_texture", "") != "":
-		# Fallback to side texture if no top texture
 		texture_path = material_dict.get("side_texture", "")
 		if FileAccess.file_exists(texture_path):
 			var texture = load(texture_path) as Texture2D
 			if texture:
 				m_material.albedo_texture = texture
 	
-	# Load normal map if available
 	var normal_path = material_dict.get("top_normal", "")
 	if normal_path != "" and FileAccess.file_exists(normal_path):
 		var normal_map = load(normal_path) as Texture2D
@@ -300,7 +291,6 @@ func _create_godot_material(material_dict: Dictionary) -> StandardMaterial3D:
 			m_material.normal_enabled = true
 			m_material.normal_texture = normal_map
 	
-	# If no textures, set a default color
 	if m_material.albedo_texture == null:
 		if material_dict.get("name", "").to_lower().contains("grass"):
 			m_material.albedo_color = Color(0.3, 0.6, 0.3)
@@ -316,18 +306,20 @@ func _create_material_card(material_dict: Dictionary, index: int) -> void:
 	var card = MATERIAL_CARD_SCENE.instantiate()
 	material_grid.add_child(card)
 	
-	# Set the custom minimum size
 	card.custom_minimum_size = Vector2(96, 128)
 	
-	# Setup the card
 	if card.has_method("setup"):
 		card.setup(material_dict, index)
 	
-	# Connect selection signal
 	card.material_card_selected.connect(_on_material_card_selected)
 
 
 func _on_material_card_selected(index: int) -> void:
+	# FIXED: Bounds checking
+	if index < 0 or index >= materials.size():
+		print("ERROR: Card index out of bounds: ", index, " (materials.size = ", materials.size(), ")")
+		return
+	
 	# Deselect previous card
 	if selected_material_index >= 0:
 		var prev_card = _get_card_at_index(selected_material_index)
@@ -340,11 +332,9 @@ func _on_material_card_selected(index: int) -> void:
 	if new_card and new_card.has_method("set_selected"):
 		new_card.set_selected(true)
 	
-	# Enable edit/delete buttons
 	edit_material_button.disabled = false
 	delete_material_button.disabled = false
 	
-	# Emit signal for level editor to use
 	material_selected.emit(index)
 	
 	print("Material selected: ", materials[index].data.name)
@@ -356,15 +346,21 @@ func _get_card_at_index(index: int) -> Control:
 	return null
 
 
+# FIXED: Proper deletion with async handling
 func _delete_material(index: int) -> void:
 	if index >= 0 and index < materials.size():
-		# Remove from array
+		print("Deleting material at index ", index)
+		
+		# Remove from array first
 		materials.remove_at(index)
 		
 		# Remove card from grid
 		var card = material_grid.get_child(index)
 		if card:
 			card.queue_free()
+		
+		# IMPORTANT: Wait a frame for queue_free to process
+		await get_tree().process_frame
 		
 		# Update indices of remaining cards
 		_refresh_card_indices()
@@ -374,7 +370,7 @@ func _delete_material(index: int) -> void:
 		edit_material_button.disabled = true
 		delete_material_button.disabled = true
 		
-		print("Material deleted")
+		print("Material deleted, ", materials.size(), " materials remaining")
 
 
 func _refresh_card_indices() -> void:
@@ -389,7 +385,6 @@ func _refresh_card_indices() -> void:
 # ============================================================================
 
 func _add_default_materials() -> void:
-	# Add default materials using your existing textures
 	var default_grass_data = {
 		"name": "Grass",
 		"top_texture": "res://Images/Grass.png",
@@ -420,12 +415,10 @@ func _add_default_materials() -> void:
 		"bottom_normal": ""
 	}
 	
-	# Create Godot materials for the defaults
 	var grass_material = _create_godot_material(default_grass_data)
 	var dirt_material = _create_godot_material(default_dirt_data)
 	var gravel_material = _create_godot_material(default_gravel_data)
 	
-	# Store as material entries
 	materials.append({"data": default_grass_data, "resource": grass_material})
 	materials.append({"data": default_dirt_data, "resource": dirt_material})
 	materials.append({"data": default_gravel_data, "resource": gravel_material})
@@ -440,28 +433,24 @@ func _add_default_materials() -> void:
 # ============================================================================
 
 func get_selected_material() -> StandardMaterial3D:
-	"""Get the actual Godot material resource for the selected material"""
 	if selected_material_index >= 0 and selected_material_index < materials.size():
 		return materials[selected_material_index].resource
 	return null
 
 
 func get_selected_material_data() -> Dictionary:
-	"""Get the material data dictionary for the selected material"""
 	if selected_material_index >= 0 and selected_material_index < materials.size():
 		return materials[selected_material_index].data
 	return {}
 
 
 func get_material_at_index(index: int) -> StandardMaterial3D:
-	"""Get the Godot material resource at a specific index"""
 	if index >= 0 and index < materials.size():
 		return materials[index].resource
 	return null
 
 
 func get_material_data_at_index(index: int) -> Dictionary:
-	"""Get the material data dictionary at a specific index"""
 	if index >= 0 and index < materials.size():
 		return materials[index].data
 	return {}

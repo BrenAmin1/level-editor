@@ -17,7 +17,7 @@ func _ready() -> void:
 
 func setup(mat_data: Dictionary, index: int) -> void:
 	material_data = mat_data
-	card_index = index
+	card_index = index  # Make sure this is updated
 	
 	# Set the material name
 	if name_label:

@@ -244,13 +244,21 @@ static func _deserialize_tile_materials(material_array: Array, tilemap: TileMap3
 
 static func _deserialize_materials_palette(materials_array: Array, palette):
 	"""Deserialize materials palette"""
-	# Clear existing materials (except defaults?)
-	# For now, just add materials
+	# FIXED: Clear all materials first (including defaults) to maintain correct indices
+	if palette.has_method("_clear_all_materials"):
+		palette._clear_all_materials()
+		print("  Cleared existing materials from palette")
+	
+	# Load materials from save file
+	var loaded_count = 0
 	for material_data in materials_array:
 		if material_data is Dictionary and material_data.has("name"):
 			# Call the material creation method
 			if palette.has_method("_on_material_created"):
 				palette._on_material_created(material_data)
+				loaded_count += 1
+	
+	print("  Loaded ", loaded_count, " materials into palette")
 
 
 static func _reevaluate_corner_tiles(tilemap: TileMap3D) -> int:

@@ -362,7 +362,7 @@ func update_visualizer():
 	
 	for x in range(min_x, max_x + 1):
 		for z in range(min_z, max_z + 1):
-			var pos = Vector3(x * s + offset.x, y + 0.01, z * s + offset.y)
+			var pos = Vector3(x * s + offset.x, y + s + 0.01, z * s + offset.y)
 			var start_idx = verts.size()
 			
 			verts.append_array([

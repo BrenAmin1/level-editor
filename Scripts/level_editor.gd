@@ -135,9 +135,12 @@ func _on_material_selected(material_index: int):
 # MAIN LOOP
 # ============================================================================
 
+# In the _process function, add a check for is_popup_open
 func _process(_delta):
 	selection_manager.process_queue()
-	if camera and cursor_visualizer:
+	
+	# FIXED: Don't update cursor when popup is open
+	if camera and cursor_visualizer and not is_popup_open:
 		_update_cursor()
 		input_handler.handle_continuous_input(_delta)
 
@@ -247,22 +250,43 @@ func _on_window_focus_exited():
 
 
 func _on_material_palette_hover_changed(is_hovered: bool):
-	if input_handler:
-		input_handler.is_ui_hovered = is_hovered
+	"""Handle material palette hover state"""
+	input_handler.set_ui_hovered(is_hovered)
+	
+	# FIXED: Hide/show cursor when hovering over material palette
+	if cursor_visualizer:
+		if is_hovered:
+			cursor_visualizer.hide()
+		else:
+			# Only show if popup isn't open
+			if not is_popup_open:
+				cursor_visualizer.show()
 
 
-func _on_popup_state_changed(is_open: bool) -> void:
-	"""Handle material popup opening/closing"""
+func _on_popup_state_changed(is_open: bool):
+	"""Handle popup state changes - disable camera input when popup is open"""
 	is_popup_open = is_open
 	
-	# Hide cursor preview when popup is open
-	if cursor_visualizer:
-		cursor_visualizer.set_visible(!is_open)
-	
 	if is_open:
-		print("Material popup opened - editor input disabled")
+		# Disable camera processing when popup opens
+		camera.set_process(false)
+		
+		# FIXED: Hide cursor preview when popup opens
+		if cursor_visualizer:
+			cursor_visualizer.hide()
+		
+		print("Camera input disabled - popup opened")
 	else:
-		print("Material popup closed - editor input enabled")
+		# Re-enable camera processing when popup closes
+		camera.set_process(true)
+		
+		# FIXED: Show cursor preview when popup closes
+		if cursor_visualizer:
+			cursor_visualizer.show()
+		
+		print("Camera input enabled - popup closed")
+
+
 # ============================================================================
 # Y-LEVEL OFFSET (for TileMap3D)
 # ============================================================================

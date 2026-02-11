@@ -45,6 +45,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+focus_mode = 1
 
 [node name="RightSideMenu" type="VBoxContainer" parent="UI" unique_id=1295311782]
 layout_mode = 1
