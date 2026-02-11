@@ -160,13 +160,13 @@ func place_tile(pos: Vector3i, tile_type: int):
 	tile_manager.place_tile(pos, tile_type)
 
 
-func place_tile_with_material(pos: Vector3i, tile_type: int, material_index: int, material_palette_ref):
+func place_tile_with_material(pos: Vector3i, tile_type: int, material_index: int, palette_ref):
 	"""Place a tile and apply a material to it"""
 	tile_manager.place_tile(pos, tile_type)
-	apply_material_to_tile(pos, material_index, material_palette_ref)
+	apply_material_to_tile(pos, material_index, palette_ref)
 
 
-func apply_material_to_tile(pos: Vector3i, material_index: int, material_palette_ref):
+func apply_material_to_tile(pos: Vector3i, material_index: int, palette_ref):
 	"""Apply a material to an existing tile"""
 	if pos not in tiles:
 		return
@@ -175,7 +175,7 @@ func apply_material_to_tile(pos: Vector3i, material_index: int, material_palette
 	tile_materials[pos] = material_index
 	
 	# Get material from palette
-	var material = material_palette_ref.get_material_at_index(material_index)
+	var material = palette_ref.get_material_at_index(material_index)
 	
 	# Apply to mesh instance if it exists
 	if pos in tile_meshes and material:

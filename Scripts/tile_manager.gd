@@ -108,6 +108,21 @@ func flush_batch_updates():
 			var neighbor_pos = pos + offset
 			if neighbor_pos in tiles:
 				tiles_to_update[neighbor_pos] = true
+		
+		# CRITICAL: If this tile has a y-component, also update cardinal neighbors
+		# of tiles below it (for "fully enclosed" detection)
+		if pos.y > 0:
+			var below_pos = pos + Vector3i(0, -1, 0)
+			if below_pos in tiles:
+				tiles_to_update[below_pos] = true
+				# Add cardinal neighbors of the tile below
+				for cardinal_offset in [
+					Vector3i(1, 0, 0), Vector3i(-1, 0, 0),
+					Vector3i(0, 0, 1), Vector3i(0, 0, -1)
+				]:
+					var affected_pos = below_pos + cardinal_offset
+					if affected_pos in tiles:
+						tiles_to_update[affected_pos] = true
 	
 	var positions = tiles_to_update.keys()
 	print("Total tiles to update (including neighbors): ", positions.size())
@@ -133,21 +148,8 @@ func flush_batch_updates():
 	mesh_generation_queue = []
 	generated_meshes.clear()
 	
-	print("Capturing tile data with neighbors...")
-	for pos in positions:
-		if pos not in tiles:
-			continue
-		
-		var tile_type = tiles[pos]
-		var rotation = tile_map.tile_rotations.get(pos, 0.0)
-		var neighbors = get_neighbors(pos)  # Capture neighbors NOW while all tiles exist
-		
-		mesh_generation_queue.append({
-			"pos": pos,
-			"tile_type": tile_type,
-			"rotation": rotation,
-			"neighbors": neighbors  # Pre-captured with all diagonals
-		})
+	# Prepare mesh generation batch with pre-captured data
+	mesh_generation_queue = _prepare_mesh_generation_batch(tiles_to_update)
 	
 	# Create fresh thread object (required in Godot 4 - can't reuse after wait_to_finish)
 	worker_thread = Thread.new()
@@ -218,7 +220,6 @@ func flush_batch_updates():
 	
 	# ALWAYS cleanup thread, even if interrupted
 	_cleanup_worker_thread()
-	_cleanup_worker_thread()
 	
 	# TECHNIQUE 8: Re-enable culling
 	if mesh_generator.culling_manager:
@@ -245,6 +246,76 @@ func flush_batch_updates():
 	is_flushing = false
 
 
+func _prepare_mesh_generation_batch(tiles_to_update: Dictionary) -> Array:
+	var mesh_gen_queue = []
+	
+	print("Capturing tile data with neighbors...")
+	print("DEBUG: tiles_to_update size: ", tiles_to_update.size())
+	print("DEBUG: Total tiles in scene: ", tiles.size())
+	
+	# Count tiles at each Y level for debugging
+	var tiles_by_y = {}
+	for tile_pos in tiles.keys():
+		if tile_pos.y not in tiles_by_y:
+			tiles_by_y[tile_pos.y] = 0
+		tiles_by_y[tile_pos.y] += 1
+	print("DEBUG: Tiles by Y-level: ", tiles_by_y)
+	
+	for pos in tiles_to_update.keys():
+		if pos not in tiles:
+			continue
+		
+		var tile_type = tiles[pos]
+		var rotation = tile_map.tile_rotations.get(pos, 0.0)
+		var neighbors = get_neighbors(pos)  # Capture neighbors NOW while all tiles exist
+		
+		# CRITICAL: Also capture if this is a fully enclosed tile
+		var is_fully_enclosed = _check_if_fully_enclosed(pos, neighbors)
+		
+		# DEBUG: Print enclosed status for tiles at y=0
+		if pos.y == 0 and is_fully_enclosed:
+			print("DEBUG: Tile at ", pos, " is FULLY ENCLOSED!")
+		
+		mesh_gen_queue.append({
+			"pos": pos,
+			"tile_type": tile_type,
+			"rotation": rotation,
+			"neighbors": neighbors,  # Pre-captured with all diagonals
+			"is_fully_enclosed": is_fully_enclosed  # Pre-captured enclosed status
+		})
+	
+	return mesh_gen_queue
+
+
+# Check if a tile is fully enclosed (has tile above and all neighbors have tiles above)
+func _check_if_fully_enclosed(pos: Vector3i, neighbors: Dictionary) -> bool:
+	var NeighborDir = MeshGenerator.NeighborDir
+	
+	# Must have a tile above
+	if neighbors[NeighborDir.UP] == -1:
+		return false
+	
+	# Must have all 4 cardinal neighbors
+	if neighbors[NeighborDir.NORTH] == -1 or \
+	   neighbors[NeighborDir.SOUTH] == -1 or \
+	   neighbors[NeighborDir.EAST] == -1 or \
+	   neighbors[NeighborDir.WEST] == -1:
+		return false
+	
+	# Check if all cardinal neighbors also have tiles above them
+	var north_pos = pos + Vector3i(0, 0, -1)
+	var south_pos = pos + Vector3i(0, 0, 1)
+	var east_pos = pos + Vector3i(1, 0, 0)
+	var west_pos = pos + Vector3i(-1, 0, 0)
+	
+	var north_has_above = (north_pos + Vector3i(0, 1, 0)) in tiles
+	var south_has_above = (south_pos + Vector3i(0, 1, 0)) in tiles
+	var east_has_above = (east_pos + Vector3i(0, 1, 0)) in tiles
+	var west_has_above = (west_pos + Vector3i(0, 1, 0)) in tiles
+	
+	return north_has_above and south_has_above and east_has_above and west_has_above
+
+
 # Helper function to ensure thread is always cleaned up properly
 func _cleanup_worker_thread():
 	should_stop_thread = true
@@ -269,9 +340,10 @@ func _generate_meshes_threaded():
 		var tile_type = tile_data["tile_type"]
 		var rotation = tile_data["rotation"]
 		var neighbors = tile_data["neighbors"]  # Already has diagonals captured!
+		var is_fully_enclosed = tile_data["is_fully_enclosed"]  # Pre-captured enclosed status
 		
 		# MESH CACHING: Create cache key
-		var cache_key = _create_cache_key(tile_type, neighbors, rotation)
+		var cache_key = _create_cache_key(tile_type, neighbors, rotation, is_fully_enclosed)
 		
 		var mesh: ArrayMesh
 		
@@ -284,7 +356,7 @@ func _generate_meshes_threaded():
 		else:
 			# Generate mesh on background thread
 			if tile_type in custom_meshes:
-				mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation)
+				mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation, is_fully_enclosed)
 			else:
 				mesh = mesh_generator.generate_tile_mesh(tile_type, neighbors)
 			
@@ -302,11 +374,12 @@ func _generate_meshes_threaded():
 
 
 # MESH CACHING: Create unique cache key for mesh variations
-func _create_cache_key(tile_type: int, neighbors: Dictionary, rotation: float) -> String:
-	# Hash: tile_type + 6 neighbors + rotation (rounded to nearest 15°)
+func _create_cache_key(tile_type: int, neighbors: Dictionary, rotation: float, is_fully_enclosed: bool = false) -> String:
+	# Hash: tile_type + 6 neighbors + rotation + enclosed status
 	var rounded_rotation = round(rotation / 15.0) * 15.0
 	var n = neighbors
-	return "%d_%d%d%d%d%d%d_%.0f" % [
+	var enclosed_flag = 1 if is_fully_enclosed else 0
+	return "%d_%d%d%d%d%d%d_%.0f_%d" % [
 		tile_type,
 		n[MeshGenerator.NeighborDir.NORTH],
 		n[MeshGenerator.NeighborDir.SOUTH],
@@ -314,7 +387,8 @@ func _create_cache_key(tile_type: int, neighbors: Dictionary, rotation: float) -
 		n[MeshGenerator.NeighborDir.WEST],
 		n[MeshGenerator.NeighborDir.UP],
 		n[MeshGenerator.NeighborDir.DOWN],
-		rounded_rotation
+		rounded_rotation,
+		enclosed_flag
 	]
 
 
@@ -430,6 +504,9 @@ func place_tile(pos: Vector3i, tile_type: int):
 		# Normal mode: immediate update with neighbors
 		update_tile_mesh(pos)
 		
+		# Collect all tiles that need updating
+		var tiles_to_update = []
+		
 		# Update all neighbors (including diagonals)
 		for offset in [
 			Vector3i(1,0,0), Vector3i(-1,0,0),
@@ -445,7 +522,47 @@ func place_tile(pos: Vector3i, tile_type: int):
 					var neighbor_config = diagonal_selector.get_tile_configuration(neighbor_pos, tiles)
 					if neighbor_config.corner_type == DiagonalTileSelector.CornerType.INNER_CORNER:
 						tiles[neighbor_pos] = DiagonalTileSelector.TILE_INNER_CORNER
-				update_tile_mesh(neighbor_pos)
+				tiles_to_update.append(neighbor_pos)
+		
+		# CRITICAL FIX: If placing a tile above y=0, also update the cardinal neighbors of the tile below
+		# This is because their "fully enclosed" status might have changed
+		if pos.y > 0:
+			var below_pos = pos + Vector3i(0, -1, 0)
+			if below_pos in tiles:
+				# Add the tile directly below
+				tiles_to_update.append(below_pos)
+				
+				# Add cardinal neighbors of the tile below
+				for cardinal_offset in [
+					Vector3i(1, 0, 0),   # East of below
+					Vector3i(-1, 0, 0),  # West of below
+					Vector3i(0, 0, 1),   # South of below
+					Vector3i(0, 0, -1)   # North of below
+				]:
+					var affected_pos = below_pos + cardinal_offset
+					if affected_pos in tiles:
+						if affected_pos not in tiles_to_update:
+							tiles_to_update.append(affected_pos)
+		
+		# TWO-PASS UPDATE: Update all collected tiles
+		# This ensures all neighbor data is fresh before checking "fully enclosed" status
+		for update_pos in tiles_to_update:
+			update_tile_mesh(update_pos)
+		
+		# SECOND PASS: Re-update tiles that might have had their "fully enclosed" status change
+		# This is needed because the first pass updated meshes, but some tiles' enclosed status
+		# depends on their neighbors having fresh data
+		if pos.y > 0:
+			var below_pos = pos + Vector3i(0, -1, 0)
+			if below_pos in tiles:
+				# Re-update cardinal neighbors of the tile below
+				for cardinal_offset in [
+					Vector3i(1, 0, 0), Vector3i(-1, 0, 0),
+					Vector3i(0, 0, 1), Vector3i(0, 0, -1)
+				]:
+					var affected_pos = below_pos + cardinal_offset
+					if affected_pos in tiles:
+						update_tile_mesh(affected_pos)
 
 
 func remove_tile(pos: Vector3i):
@@ -516,8 +633,9 @@ func _immediate_update_tile_mesh(pos: Vector3i):
 	var mesh: ArrayMesh
 	if tile_type in custom_meshes:
 		var neighbors = get_neighbors(pos)
-		# PASS ROTATION to mesh generator
-		mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation)
+		var is_fully_enclosed = _check_if_fully_enclosed(pos, neighbors)
+		# PASS ROTATION AND is_fully_enclosed to mesh generator
+		mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation, is_fully_enclosed)
 	else:
 		var neighbors = get_neighbors(pos)
 		mesh = mesh_generator.generate_tile_mesh(tile_type, neighbors)
@@ -579,11 +697,12 @@ func regenerate_tile_with_rotation(pos: Vector3i, rotation_degrees: float):
 	# Generate new mesh WITH ROTATION
 	var tile_type = tiles[pos]
 	var neighbors = get_neighbors(pos)
+	var is_fully_enclosed = _check_if_fully_enclosed(pos, neighbors)
 	
 	var mesh: ArrayMesh
 	if tile_type in custom_meshes:
-		# PASS ROTATION to mesh generator
-		mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation_degrees)
+		# PASS ROTATION AND is_fully_enclosed to mesh generator
+		mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation_degrees, is_fully_enclosed)
 	else:
 		mesh = mesh_generator.generate_tile_mesh(tile_type, neighbors)
 	

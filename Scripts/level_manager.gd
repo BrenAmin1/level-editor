@@ -93,10 +93,33 @@ static func load_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 	if save_data.has("tile_materials"):
 		_deserialize_tile_materials(save_data["tile_materials"], tilemap)
 	
+	# Re-evaluate corner tiles after all tiles are loaded
+	var corners_fixed = _reevaluate_corner_tiles(tilemap)
+	
+	# CRITICAL: Ensure culling is ENABLED for the flush
+	if tilemap.tile_manager.mesh_generator and tilemap.tile_manager.mesh_generator.culling_manager:
+		tilemap.tile_manager.mesh_generator.culling_manager.batch_mode_skip_culling = false
+		print("  Ensured culling is enabled for load flush")
+	
+	# CRITICAL: Mark ALL tiles as dirty to ensure fresh mesh generation
+	print("  Marking all tiles for fresh mesh generation...")
+	for pos in tilemap.tiles.keys():
+		tilemap.tile_manager.mark_dirty(pos)
+	
+	# Disable caching for this flush - diagonal neighbors affect corner culling
+	tilemap.tile_manager.disable_caching_this_flush = true
+	tilemap.tile_manager.clear_mesh_cache()
+	print("  Caching disabled for this flush to ensure correct corner detection")
+	
+	# Now end batch mode, which will trigger flush with correct neighbor data
 	tilemap.set_batch_mode(false)
+	
+	# Re-enable caching after flush completes
+	tilemap.tile_manager.disable_caching_this_flush = false
 	
 	print("Level loaded successfully from: ", filepath)
 	print("  - Tiles loaded: ", tiles_loaded)
+	print("  - Corners corrected: ", corners_fixed)
 	print("  - Tile materials loaded: ", tilemap.tile_materials.size())
 	print("  - Y-levels with offsets: ", y_level_manager.y_level_offsets.size())
 	if save_data.has("metadata") and save_data["metadata"].has("saved_at"):
@@ -228,6 +251,82 @@ static func _deserialize_materials_palette(materials_array: Array, palette):
 			# Call the material creation method
 			if palette.has_method("_on_material_created"):
 				palette._on_material_created(material_data)
+
+
+static func _reevaluate_corner_tiles(tilemap: TileMap3D) -> int:
+	"""
+	Re-evaluate tile types for corners after loading.
+	This ensures proper corner detection even when auto-detection is disabled.
+	Returns the number of tiles that were corrected.
+	"""
+	var diagonal_selector = DiagonalTileSelector.new()
+	var corrections = 0
+	var affected_tiles = {}  # Track all tiles that need mesh updates
+	
+	# First pass: identify which tiles should be corners
+	var tiles_to_correct = []
+	
+	for pos in tilemap.tiles.keys():
+		var current_tile_type = tilemap.tiles[pos]
+		var config = diagonal_selector.get_tile_configuration(pos, tilemap.tiles)
+		
+		# If this should be an inner corner but isn't
+		if config.corner_type == DiagonalTileSelector.CornerType.INNER_CORNER:
+			if current_tile_type != DiagonalTileSelector.TILE_INNER_CORNER:
+				tiles_to_correct.append({
+					"pos": pos,
+					"old_type": current_tile_type,
+					"new_type": DiagonalTileSelector.TILE_INNER_CORNER,
+					"rotation": config.rotation
+				})
+		# If this is marked as corner but shouldn't be
+		elif current_tile_type == DiagonalTileSelector.TILE_INNER_CORNER:
+			if config.corner_type != DiagonalTileSelector.CornerType.INNER_CORNER:
+				tiles_to_correct.append({
+					"pos": pos,
+					"old_type": current_tile_type,
+					"new_type": DiagonalTileSelector.TILE_FULL_BLOCK,
+					"rotation": 0.0
+				})
+	
+	# Second pass: apply corrections
+	for correction in tiles_to_correct:
+		var pos = correction["pos"]
+		tilemap.tiles[pos] = correction["new_type"]
+		
+		# Store rotation if it's a corner
+		if correction["new_type"] == DiagonalTileSelector.TILE_INNER_CORNER:
+			tilemap.tile_rotations[pos] = correction["rotation"]
+		elif pos in tilemap.tile_rotations:
+			# Clear rotation if it's not a corner anymore
+			tilemap.tile_rotations.erase(pos)
+		
+		# Mark this tile and all neighbors
+		affected_tiles[pos] = true
+		
+		# Mark all neighbors (they need to regenerate to show/hide faces correctly)
+		for offset in [
+			Vector3i(1,0,0), Vector3i(-1,0,0),
+			Vector3i(0,1,0), Vector3i(0,-1,0),
+			Vector3i(0,0,1), Vector3i(0,0,-1),
+			Vector3i(1, 0, 1), Vector3i(1, 0, -1),
+			Vector3i(-1, 0, 1), Vector3i(-1, 0, -1)
+		]:
+			var neighbor_pos = pos + offset
+			if neighbor_pos in tilemap.tiles:
+				affected_tiles[neighbor_pos] = true
+		
+		corrections += 1
+	
+	# Third pass: mark all affected tiles as dirty
+	for pos in affected_tiles.keys():
+		tilemap.tile_manager.mark_dirty(pos)
+	
+	if corrections > 0:
+		print("  Re-evaluated ", tilemap.tiles.size(), " tiles, corrected ", corrections, " corner tiles")
+		print("  Marked ", affected_tiles.size(), " tiles (including neighbors) for mesh regeneration")
+	
+	return corrections
 
 
 # ============================================================================

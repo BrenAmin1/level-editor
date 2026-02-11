@@ -63,7 +63,7 @@ func setup(tilemap: TileMap3D, meshes_ref: Dictionary, tiles_ref: Dictionary, gr
 	mesh_builder = MeshBuilder.new()
 	mesh_builder.setup(tile_map)
 
-func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Dictionary, rotation_degrees: float = 0.0) -> ArrayMesh:
+func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Dictionary, rotation_degrees: float = 0.0, is_fully_enclosed: bool = false) -> ArrayMesh:
 	if tile_type not in custom_meshes:
 		return ArrayMesh.new()
 	
@@ -84,7 +84,7 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 	# Process each surface with rotated neighbors but NO geometry rotation
 	for surface_idx in range(base_mesh.get_surface_count()):
 		_process_mesh_surface(base_mesh, surface_idx, pos, rotated_neighbors,
-							  triangles_by_surface, exposed_corners, disable_all_culling)
+							  triangles_by_surface, exposed_corners, disable_all_culling, is_fully_enclosed)
 	
 	return mesh_builder.build_final_mesh(triangles_by_surface, tile_type, base_mesh)
 
@@ -160,7 +160,7 @@ func _initialize_surface_arrays() -> Dictionary:
 
 func _process_mesh_surface(base_mesh: ArrayMesh, surface_idx: int, pos: Vector3i, 
 							neighbors: Dictionary, triangles_by_surface: Dictionary,
-							exposed_corners: Array, disable_all_culling: bool):
+							exposed_corners: Array, disable_all_culling: bool, is_fully_enclosed: bool = false):
 	var arrays = base_mesh.surface_get_arrays(surface_idx)
 	var vertices = arrays[Mesh.ARRAY_VERTEX]
 	var normals = arrays[Mesh.ARRAY_NORMAL]
@@ -192,9 +192,9 @@ func _process_mesh_surface(base_mesh: ArrayMesh, surface_idx: int, pos: Vector3i
 		var face_normal = (n0 + n1 + n2).normalized()
 		var face_center = (v0 + v1 + v2) / 3.0
 		
-		# Check culling
+		# Check culling - pass pre-captured is_fully_enclosed
 		if culling_manager.should_cull_triangle(pos, neighbors, face_center, face_normal, 
-												exposed_corners, disable_all_culling):
+												exposed_corners, disable_all_culling, is_fully_enclosed):
 			continue
 		
 		# Extend vertices to boundaries WITH rotation awareness

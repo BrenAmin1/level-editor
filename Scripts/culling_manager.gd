@@ -36,7 +36,7 @@ func find_exposed_corners(neighbors: Dictionary) -> Array:
 	return exposed_corners
 
 func should_cull_triangle(pos: Vector3i, neighbors: Dictionary, face_center: Vector3, 
-						  face_normal: Vector3, exposed_corners: Array, _disable_all_culling: bool) -> bool:
+						  face_normal: Vector3, exposed_corners: Array, _disable_all_culling: bool, is_fully_enclosed: bool = false) -> bool:
 	if batch_mode_skip_culling:
 		return false
 	
@@ -48,9 +48,44 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary, face_center: Vec
 	
 	# Debug flag - set to true to track corner keeps
 	var DEBUG_CULLING = true
+	var DEBUG_INSIDE_TILES = false  # Turn off verbose debug
 	
 	# Check if this cube has a cube on top
 	var has_cube_above = neighbors[NeighborDir.UP] != -1
+	
+	# Use the PRE-CAPTURED is_fully_enclosed status
+	# (No longer checking tiles dictionary here - it's done before threading)
+	
+	# If this is a fully enclosed inside tile, aggressively cull everything
+	if is_fully_enclosed:
+		if DEBUG_INSIDE_TILES:
+			var face_type = "UNKNOWN"
+			if face_normal.x < -0.7:
+				face_type = "WEST"
+			elif face_normal.x > 0.7:
+				face_type = "EAST"
+			elif face_normal.z < -0.7:
+				face_type = "NORTH"
+			elif face_normal.z > 0.7:
+				face_type = "SOUTH"
+			elif face_normal.y > 0.7:
+				face_type = "TOP"
+			elif face_normal.y < -0.7:
+				face_type = "BOTTOM"
+			print("  [CULLING] ", face_type, " face at ", pos, " (inside tile)")
+		
+		# Cull all side faces
+		if abs(face_normal.x) > 0.7 or abs(face_normal.z) > 0.7:
+			return true
+		# Cull top faces
+		if face_normal.y > 0.7:
+			return true
+		# Cull bottom faces if there's a tile below
+		if face_normal.y < -0.7:
+			if neighbors[NeighborDir.DOWN] != -1:
+				return true
+	
+	# Otherwise, use normal culling logic with bulge handling
 	
 	# West face (normal pointing in -X direction)
 	if face_normal.x < -0.7:
