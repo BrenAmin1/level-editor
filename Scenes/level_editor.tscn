@@ -54,6 +54,7 @@ anchor_right = 1.0
 offset_left = -326.0
 offset_bottom = 221.0
 grow_horizontal = 0
+focus_mode = 1
 script = ExtResource("5_wchaa")
 
 [node name="YLevel" type="Label" parent="UI/RightSideMenu" unique_id=2086835068]
@@ -104,6 +105,7 @@ text = "Confirm"
 layout_mode = 1
 anchor_top = 0.892
 offset_top = 38.98401
+focus_mode = 1
 
 [node name="Controls" type="Label" parent="UI" unique_id=1335712705]
 layout_mode = 0

@@ -53,3 +53,4 @@ columns = 12
 
 [node name="MaterialMakerPopup" parent="." unique_id=1325598331 instance=ExtResource("3_popup")]
 unique_name_in_owner = true
+visible = false

@@ -60,14 +60,14 @@ func _ready():
 	tilemap.set_material_palette_reference(material_palette)
 	
 	# Load custom mesh
-	tilemap.load_obj_for_tile_type(3, "res://cubes/cube_bulge.obj")
-	tilemap.set_custom_material(3, 0, GRASS)
-	tilemap.set_custom_material(3, 1, DIRT)
-	tilemap.set_custom_material(3, 2, DIRT)
-	tilemap.load_obj_for_tile_type(4, "res://cubes/half_bevel.obj")
-	tilemap.set_custom_material(4, 0, GRASS)
-	tilemap.set_custom_material(4, 1, DIRT)
-	tilemap.set_custom_material(4, 2, DIRT)
+	tilemap.load_obj_for_tile_type(0, "res://cubes/cube_bulge.obj")
+	tilemap.set_custom_material(0, 0, GRASS)
+	tilemap.set_custom_material(0, 1, DIRT)
+	tilemap.set_custom_material(0, 2, DIRT)
+	tilemap.load_obj_for_tile_type(1, "res://cubes/half_bevel.obj")
+	tilemap.set_custom_material(1, 0, GRASS)
+	tilemap.set_custom_material(1, 1, DIRT)
+	tilemap.set_custom_material(1, 2, DIRT)
 	
 	var surfaces = tilemap.get_surface_count(3)
 	print("Loaded ", surfaces, " surfaces")
@@ -98,7 +98,10 @@ func _ready():
 		material_palette.popup_state_changed.connect(_on_popup_state_changed)
 		material_palette.material_selected.connect(_on_material_selected)
 	if right_side_menu:
-		right_side_menu.ui_hover_changed.connect(_on_material_palette_hover_changed)
+		var x_spin = right_side_menu.get_node("OffsetFold/PanelContainer/OffsetVContain/XSpin")
+		var z_spin = right_side_menu.get_node("OffsetFold/PanelContainer/OffsetVContain/ZSpin")
+		input_handler.register_focus_control(x_spin)
+		input_handler.register_focus_control(z_spin)
 	
 	print("Mode: EDIT (Press TAB to toggle)")
 	print("\nSave/Load Controls:")

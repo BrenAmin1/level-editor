@@ -29,6 +29,7 @@ var batch_mode: bool = false  # Track if we're in batch operation
 var tiles_placed: Array = []  # Track tiles placed for batch update
 var processing_material_index: int = -1  # Material index for paint operations
 var material_palette_ref = null  # Reference to material palette
+var processing_placement_material_index: int = -1  # Material for placement operations
 
 # ============================================================================
 # SETUP
@@ -186,7 +187,7 @@ func clear_selection():
 # MASS OPERATIONS - ASYNC PROCESSING
 # ============================================================================
 
-func mass_place_tiles():
+func mass_place_tiles(material_index: int = -1):  # Add parameter
 	if not has_selection:
 		print("No area selected")
 		return
@@ -216,6 +217,7 @@ func mass_place_tiles():
 	is_processing = true
 	batch_mode = true
 	processing_type = "place"
+	processing_placement_material_index = material_index  # ADD THIS LINE
 	
 	# Enable batch mode on tilemap to defer mesh updates
 	tilemap.set_batch_mode(true)
@@ -262,7 +264,6 @@ func mass_delete_tiles():
 	print("Queued ", processing_queue.size(), " tiles for deletion...")
 
 
-# Call this from your main loop (_process or _physics_process)
 func process_queue():
 	if not is_processing or processing_queue.is_empty():
 		if is_processing and processing_queue.is_empty():
@@ -275,7 +276,11 @@ func process_queue():
 		var item = processing_queue.pop_front()
 		
 		if processing_type == "place":
-			tilemap.place_tile(item, current_tile_type)
+			# Check if we have a material to apply
+			if processing_placement_material_index >= 0 and material_palette_ref:
+				tilemap.place_tile_with_material(item, current_tile_type, processing_placement_material_index, material_palette_ref)
+			else:
+				tilemap.place_tile(item, current_tile_type)
 			tiles_placed.append(item)
 		elif processing_type == "delete":
 			tilemap.remove_tile(item)
@@ -290,10 +295,6 @@ func process_queue():
 			tiles_placed.append(item)
 		
 		processed += 1
-	
-	# Optional: print progress every 500 tiles
-	if processing_queue.size() % 500 == 0 and processing_queue.size() > 0:
-		print("Remaining: ", processing_queue.size())
 
 
 func _finish_processing():

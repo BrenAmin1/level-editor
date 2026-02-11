@@ -27,6 +27,9 @@ var current_mode: int  # EditorMode enum
 var current_tile_type: int
 var current_y_level: int
 
+# Focus management
+var tracked_focus_controls: Array[Control] = []
+
 # ============================================================================
 # SETUP
 # ============================================================================
@@ -44,6 +47,67 @@ func setup(level_editor: Node3D, cam: CameraController, tm: TileMap3D,
 	grid_range = grid_rng
 
 # ============================================================================
+# FOCUS MANAGEMENT
+# ============================================================================
+
+func register_focus_control(control: Control):
+	"""Register a UI control for automatic focus management"""
+	if control not in tracked_focus_controls:
+		tracked_focus_controls.append(control)
+		print("Registered focus control: ", control.name)
+
+func _handle_focus_release(event: InputEvent) -> bool:
+	"""
+	Handle automatic focus release from UI elements.
+	Returns true if focus was released and event should be consumed.
+	"""
+	# Release focus on Escape key
+	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+		if _has_any_focus():
+			_release_all_focus()
+			return true  # Consume the event
+	
+	# Release focus when clicking on 3D viewport (outside UI)
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		if _has_any_focus() and not is_ui_hovered:
+			_release_all_focus()
+			return false  # Don't consume - let click through to viewport
+	
+	return false
+
+func _has_any_focus() -> bool:
+	"""Check if any registered UI control has focus"""
+	for control in tracked_focus_controls:
+		if not is_instance_valid(control):
+			continue
+		
+		if control is LineEdit and control.has_focus():
+			return true
+		elif control is SpinBox and control.get_line_edit().has_focus():
+			return true
+		elif control is TextEdit and control.has_focus():
+			return true
+	return false
+
+func _release_all_focus():
+	"""Release focus from all registered UI controls"""
+	for control in tracked_focus_controls:
+		if not is_instance_valid(control):
+			continue
+		
+		if control is LineEdit:
+			if control.has_focus():
+				control.release_focus()
+		elif control is SpinBox:
+			if control.get_line_edit().has_focus():
+				control.get_line_edit().release_focus()
+		elif control is TextEdit:
+			if control.has_focus():
+				control.release_focus()
+	
+	print("Released all UI focus")
+
+# ============================================================================
 # MATERIAL PAINTING
 # ============================================================================
 
@@ -51,11 +115,9 @@ func set_painting_material(material_index: int):
 	"""Set the current material index for painting"""
 	current_material_index = material_index
 
-
 func set_material_palette_reference(palette):
 	"""Set reference to material palette"""
 	material_palette_ref = palette
-
 
 func toggle_paint_mode():
 	"""Toggle paint mode on/off"""
@@ -74,6 +136,10 @@ func process_input(event: InputEvent, mode: int, tile_type: int, y_level: int):
 	current_tile_type = tile_type
 	current_y_level = y_level
 	
+	# Handle focus release first
+	if _handle_focus_release(event):
+		return null  # Focus was released, don't process other input
+	
 	if event is InputEventMouseButton:
 		_handle_mouse_button(event)
 	elif event is InputEventMouseMotion:
@@ -82,7 +148,6 @@ func process_input(event: InputEvent, mode: int, tile_type: int, y_level: int):
 		return _handle_keyboard(event)
 	
 	return null  # No mode change
-
 
 func _handle_mouse_button(event: InputEventMouseButton):
 	if is_ui_hovered:
@@ -102,26 +167,18 @@ func _handle_mouse_button(event: InputEventMouseButton):
 		if current_mode == 1 and event.button_index == MOUSE_BUTTON_LEFT:
 			selection_manager.end_selection()
 
-
 func _handle_mouse_motion(event: InputEventMouseMotion):
 	camera.handle_mouse_motion(event)
-
 
 func _handle_keyboard(event: InputEventKey) -> Dictionary:
 	var result = {}
 	
 	# Save/Load shortcuts (highest priority - check first)
 	if event.ctrl_pressed:
-		# Quick save (Ctrl+S) - handled in level_editor._input()
-		# We don't handle it here to avoid double-triggering
 		if event.keycode == KEY_S and not event.shift_pressed:
 			return result
-		
-		# Save with custom name (Ctrl+Shift+S) - handled in level_editor._input()
 		elif event.keycode == KEY_S and event.shift_pressed:
 			return result
-		
-		# Load (Ctrl+L) - handled in level_editor._input()
 		elif event.keycode == KEY_L:
 			return result
 	
@@ -137,16 +194,10 @@ func _handle_keyboard(event: InputEventKey) -> Dictionary:
 			editor.get_viewport().debug_draw = Viewport.DEBUG_DRAW_DISABLED
 		KEY_1:
 			result["tile_type"] = 0
-			print("Selected: Floor tile (gray)")
+			print("Selected: Custom mesh 1")
 		KEY_2:
 			result["tile_type"] = 1
-			print("Selected: Wall tile (brown)")
-		KEY_3:
-			result["tile_type"] = 3
-			print("Selected: Custom")
-		KEY_4:
-			result["tile_type"] = 4
-			print("Selected: Custom")
+			print("Selected: Custom mesh 2")
 		KEY_BRACKETRIGHT, KEY_MINUS:
 			result["y_level"] = current_y_level - 1
 			y_level_manager.change_y_level(result["y_level"])
@@ -155,7 +206,7 @@ func _handle_keyboard(event: InputEventKey) -> Dictionary:
 			y_level_manager.change_y_level(result["y_level"])
 		KEY_F:
 			if current_mode == 1:  # SELECT mode
-				selection_manager.mass_place_tiles()
+				selection_manager.mass_place_tiles(current_material_index)
 		KEY_DELETE, KEY_X:
 			if current_mode == 1:  # SELECT mode
 				selection_manager.mass_delete_tiles()
@@ -168,16 +219,15 @@ func _handle_keyboard(event: InputEventKey) -> Dictionary:
 	
 	return result
 
-
 func handle_mouse_wheel(delta: float):
 	camera.handle_mouse_wheel(delta)
-
 
 func handle_continuous_input(_delta: float):
 	# Block input if:
 	# 1. Mouse is over UI (material palette, spinboxes, etc.)
 	# 2. Window doesn't have focus
-	if is_ui_hovered or not editor.window_has_focus:
+	# 3. Any UI control has focus
+	if is_ui_hovered or not editor.window_has_focus or _has_any_focus():
 		return
 	
 	# Handle held mouse buttons in EDIT mode
@@ -188,8 +238,6 @@ func handle_continuous_input(_delta: float):
 				_attempt_tile_placement(current_mouse_button.position, false)
 			elif current_mouse_button.button_index == MOUSE_BUTTON_RIGHT:
 				_attempt_tile_removal(current_mouse_button.position)
-
-
 
 # ============================================================================
 # TILE PLACEMENT/REMOVAL
@@ -236,7 +284,6 @@ func _attempt_tile_placement(mouse_pos: Vector2, single_click: bool):
 		else:
 			tilemap.place_tile(grid_pos, current_tile_type)
 
-
 func _attempt_tile_removal(mouse_pos: Vector2):
 	var from = camera.project_ray_origin(mouse_pos)
 	var to = from + camera.project_ray_normal(mouse_pos) * 1000
@@ -255,5 +302,10 @@ func _attempt_tile_removal(mouse_pos: Vector2):
 			floori(adjusted_intersection.z / grid_size)
 		)
 		
-		if tilemap.has_tile(grid_pos):
-			tilemap.remove_tile(grid_pos)
+		if abs(grid_pos.x) > grid_range or abs(grid_pos.z) > grid_range:
+			return
+		
+		tilemap.remove_tile(grid_pos)
+
+func set_ui_hovered(hovered: bool):
+	is_ui_hovered = hovered

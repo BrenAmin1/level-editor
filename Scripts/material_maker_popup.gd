@@ -63,6 +63,10 @@ func _ready() -> void:
 	# Connect to popup signals
 	popup_hide.connect(_on_popup_hide)
 	about_to_popup.connect(_on_about_to_popup)  # NEW: Connect to built-in signal
+	var level_editor = get_tree().current_scene
+	if level_editor and level_editor.has_node("InputHandler"):
+		var input_handler = level_editor.input_handler
+		input_handler.register_focus_control(material_name_input)
 
 func _setup_file_dialog() -> void:
 	file_dialog = FileDialog.new()
