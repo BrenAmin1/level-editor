@@ -35,6 +35,66 @@ func find_exposed_corners(neighbors: Dictionary) -> Array:
 	
 	return exposed_corners
 
+func should_cull_stair_face(face_normal: Vector3, neighbors: Dictionary, rotation_degrees: float) -> bool:
+	"""
+	Cull the solid side and back faces of a stair mesh based on neighbors.
+	
+	Stairs have three fully-solid faces that can be culled:
+	  - Left side   (West face of the unrotated mesh, normal -X)
+	  - Right side  (East face of the unrotated mesh, normal +X)
+	  - Back face   (South face of the unrotated mesh, normal +Z)
+	
+	These map to world-space directions after the stair's rotation is applied.
+	We rotate the face normal back into the stair's local space, then check
+	whether the corresponding neighbor slot is occupied.
+	
+	The bottom face is always culled (it's on the ground).
+	The front and top step faces are never culled (they're always visible).
+	"""
+	var NeighborDir = MeshGenerator.NeighborDir
+
+	# Bottom face — always hidden (flush with ground plane)
+	if face_normal.y < -0.7:
+		return true
+
+	# Only side/back faces are candidates for culling.
+	# Top-facing normals (step tops) and front-facing step risers are never culled.
+	if face_normal.y > 0.1:
+		return false  # Step top surface — never cull
+
+	# Rotate the world-space face normal back to stair local space
+	# so we can test against the canonical left/right/back directions.
+	var local_normal = _rotate_normal_to_local(face_normal, rotation_degrees)
+
+	# Left side of stairs (local -X)
+	if local_normal.x < -0.7:
+		return neighbors[NeighborDir.WEST] != -1
+
+	# Right side of stairs (local +X)
+	if local_normal.x > 0.7:
+		return neighbors[NeighborDir.EAST] != -1
+
+	# Back of stairs (local +Z, the tall solid back wall)
+	if local_normal.z > 0.7:
+		return neighbors[NeighborDir.SOUTH] != -1
+
+	# Front / step risers (local -Z) — never cull, always visible
+	return false
+
+
+func _rotate_normal_to_local(world_normal: Vector3, rotation_degrees: float) -> Vector3:
+	"""Rotate a world-space normal back into stair-local space (inverse of stair rotation)."""
+	var angle_rad = deg_to_rad(-rotation_degrees)  # Inverse rotation
+	var cos_a = cos(angle_rad)
+	var sin_a = sin(angle_rad)
+	# Rotate around Y axis
+	return Vector3(
+		world_normal.x * cos_a - world_normal.z * sin_a,
+		world_normal.y,
+		world_normal.x * sin_a + world_normal.z * cos_a
+	)
+
+
 func should_cull_triangle(pos: Vector3i, neighbors: Dictionary, face_center: Vector3, 
 						  face_normal: Vector3, exposed_corners: Array, _disable_all_culling: bool, is_fully_enclosed: bool = false) -> bool:
 	if batch_mode_skip_culling:

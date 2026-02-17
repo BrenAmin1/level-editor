@@ -27,6 +27,9 @@ var current_mode: int  # EditorMode enum
 var current_tile_type: int
 var current_y_level: int
 
+# Undo/redo and clipboard
+var undo_redo: UndoRedoManager = null
+
 # Focus management
 var tracked_focus_controls: Array[Control] = []
 
@@ -45,6 +48,11 @@ func setup(level_editor: Node3D, cam: CameraController, tm: TileMap3D,
 	y_level_manager = y_mgr
 	grid_size = grid_sz
 	grid_range = grid_rng
+
+
+func set_undo_redo(ur: UndoRedoManager) -> void:
+	"""Inject the shared UndoRedoManager instance."""
+	undo_redo = ur
 
 # ============================================================================
 # FOCUS MANAGEMENT
@@ -162,8 +170,13 @@ func _handle_mouse_button(event: InputEventMouseButton):
 				selection_manager.mass_delete_tiles()
 			elif event.button_index == MOUSE_BUTTON_LEFT:
 				selection_manager.start_selection(event.position)
+		elif current_mode == 0:  # EDIT mode — open undo action on press
+			if undo_redo:
+				undo_redo.begin_action()
 	else:
 		mouse_pressed = false
+		if current_mode == 0 and undo_redo:  # Close undo action on release
+			undo_redo.end_action()
 		if current_mode == 1 and event.button_index == MOUSE_BUTTON_LEFT:
 			selection_manager.end_selection()
 
@@ -180,6 +193,28 @@ func _handle_keyboard(event: InputEventKey) -> Dictionary:
 		elif event.keycode == KEY_S and event.shift_pressed:
 			return result
 		elif event.keycode == KEY_L:
+			return result
+		# Undo / Redo
+		elif event.keycode == KEY_Z and not event.shift_pressed:
+			if undo_redo:
+				undo_redo.undo()
+			return result
+		elif event.keycode == KEY_Z and event.shift_pressed:
+			if undo_redo:
+				undo_redo.redo()
+			return result
+		elif event.keycode == KEY_Y:
+			if undo_redo:
+				undo_redo.redo()
+			return result
+		# Copy / Paste (SELECT mode only)
+		elif event.keycode == KEY_C:
+			if current_mode == 1 and selection_manager:
+				selection_manager.copy_selection()
+			return result
+		elif event.keycode == KEY_V:
+			if selection_manager and not selection_manager.clipboard.is_empty():
+				_paste_at_cursor()
 			return result
 	
 	# Regular editor controls
@@ -269,6 +304,8 @@ func _attempt_tile_placement(mouse_pos: Vector2, single_click: bool):
 		# Paint mode: only change material on existing tiles
 		if paint_mode and tilemap.has_tile(grid_pos):
 			if current_material_index >= 0 and material_palette_ref:
+				if undo_redo:
+					undo_redo.record_tile_before(grid_pos)
 				tilemap.apply_material_to_tile(grid_pos, current_material_index, material_palette_ref)
 				var material_data = material_palette_ref.get_material_data_at_index(current_material_index)
 				var material_name = material_data.get("name", "Unknown")
@@ -279,6 +316,10 @@ func _attempt_tile_placement(mouse_pos: Vector2, single_click: bool):
 		# Normal placement mode
 		if not single_click and tilemap.has_tile(grid_pos):
 			return
+		
+		# Record before-state for undo
+		if undo_redo:
+			undo_redo.record_tile_before(grid_pos)
 		
 		# Place tile with material if selected
 		if current_material_index >= 0 and material_palette_ref:
@@ -307,7 +348,47 @@ func _attempt_tile_removal(mouse_pos: Vector2):
 		if abs(grid_pos.x) > grid_range or abs(grid_pos.z) > grid_range:
 			return
 		
+		if undo_redo and tilemap.has_tile(grid_pos):
+			undo_redo.record_tile_before(grid_pos)
 		tilemap.remove_tile(grid_pos)
 
 func set_ui_hovered(hovered: bool):
 	is_ui_hovered = hovered
+
+
+# ============================================================================
+# PASTE
+# ============================================================================
+
+func _paste_at_cursor() -> void:
+	"""Paste clipboard tiles at the current cursor grid position."""
+	var viewport = editor.get_viewport()
+	if not viewport:
+		return
+	var mouse_pos = viewport.get_mouse_position()
+	var from = camera.project_ray_origin(mouse_pos)
+	var to = from + camera.project_ray_normal(mouse_pos) * 1000
+	var offset = y_level_manager.get_offset(current_y_level)
+	var y_world = current_y_level * grid_size
+	var placement_plane = Plane(Vector3.UP, y_world)
+	var intersection = placement_plane.intersects_ray(from, to - from)
+	if not intersection:
+		return
+	var adjusted = intersection - Vector3(offset.x, 0, offset.y)
+	var origin = Vector3i(
+		floori(adjusted.x / grid_size),
+		current_y_level,
+		floori(adjusted.z / grid_size)
+	)
+	# Snapshot before-state of all paste targets for undo
+	var positions: Array = []
+	for snap in selection_manager.clipboard:
+		positions.append(origin + snap["offset"])
+	var before_snaps: Array = []
+	if undo_redo:
+		before_snaps = undo_redo.snapshot_positions(positions)
+	selection_manager.paste_at(origin, material_palette_ref)
+	if undo_redo:
+		var after_snaps = undo_redo.snapshot_positions(positions)
+		undo_redo.commit_action(before_snaps, after_snaps)
+	print("Pasted ", selection_manager.clipboard.size(), " tile(s) at ", origin)

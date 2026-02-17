@@ -31,6 +31,15 @@ var processing_material_index: int = -1  # Material index for paint operations
 var material_palette_ref = null  # Reference to material palette
 var processing_placement_material_index: int = -1  # Material for placement operations
 
+# Clipboard for copy/paste
+var clipboard: Array = []  # Array of { offset: Vector3i, type: int, rotation: float, material: int }
+
+# Undo/redo reference (injected from LevelEditor)
+var undo_redo: UndoRedoManager = null
+
+# Internal: before-snapshots captured at the start of a batch operation
+var _undo_before_snaps: Array = []
+
 # ============================================================================
 # SETUP
 # ============================================================================
@@ -49,6 +58,11 @@ func setup(tm: TileMap3D, cam: CameraController, y_mgr: YLevelManager,
 func update_state(y_level: int, tile_type: int):
 	current_y_level = y_level
 	current_tile_type = tile_type
+
+
+func set_undo_redo(ur: UndoRedoManager) -> void:
+	"""Inject the shared UndoRedoManager instance."""
+	undo_redo = ur
 
 # ============================================================================
 # MATERIAL PAINTING
@@ -82,6 +96,10 @@ func mass_paint_tiles(material_index: int):
 		print("No tiles to paint")
 		clear_selection()
 		return
+	
+	# Snapshot before-state for undo
+	if undo_redo:
+		_undo_before_snaps = undo_redo.snapshot_positions(existing_tiles)
 	
 	# Start async processing
 	processing_queue = existing_tiles.duplicate()
@@ -214,6 +232,10 @@ func mass_place_tiles(material_index: int = -1):  # Add parameter
 		clear_selection()
 		return
 	
+	# Snapshot before-state for undo
+	if undo_redo:
+		_undo_before_snaps = undo_redo.snapshot_positions(processing_queue)
+	
 	is_processing = true
 	batch_mode = true
 	processing_type = "place"
@@ -252,6 +274,10 @@ func mass_delete_tiles():
 		print("No tiles to delete")
 		clear_selection()
 		return
+	
+	# Snapshot before-state for undo
+	if undo_redo:
+		_undo_before_snaps = undo_redo.snapshot_positions(processing_queue)
 	
 	is_processing = true
 	batch_mode = true
@@ -299,6 +325,14 @@ func process_queue():
 
 func _finish_processing():
 	print("Completed ", processing_type, " operation")
+	
+	# Commit undo action if we have before-snapshots
+	if undo_redo and not _undo_before_snaps.is_empty():
+		var after_snaps = undo_redo.snapshot_positions(
+			_undo_before_snaps.map(func(s): return s["pos"])
+		)
+		undo_redo.commit_action(_undo_before_snaps, after_snaps)
+	_undo_before_snaps.clear()
 	
 	# Exit batch mode and trigger all deferred updates
 	if batch_mode:
@@ -396,6 +430,60 @@ func update_visualizer():
 
 
 # ============================================================================
+# COPY / PASTE
+# ============================================================================
+
+func copy_selection() -> void:
+	"""Copy all tiles in the current selection to the clipboard."""
+	if not has_selection:
+		print("No area selected — nothing to copy")
+		return
+	
+	clipboard.clear()
+	var origin = Vector3i(
+		mini(selection_start.x, selection_end.x),
+		current_y_level,
+		mini(selection_start.z, selection_end.z)
+	)
+	for pos in _get_selected_positions():
+		if tilemap.has_tile(pos):
+			clipboard.append({
+				"offset": pos - origin,
+				"type": tilemap.get_tile_type(pos),
+				"rotation": tilemap.get_tile_rotation(pos),
+				"material": tilemap.get_tile_material_index(pos)
+			})
+	
+	if clipboard.is_empty():
+		print("No tiles in selection to copy")
+	else:
+		print("Copied ", clipboard.size(), " tile(s) to clipboard")
+
+
+func paste_at(origin: Vector3i, palette_ref = null) -> void:
+	"""Paste clipboard tiles relative to the given origin position."""
+	if clipboard.is_empty():
+		print("Clipboard is empty")
+		return
+	
+	# Remap y to current y level — preserve x/z offsets only
+	var paste_origin = Vector3i(origin.x, current_y_level, origin.z)
+	
+	tilemap.set_batch_mode(true)
+	for snap in clipboard:
+		var target = paste_origin + Vector3i(snap["offset"].x, 0, snap["offset"].z)
+		if abs(target.x) > grid_range or abs(target.z) > grid_range:
+			continue
+		tilemap.place_tile(target, snap["type"])
+		tilemap.set_tile_rotation(target, snap["rotation"])
+		if snap["material"] >= 0 and palette_ref:
+			tilemap.apply_material_to_tile(target, snap["material"], palette_ref)
+	tilemap.set_batch_mode(false)
+	
+	print("Pasted ", clipboard.size(), " tile(s) at ", paste_origin)
+
+
+# ============================================================================
 # ADD: New rotation function to selection_manager.gd
 # ============================================================================
 
@@ -430,6 +518,11 @@ func rotate_selected_tiles(degrees: float):
 	if tiles_to_rotate.is_empty():
 		print("No tiles to rotate in selection")
 		return
+	
+	# Snapshot before-state for undo (capture positions from tiles_to_rotate)
+	if undo_redo:
+		var positions = tiles_to_rotate.map(func(t): return t["pos"])
+		_undo_before_snaps = undo_redo.snapshot_positions(positions)
 	
 	# Queue rotation operations
 	processing_queue.clear()

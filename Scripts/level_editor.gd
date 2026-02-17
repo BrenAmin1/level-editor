@@ -13,6 +13,7 @@ var tilemap: TileMap3D
 var input_handler: InputHandler
 var selection_manager: SelectionManager
 var y_level_manager: YLevelManager
+var undo_redo: UndoRedoManager
 
 # ============================================================================
 # EDITOR STATE
@@ -46,6 +47,12 @@ const DIRT = preload("uid://bxl8k6n4i56yn")
 # ============================================================================
 
 func _ready():
+	# Intercept the close button so we can clean up the worker thread before
+	# Godot tears down the scene tree. Without this, WM_CLOSE_REQUEST is
+	# auto-accepted and the tree starts freeing while flush coroutines are
+	# still suspended, causing a multi-second freeze.
+	get_tree().auto_accept_quit = false
+	
 	# Ensure save directory exists
 	LevelSaveLoad.ensure_save_directory()
 	
@@ -90,6 +97,12 @@ func _ready():
 	input_handler.set_material_palette_reference(material_palette)
 	selection_manager.set_material_palette_reference(material_palette)
 	
+	# Initialize undo/redo and wire into components
+	undo_redo = UndoRedoManager.new()
+	undo_redo.setup(tilemap, material_palette)
+	input_handler.set_undo_redo(undo_redo)
+	selection_manager.set_undo_redo(undo_redo)
+	
 	get_window().focus_entered.connect(_on_window_focus_entered)
 	get_window().focus_exited.connect(_on_window_focus_exited)
 	
@@ -110,6 +123,12 @@ func _ready():
 	print("  Ctrl+Shift+S - Save as... (opens dialog, becomes new quick save target)")
 	print("  Ctrl+L - Load level (opens dialog, becomes new quick save target)")
 	print("  Ctrl+E - Export mesh (opens dialog with format options)")
+	print("\nEdit Controls:")
+	print("  Ctrl+Z - Undo")
+	print("  Ctrl+Y / Ctrl+Shift+Z - Redo")
+	print("\nSelect Mode Controls (TAB to enter):")
+	print("  Ctrl+C - Copy selection")
+	print("  Ctrl+V - Paste at cursor")
 	print("\nPaint Controls:")
 	print("  P - Toggle paint mode (change materials without replacing tiles)")
 
@@ -144,6 +163,13 @@ func _process(_delta):
 	if camera and cursor_visualizer and not is_popup_open:
 		_update_cursor()
 		input_handler.handle_continuous_input(_delta)
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		if tilemap:
+			tilemap.cleanup()
+		get_tree().quit()
 
 # ============================================================================
 # INPUT HANDLING
@@ -223,6 +249,13 @@ func _update_cursor():
 			selection_manager.update_selection(mouse_pos)
 		
 		var tile_exists = tilemap.has_tile(grid_pos)
+		
+		# Keep cursor visualizer in sync with current editor state
+		cursor_visualizer.current_tile_type = current_tile_type
+		cursor_visualizer.current_step_count = current_stair_steps
+		# Show stairs at their default placement rotation so the preview matches what gets placed
+		cursor_visualizer.current_rotation = 180.0 if current_tile_type == 5 else 0.0
+		
 		cursor_visualizer.update_cursor_with_offset(camera, current_y_level, tile_exists, offset)
 
 # ============================================================================
@@ -476,6 +509,10 @@ func _on_load_confirmed(path: String):
 		var real_path = ProjectSettings.globalize_path(path)
 		print("Loaded from: ", real_path)
 		print("====================\n")
+		
+		# Clear undo/redo history — loaded state is the new baseline
+		if undo_redo:
+			undo_redo.clear()
 		
 		# Update grid visualizer to current y level
 		y_level_manager.change_y_level(current_y_level)

@@ -8,7 +8,7 @@ const CUBE_HEIGHT_RATIO = 0.8338  # Actual ratio after scaling
 static func generate_stairs_mesh(
 	num_steps: int = 4,
 	grid_size: float = 1.0,
-	direction: int = 0
+	direction: int = 2  # Default: South-facing (steps ascend toward +Z, entry from -Z)
 ) -> ArrayMesh:
 	
 	# Match the actual scaled height of cube_bulge.obj

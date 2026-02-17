@@ -6,6 +6,18 @@ var intersection_marker: MeshInstance3D
 
 var grid_size: float = 1.0
 
+# Set these each frame from LevelEditor before calling update_cursor_with_offset
+var current_tile_type: int = 0
+var current_rotation: float = 0.0
+var current_step_count: int = 4
+
+# Cache to avoid rebuilding the preview mesh every frame
+var _last_tile_type: int = -1
+var _last_rotation: float = -1.0
+var _last_step_count: int = -1
+
+const TILE_TYPE_STAIRS = 5
+
 func _ready():
 	create_cursor_preview()
 	create_cursor_outline()
@@ -92,6 +104,9 @@ func update_cursor_with_offset(camera: Camera3D, current_y_level: int, tile_exis
 			floori(adjusted_intersection.z / grid_size)
 		)
 		
+		# Rebuild preview mesh if tile type / rotation / step count changed
+		_refresh_cursor_mesh()
+		
 		# Update outline for hovered cell
 		update_cursor_outline(grid_pos, offset)
 		
@@ -109,6 +124,36 @@ func update_cursor_with_offset(camera: Camera3D, current_y_level: int, tile_exis
 	else:
 		cursor_preview.visible = false
 		cursor_outline.visible = false
+
+func _refresh_cursor_mesh() -> void:
+	# Only rebuild when something actually changed
+	if (current_tile_type == _last_tile_type
+			and current_rotation == _last_rotation
+			and current_step_count == _last_step_count):
+		return
+	_last_tile_type = current_tile_type
+	_last_rotation = current_rotation
+	_last_step_count = current_step_count
+
+	if current_tile_type == TILE_TYPE_STAIRS:
+		cursor_preview.mesh = _build_stair_mesh()
+	else:
+		cursor_preview.mesh = create_box_mesh(grid_size)
+
+
+func _build_stair_mesh() -> ArrayMesh:
+	# Map rotation degrees to the direction int used by ProceduralStairsGenerator
+	var normalized = int(round(current_rotation)) % 360
+	if normalized < 0:
+		normalized += 360
+	var direction = 0
+	match normalized:
+		0:   direction = 0
+		90:  direction = 1
+		180: direction = 2
+		270: direction = 3
+	return ProceduralStairsGenerator.generate_stairs_mesh(current_step_count, grid_size, direction)
+
 
 func update_cursor_outline(grid_pos: Vector3i, offset: Vector2):
 	if not cursor_outline:

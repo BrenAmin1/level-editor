@@ -171,6 +171,10 @@ func flush_batch_updates():
 	var completed_successfully = false
 	
 	while applied_count < positions.size():
+		# Exit immediately if shutdown was requested
+		if should_stop_thread:
+			break
+		
 		# Check for completed meshes from worker thread
 		generation_mutex.lock()
 		var available_meshes = generated_meshes.keys()
@@ -206,8 +210,13 @@ func flush_batch_updates():
 				applied_count += 1
 				processed_this_frame += 1
 		
-		# Yield to keep framerate smooth
-		await tile_map.parent_node.get_tree().process_frame
+		# Yield to keep framerate smooth — but bail immediately on shutdown
+		var tree = tile_map.parent_node.get_tree() if tile_map.parent_node else null
+		if not tree or not is_instance_valid(tree) or should_stop_thread:
+			break
+		await tree.process_frame
+		if should_stop_thread:
+			break
 		
 		# Progress feedback every 500 tiles or at completion
 		if positions.size() > 100 and (applied_count - last_progress_print >= 500 or applied_count == positions.size()):
@@ -407,22 +416,26 @@ func _apply_mesh_to_scene(pos: Vector3i, mesh: ArrayMesh):
 	var rotation = tile_map.tile_rotations.get(pos, 0.0)
 	var world_pos = grid_to_world(pos)
 	
+	# Stairs bake rotation into vertices — don't also rotate the node
+	var TILE_TYPE_STAIRS = 5
+	var node_rotation = 0.0 if tiles[pos] == TILE_TYPE_STAIRS else rotation
+	
 	if pos in tile_meshes:
 		# Update existing mesh instance
 		tile_meshes[pos].mesh = mesh
 		tile_meshes[pos].position = world_pos
-		tile_meshes[pos].rotation_degrees.y = rotation
-		if rotation != 0.0:
+		tile_meshes[pos].rotation_degrees.y = node_rotation
+		if node_rotation != 0.0:
 			_apply_rotation_center_offset(tile_meshes[pos])
 	else:
 		# Create new mesh instance
 		var mesh_instance = MeshInstance3D.new()
 		mesh_instance.mesh = mesh
 		mesh_instance.position = world_pos
-		mesh_instance.rotation_degrees.y = rotation
+		mesh_instance.rotation_degrees.y = node_rotation
 		mesh_instance.process_priority = 1
 		
-		if rotation != 0.0:
+		if node_rotation != 0.0:
 			_apply_rotation_center_offset(mesh_instance)
 		
 		var static_body = StaticBody3D.new()
@@ -481,11 +494,15 @@ func grid_to_world(pos: Vector3i) -> Vector3:
 func place_tile(pos: Vector3i, tile_type: int):
 	tiles[pos] = tile_type
 	
-	# Store step count for stairs
+	# Store step count for stairs, and set default facing direction
 	var TILE_TYPE_STAIRS = 5
 	if tile_type == TILE_TYPE_STAIRS:
 		if tile_map.parent_node and tile_map.parent_node.current_stair_steps:
 			tile_map.tile_step_counts[pos] = tile_map.parent_node.current_stair_steps
+		# Only set default rotation if no rotation is already assigned
+		# (preserves rotation on repaint/replace operations)
+		if pos not in tile_map.tile_rotations:
+			tile_map.tile_rotations[pos] = 180.0  # South-facing by default
 	
 	if batch_mode:
 		dirty_tiles[pos] = true
@@ -660,22 +677,27 @@ func _immediate_update_tile_mesh(pos: Vector3i):
 	# Position at corner of grid cell
 	var world_pos = grid_to_world(pos)
 	
+	# Stairs bake rotation into vertices, so the node must NOT be rotated too.
+	# All other tile types keep geometry unrotated and rely on node rotation.
+	# (TILE_TYPE_STAIRS already declared above)
+	var node_rotation = 0.0 if tile_type == TILE_TYPE_STAIRS else rotation
+	
 	if pos in tile_meshes:
 		tile_meshes[pos].mesh = mesh
 		tile_meshes[pos].position = world_pos
-		tile_meshes[pos].rotation_degrees.y = rotation
+		tile_meshes[pos].rotation_degrees.y = node_rotation
 		# Apply center offset when rotating
-		if rotation != 0.0:
+		if node_rotation != 0.0:
 			_apply_rotation_center_offset(tile_meshes[pos])
 	else:
 		var mesh_instance = MeshInstance3D.new()
 		mesh_instance.mesh = mesh
 		mesh_instance.position = world_pos
-		mesh_instance.rotation_degrees.y = rotation
+		mesh_instance.rotation_degrees.y = node_rotation
 		mesh_instance.process_priority = 1
 		
 		# Apply center offset when rotating
-		if rotation != 0.0:
+		if node_rotation != 0.0:
 			_apply_rotation_center_offset(mesh_instance)
 		
 		var static_body = StaticBody3D.new()
@@ -726,13 +748,17 @@ func regenerate_tile_with_rotation(pos: Vector3i, rotation_degrees: float):
 	# Position at corner of grid cell
 	var world_pos = grid_to_world(pos)
 	
+	# Stairs bake rotation into vertices — don't also rotate the node
+	var TILE_TYPE_STAIRS = 5
+	var node_rotation = 0.0 if tile_type == TILE_TYPE_STAIRS else rotation_degrees
+	
 	# Update existing mesh instance or create new one
 	if pos in tile_meshes:
 		tile_meshes[pos].mesh = mesh
 		tile_meshes[pos].position = world_pos
-		tile_meshes[pos].rotation_degrees.y = rotation_degrees
+		tile_meshes[pos].rotation_degrees.y = node_rotation
 		# Apply center offset when rotating
-		if rotation_degrees != 0.0:
+		if node_rotation != 0.0:
 			_apply_rotation_center_offset(tile_meshes[pos])
 		else:
 			# Reset to corner if no rotation
@@ -741,11 +767,11 @@ func regenerate_tile_with_rotation(pos: Vector3i, rotation_degrees: float):
 		var mesh_instance = MeshInstance3D.new()
 		mesh_instance.mesh = mesh
 		mesh_instance.position = world_pos
-		mesh_instance.rotation_degrees.y = rotation_degrees
+		mesh_instance.rotation_degrees.y = node_rotation
 		mesh_instance.process_priority = 1
 		
 		# Apply center offset when rotating
-		if rotation_degrees != 0.0:
+		if node_rotation != 0.0:
 			_apply_rotation_center_offset(mesh_instance)
 		
 		var static_body = StaticBody3D.new()
@@ -813,3 +839,18 @@ func print_corner_debug():
 		mesh_generator.culling_manager.print_corner_summary()
 	else:
 		print("Corner debug not available - culling_manager not initialized")
+
+# ============================================================================
+# CLEANUP
+# ============================================================================
+
+func cleanup() -> void:
+	# Signal everything to stop as early as possible
+	should_stop_thread = true
+	# Drain the queue so the worker thread's while-loop exits on its next iteration
+	# rather than grinding through potentially thousands of remaining tiles
+	mesh_generation_queue.clear()
+	if worker_thread and worker_thread.is_started():
+		worker_thread.wait_to_finish()
+	worker_thread = null
+	is_flushing = false

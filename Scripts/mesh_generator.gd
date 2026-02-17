@@ -69,9 +69,9 @@ func setup(tilemap: TileMap3D, meshes_ref: Dictionary, tiles_ref: Dictionary, gr
 
 
 func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Dictionary, rotation_degrees: float = 0.0, is_fully_enclosed: bool = false, step_count: int = 4) -> ArrayMesh:
-	# CHECK IF STAIRS - Handle procedurally
+	# CHECK IF STAIRS - Generate geometry procedurally, then cull side/back faces
 	if tile_type == TILE_TYPE_STAIRS:
-		return _generate_procedural_stairs(rotation_degrees, step_count)
+		return _generate_procedural_stairs_culled(rotation_degrees, step_count, neighbors)
 	
 	if tile_type not in custom_meshes:
 		return ArrayMesh.new()
@@ -96,6 +96,68 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 							  triangles_by_surface, exposed_corners, disable_all_culling, is_fully_enclosed)
 	
 	return mesh_builder.build_final_mesh(triangles_by_surface, tile_type, base_mesh)
+
+
+# Generate procedural stairs based on rotation and step count, with neighbor culling
+func _generate_procedural_stairs_culled(rotation_degrees: float, num_steps: int, neighbors: Dictionary) -> ArrayMesh:
+	# Get the raw stair mesh (all faces present)
+	var raw_mesh = _generate_procedural_stairs(rotation_degrees, num_steps)
+	if raw_mesh.get_surface_count() == 0:
+		return raw_mesh
+
+	var arrays = raw_mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+
+	var new_verts = PackedVector3Array()
+	var new_normals = PackedVector3Array()
+	var new_uvs = PackedVector2Array()
+	var new_indices = PackedInt32Array()
+	var next_index = 0
+
+	for i in range(0, indices.size(), 3):
+		var i0 = indices[i]
+		var i1 = indices[i + 1]
+		var i2 = indices[i + 2]
+
+		var n0 = normals[i0]
+		var n1 = normals[i1]
+		var n2 = normals[i2]
+		var face_normal = (n0 + n1 + n2).normalized()
+
+		# Ask culling manager whether this triangle should be dropped
+		if culling_manager.should_cull_stair_face(face_normal, neighbors, rotation_degrees):
+			continue
+
+		new_verts.append(vertices[i0])
+		new_verts.append(vertices[i1])
+		new_verts.append(vertices[i2])
+		new_normals.append(n0)
+		new_normals.append(n1)
+		new_normals.append(n2)
+		new_uvs.append(uvs[i0])
+		new_uvs.append(uvs[i1])
+		new_uvs.append(uvs[i2])
+		new_indices.append(next_index)
+		new_indices.append(next_index + 1)
+		new_indices.append(next_index + 2)
+		next_index += 3
+
+	if new_verts.is_empty():
+		return ArrayMesh.new()
+
+	var out_arrays = []
+	out_arrays.resize(Mesh.ARRAY_MAX)
+	out_arrays[Mesh.ARRAY_VERTEX] = new_verts
+	out_arrays[Mesh.ARRAY_NORMAL] = new_normals
+	out_arrays[Mesh.ARRAY_TEX_UV] = new_uvs
+	out_arrays[Mesh.ARRAY_INDEX] = new_indices
+
+	var result = ArrayMesh.new()
+	result.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, out_arrays)
+	return result
 
 
 # Generate procedural stairs based on rotation and step count
@@ -237,8 +299,8 @@ func _process_mesh_surface(base_mesh: ArrayMesh, surface_idx: int, pos: Vector3i
 		surface_classifier.add_triangle_to_surface(triangles_by_surface, v0, v1, v2, uvs, i0, i1, i2, normals, original_normals)
 
 func generate_tile_mesh(tile_type: int, neighbors: Dictionary) -> ArrayMesh:
-	# CHECK IF STAIRS - Handle procedurally with no rotation
+	# CHECK IF STAIRS - Handle procedurally with default rotation (South-facing)
 	if tile_type == TILE_TYPE_STAIRS:
-		return ProceduralStairsGenerator.generate_stairs_mesh(4, grid_size, 0)
+		return ProceduralStairsGenerator.generate_stairs_mesh(4, grid_size, 2)
 	
 	return mesh_builder.generate_simple_tile_mesh(tile_type, neighbors, grid_size)
