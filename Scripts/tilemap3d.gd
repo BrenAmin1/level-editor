@@ -13,6 +13,7 @@ var parent_node: Node3D
 var offset_provider: Callable
 var tile_rotations: Dictionary = {}  # Vector3i -> float (degrees)
 var tile_materials: Dictionary = {}  # Vector3i -> int (material_index)
+var tile_step_counts: Dictionary = {}
 
 # ============================================================================
 # COMPONENTS

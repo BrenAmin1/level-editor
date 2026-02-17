@@ -57,6 +57,7 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary, face_center: Vec
 	# (No longer checking tiles dictionary here - it's done before threading)
 	
 	# If this is a fully enclosed inside tile, aggressively cull everything
+	# (Even if next to stairs - we can't see inside anyway)
 	if is_fully_enclosed:
 		if DEBUG_INSIDE_TILES:
 			var face_type = "UNKNOWN"
@@ -87,6 +88,9 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary, face_center: Vec
 	
 	# Otherwise, use normal culling logic with bulge handling
 	
+	# STAIRS CONSTANT
+	var TILE_TYPE_STAIRS = 5
+	
 	# West face (normal pointing in -X direction)
 	if face_normal.x < -0.7:
 		# Check if this face is part of ANY exposed corner
@@ -101,6 +105,10 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary, face_center: Vec
 				if is_part_of_sw_corner:
 					_track_corner_keep(pos, "WEST at SW")
 			return false  # Keep the ENTIRE face
+		
+		# STAIRS CHECK: If west neighbor is stairs, never cull this face
+		if neighbors[NeighborDir.WEST] == TILE_TYPE_STAIRS:
+			return false
 		
 		# Otherwise, apply normal face culling
 		if neighbors[NeighborDir.WEST] != -1:
@@ -126,6 +134,10 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary, face_center: Vec
 					_track_corner_keep(pos, "EAST at SE")
 			return false  # Keep the ENTIRE face
 		
+		# STAIRS CHECK: If east neighbor is stairs, never cull this face
+		if neighbors[NeighborDir.EAST] == TILE_TYPE_STAIRS:
+			return false
+		
 		# Otherwise, apply normal face culling
 		if neighbors[NeighborDir.EAST] != -1:
 			var neighbor_pos = pos + Vector3i(1, 0, 0)
@@ -150,6 +162,10 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary, face_center: Vec
 					_track_corner_keep(pos, "NORTH at NE")
 			return false  # Keep the ENTIRE face
 		
+		# STAIRS CHECK: If north neighbor is stairs, never cull this face
+		if neighbors[NeighborDir.NORTH] == TILE_TYPE_STAIRS:
+			return false
+		
 		# Otherwise, apply normal face culling
 		if neighbors[NeighborDir.NORTH] != -1:
 			var neighbor_pos = pos + Vector3i(0, 0, -1)
@@ -173,6 +189,10 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary, face_center: Vec
 				if is_part_of_se_corner:
 					_track_corner_keep(pos, "SOUTH at SE")
 			return false  # Keep the ENTIRE face
+		
+		# STAIRS CHECK: If south neighbor is stairs, never cull this face
+		if neighbors[NeighborDir.SOUTH] == TILE_TYPE_STAIRS:
+			return false
 		
 		# Otherwise, apply normal face culling
 		if neighbors[NeighborDir.SOUTH] != -1:

@@ -28,6 +28,7 @@ var window_has_focus: bool = true
 var is_popup_open: bool = false  # NEW: Track if material popup is open
 var current_painting_material: StandardMaterial3D = null
 var current_painting_material_index: int = -1
+var current_stair_steps: int = 4  # NEW: Number of steps for procedural stairs (min 2, max 16)
 
 # ============================================================================
 # SETTINGS

@@ -479,61 +479,64 @@ func grid_to_world(pos: Vector3i) -> Vector3:
 # ============================================================================
 
 func place_tile(pos: Vector3i, tile_type: int):
-	# Preserve existing rotation if tile already exists
-	var existing_rotation = 0.0
-	if pos in tiles and pos in tile_map.tile_rotations:
-		existing_rotation = tile_map.tile_rotations[pos]
+	tiles[pos] = tile_type
 	
-	# Manual placement mode - use the exact tile type the user selected
-	var actual_tile_type = tile_type
-	
-	# Only use auto-detection if explicitly enabled
-	if auto_tile_selection_enabled:
-		var config = diagonal_selector.get_tile_configuration(pos, tiles)
-		if config.corner_type == DiagonalTileSelector.CornerType.INNER_CORNER:
-			actual_tile_type = config.tile_type
-	
-	# Store the tile
-	tiles[pos] = actual_tile_type
-	
-	# Preserve rotation
-	if existing_rotation != 0.0:
-		tile_map.tile_rotations[pos] = existing_rotation
+	# Store step count for stairs
+	var TILE_TYPE_STAIRS = 5
+	if tile_type == TILE_TYPE_STAIRS:
+		if tile_map.parent_node and tile_map.parent_node.current_stair_steps:
+			tile_map.tile_step_counts[pos] = tile_map.parent_node.current_stair_steps
 	
 	if batch_mode:
-		# In batch mode, ONLY mark this tile as dirty
-		# DON'T mark neighbors yet - we'll handle them all at once in flush_batch_updates()
-		mark_dirty(pos)
+		dirty_tiles[pos] = true
+		# Neighbors will be marked in flush_batch_updates()
 	else:
-		# Normal mode: immediate update with neighbors
+		# Normal mode: update immediately with smart neighbor updating
 		update_tile_mesh(pos)
 		
-		# Collect all tiles that need updating
-		var tiles_to_update = []
-		
-		# Update all neighbors (including diagonals)
+		# Update cardinal neighbors (always)
 		for offset in [
 			Vector3i(1,0,0), Vector3i(-1,0,0),
 			Vector3i(0,1,0), Vector3i(0,-1,0),
-			Vector3i(0,0,1), Vector3i(0,0,-1),
-			Vector3i(1, 0, 1), Vector3i(1, 0, -1),
-			Vector3i(-1, 0, 1), Vector3i(-1, 0, -1)
+			Vector3i(0,0,1), Vector3i(0,0,-1)
 		]:
 			var neighbor_pos = pos + offset
 			if neighbor_pos in tiles:
-				# Only recalculate neighbor's tile type if auto-detection is enabled
-				if auto_tile_selection_enabled:
-					var neighbor_config = diagonal_selector.get_tile_configuration(neighbor_pos, tiles)
-					if neighbor_config.corner_type == DiagonalTileSelector.CornerType.INNER_CORNER:
-						tiles[neighbor_pos] = DiagonalTileSelector.TILE_INNER_CORNER
-				tiles_to_update.append(neighbor_pos)
+				update_tile_mesh(neighbor_pos)
 		
-		# CRITICAL FIX: If placing a tile above y=0, also update the cardinal neighbors of the tile below
-		# This is because their "fully enclosed" status might have changed
+		# Diagonal neighbors: Only update if they're next to 2+ of this tile's cardinal neighbors
+		for diag_offset in [
+			Vector3i(1, 0, 1), Vector3i(1, 0, -1),
+			Vector3i(-1, 0, 1), Vector3i(-1, 0, -1)
+		]:
+			var diag_pos = pos + diag_offset
+			if diag_pos in tiles:
+				# Check if this diagonal has 2+ cardinal connections to 'pos' through other tiles
+				var shared_cardinals = 0
+				
+				# For diagonal (1,0,1), check (1,0,0) and (0,0,1)
+				# For diagonal (1,0,-1), check (1,0,0) and (0,0,-1)
+				# For diagonal (-1,0,1), check (-1,0,0) and (0,0,1)
+				# For diagonal (-1,0,-1), check (-1,0,0) and (0,0,-1)
+				var cardinal_a = Vector3i(diag_offset.x, 0, 0)  # X neighbor
+				var cardinal_b = Vector3i(0, 0, diag_offset.z)  # Z neighbor
+				
+				if (pos + cardinal_a) in tiles:
+					shared_cardinals += 1
+				if (pos + cardinal_b) in tiles:
+					shared_cardinals += 1
+				
+				# Only update diagonal if it has 2 shared cardinals (forms a corner)
+				if shared_cardinals >= 2:
+					update_tile_mesh(diag_pos)
+		
+		# SPECIAL: If placing on top of another tile, check if any of the lower tile's
+		# CARDINAL neighbors need re-evaluation (for bulge culling)
+		var tiles_to_update = []  # DECLARE HERE AT PROPER SCOPE
 		if pos.y > 0:
 			var below_pos = pos + Vector3i(0, -1, 0)
 			if below_pos in tiles:
-				# Add the tile directly below
+				# Collect all affected tiles first
 				tiles_to_update.append(below_pos)
 				
 				# Add cardinal neighbors of the tile below
@@ -578,6 +581,10 @@ func remove_tile(pos: Vector3i):
 	# Clean up rotation data
 	if pos in tile_map.tile_rotations:
 		tile_map.tile_rotations.erase(pos)
+	
+	# Clean up step count data
+	if pos in tile_map.tile_step_counts:
+		tile_map.tile_step_counts.erase(pos)
 	
 	if pos in tile_meshes:
 		tile_meshes[pos].queue_free()
@@ -633,13 +640,19 @@ func _immediate_update_tile_mesh(pos: Vector3i):
 	if pos in tile_map.tile_rotations:
 		rotation = tile_map.tile_rotations[pos]
 	
+	# Get step count if this is stairs
+	var step_count = 4  # Default
+	var TILE_TYPE_STAIRS = 5
+	if tile_type == TILE_TYPE_STAIRS and pos in tile_map.tile_step_counts:
+		step_count = tile_map.tile_step_counts[pos]
+	
 	# Use custom mesh if available, otherwise generate default
 	var mesh: ArrayMesh
 	if tile_type in custom_meshes:
 		var neighbors = get_neighbors(pos)
 		var is_fully_enclosed = _check_if_fully_enclosed(pos, neighbors)
-		# PASS ROTATION AND is_fully_enclosed to mesh generator
-		mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation, is_fully_enclosed)
+		# Pass step count to mesh generator
+		mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation, is_fully_enclosed, step_count)
 	else:
 		var neighbors = get_neighbors(pos)
 		mesh = mesh_generator.generate_tile_mesh(tile_type, neighbors)
@@ -671,11 +684,12 @@ func _immediate_update_tile_mesh(pos: Vector3i):
 		box_shape.size = Vector3(grid_size, grid_size, grid_size)
 		collision_shape.shape = box_shape
 		collision_shape.position = Vector3(grid_size/2, grid_size/2, grid_size/2)
+		
 		static_body.add_child(collision_shape)
 		mesh_instance.add_child(static_body)
 		
-		parent_node.add_child(mesh_instance)
 		tile_meshes[pos] = mesh_instance
+		parent_node.add_child(mesh_instance)
 	
 	# Apply stored material if exists (in _immediate_update_tile_mesh)
 	if pos in tile_map.tile_materials:
@@ -684,7 +698,6 @@ func _immediate_update_tile_mesh(pos: Vector3i):
 			var material = tile_map.material_palette_ref.get_material_at_index(material_index)
 			if material and pos in tile_meshes:
 				tile_meshes[pos].set_surface_override_material(0, material)
-
 
 # ============================================================================
 # Regenerate tile with rotation

@@ -13,6 +13,7 @@ static func save_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 		"grid_size": tilemap.grid_size,
 		"tiles": _serialize_tiles(tilemap.tiles),
 		"tile_materials": _serialize_tile_materials(tilemap.tile_materials),
+		"tile_step_counts": _serialize_step_counts(tilemap.tile_step_counts),  # NEW LINE
 		"y_level_offsets": _serialize_offsets(y_level_manager.y_level_offsets),
 		"metadata": {
 			"saved_at": Time.get_datetime_string_from_system(),
@@ -37,6 +38,7 @@ static func save_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 	print("Level saved successfully to: ", filepath)
 	print("  - Tiles saved: ", tilemap.tiles.size())
 	print("  - Tile materials saved: ", tilemap.tile_materials.size())
+	print("  - Stair step counts saved: ", tilemap.tile_step_counts.size())
 	print("  - Y-levels with offsets: ", y_level_manager.y_level_offsets.size())
 	
 	return true
@@ -93,20 +95,15 @@ static func load_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 	if save_data.has("tile_materials"):
 		_deserialize_tile_materials(save_data["tile_materials"], tilemap)
 	
+	# Load tile step counts if present (NEW)
+	if save_data.has("tile_step_counts"):
+		_deserialize_step_counts(save_data["tile_step_counts"], tilemap)
+	
 	# Re-evaluate corner tiles after all tiles are loaded
 	var corners_fixed = _reevaluate_corner_tiles(tilemap)
 	
 	# CRITICAL: Ensure culling is ENABLED for the flush
-	if tilemap.tile_manager.mesh_generator and tilemap.tile_manager.mesh_generator.culling_manager:
-		tilemap.tile_manager.mesh_generator.culling_manager.batch_mode_skip_culling = false
-		print("  Ensured culling is enabled for load flush")
-	
-	# CRITICAL: Mark ALL tiles as dirty to ensure fresh mesh generation
-	print("  Marking all tiles for fresh mesh generation...")
-	for pos in tilemap.tiles.keys():
-		tilemap.tile_manager.mark_dirty(pos)
-	
-	# Disable caching for this flush - diagonal neighbors affect corner culling
+	# Disable caching for this flush to ensure accurate corner evaluation
 	tilemap.tile_manager.disable_caching_this_flush = true
 	tilemap.tile_manager.clear_mesh_cache()
 	print("  Caching disabled for this flush to ensure correct corner detection")
@@ -121,12 +118,12 @@ static func load_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 	print("  - Tiles loaded: ", tiles_loaded)
 	print("  - Corners corrected: ", corners_fixed)
 	print("  - Tile materials loaded: ", tilemap.tile_materials.size())
+	print("  - Stair step counts loaded: ", tilemap.tile_step_counts.size())
 	print("  - Y-levels with offsets: ", y_level_manager.y_level_offsets.size())
 	if save_data.has("metadata") and save_data["metadata"].has("saved_at"):
 		print("  - Originally saved: ", save_data["metadata"]["saved_at"])
 	
 	return true
-
 
 # ============================================================================
 # SERIALIZATION HELPERS
@@ -146,6 +143,37 @@ static func _serialize_tiles(tiles: Dictionary) -> Array:
 	
 	return tile_array
 
+
+# Add this after _deserialize_tile_materials function (around line 240)
+static func _deserialize_step_counts(step_counts_array: Array, tilemap: TileMap3D):
+	"""Deserialize tile step counts"""
+	for step_data in step_counts_array:
+		if not step_data is Dictionary:
+			continue
+		
+		if not (step_data.has("x") and step_data.has("y") and 
+				step_data.has("z") and step_data.has("steps")):
+			continue
+		
+		var pos = Vector3i(step_data["x"], step_data["y"], step_data["z"])
+		tilemap.tile_step_counts[pos] = step_data["steps"]
+
+
+# Add this after _serialize_tile_materials function (around line 180)
+static func _serialize_step_counts(tile_step_counts: Dictionary) -> Array:
+	"""Serialize tile step counts dictionary to array"""
+	var step_counts_array = []
+	
+	for pos in tile_step_counts.keys():
+		var step_count = tile_step_counts[pos]
+		step_counts_array.append({
+			"x": pos.x,
+			"y": pos.y,
+			"z": pos.z,
+			"steps": step_count
+		})
+	
+	return step_counts_array
 
 static func _serialize_offsets(offsets: Dictionary) -> Dictionary:
 	var offset_data = {}

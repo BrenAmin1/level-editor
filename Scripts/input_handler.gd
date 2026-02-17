@@ -198,6 +198,8 @@ func _handle_keyboard(event: InputEventKey) -> Dictionary:
 		KEY_2:
 			result["tile_type"] = 1
 			print("Selected: Custom mesh 2")
+		KEY_3:
+			result["tile_type"] = 5
 		KEY_BRACKETRIGHT, KEY_MINUS:
 			result["y_level"] = current_y_level - 1
 			y_level_manager.change_y_level(result["y_level"])
