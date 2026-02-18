@@ -249,8 +249,8 @@ func flush_batch_updates():
 	print("=== BATCH FLUSH END ===\n")
 	
 	# Print corner summary for debugging
-	if mesh_generator and mesh_generator.culling_manager:
-		mesh_generator.culling_manager.print_corner_summary()
+	#if mesh_generator and mesh_generator.culling_manager:
+	#	mesh_generator.culling_manager.print_corner_summary()
 	
 	is_flushing = false
 
@@ -806,8 +806,8 @@ func _flush_without_threading():
 	dirty_tiles.clear()
 	
 	# Print corner summary for debugging
-	if mesh_generator and mesh_generator.culling_manager:
-		mesh_generator.culling_manager.print_corner_summary()
+	#if mesh_generator and mesh_generator.culling_manager:
+	#	mesh_generator.culling_manager.print_corner_summary()
 
 # ============================================================================
 # NEIGHBOR QUERIES

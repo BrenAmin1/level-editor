@@ -8,11 +8,15 @@ const CUBE_HEIGHT_RATIO = 0.8338  # Actual ratio after scaling
 static func generate_stairs_mesh(
 	num_steps: int = 4,
 	grid_size: float = 1.0,
-	direction: int = 2  # Default: South-facing (steps ascend toward +Z, entry from -Z)
+	direction: int = 0
 ) -> ArrayMesh:
 	
-	# Match the actual scaled height of cube_bulge.obj
-	var actual_height = grid_size * CUBE_HEIGHT_RATIO
+	# Tiles are CUBE_HEIGHT_RATIO tall, not a full grid unit.
+	# Stairs must span from the top of the tile below (y_offset) up to the
+	# top of their own tile (y_offset + grid_size), so their total height
+	# equals exactly one full grid unit regardless of CUBE_HEIGHT_RATIO.
+	var y_offset = -(1.0 - CUBE_HEIGHT_RATIO) * grid_size  # drop base to tile-top below
+	var actual_height = grid_size                           # span a full grid unit
 	var step_height = actual_height / float(num_steps)
 	var step_depth = grid_size / float(num_steps)
 	var step_width = grid_size
@@ -25,13 +29,14 @@ static func generate_stairs_mesh(
 	var vertex_index = 0
 	
 	for step in num_steps:
-		var bottom = float(step) * step_height
-		var top = float(step + 1) * step_height
+		var bottom = float(step) * step_height + y_offset
+		var top = float(step + 1) * step_height + y_offset
 		var front = float(step) * step_depth
 		var back = float(step + 1) * step_depth
 		
 		var left = 0.0
 		var right = step_width
+		var base = y_offset  # Bottom of the solid side panels
 		
 		# Front face
 		vertex_index = _add_quad(
@@ -56,8 +61,8 @@ static func generate_stairs_mesh(
 		# Left side
 		vertex_index = _add_quad(
 			vertices, normals, uvs, indices, vertex_index,
-			Vector3(left, 0, front),
-			Vector3(left, 0, back),
+			Vector3(left, base, front),
+			Vector3(left, base, back),
 			Vector3(left, top, back),
 			Vector3(left, top, front),
 			Vector3(-1, 0, 0)
@@ -66,10 +71,10 @@ static func generate_stairs_mesh(
 		# Right side
 		vertex_index = _add_quad(
 			vertices, normals, uvs, indices, vertex_index,
-			Vector3(right, 0, front),
+			Vector3(right, base, front),
 			Vector3(right, top, front),
 			Vector3(right, top, back),
-			Vector3(right, 0, back),
+			Vector3(right, base, back),
 			Vector3(1, 0, 0)
 		)
 		
@@ -77,10 +82,10 @@ static func generate_stairs_mesh(
 		if step == num_steps - 1:
 			vertex_index = _add_quad(
 				vertices, normals, uvs, indices, vertex_index,
-				Vector3(left, 0, back),
+				Vector3(left, base, back),
 				Vector3(left, top, back),
 				Vector3(right, top, back),
-				Vector3(right, 0, back),
+				Vector3(right, base, back),
 				Vector3(0, 0, 1)
 			)
 	

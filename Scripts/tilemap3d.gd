@@ -250,6 +250,10 @@ func export_level_to_file(filepath: String, use_multi_material: bool = true):
 	return mesh_optimizer.export_level_to_file(filepath, use_multi_material)
 
 
+func export_level_gltf(filepath: String) -> bool:
+	return mesh_optimizer.export_level_gltf(filepath)
+
+
 func export_level_chunked(save_name: String, chunk_size: Vector3i = Vector3i(32, 32, 32), 
 						  use_multi_material: bool = true):
 	return mesh_optimizer.export_level_chunked(save_name, chunk_size, use_multi_material)
@@ -257,6 +261,8 @@ func export_level_chunked(save_name: String, chunk_size: Vector3i = Vector3i(32,
 
 func cleanup() -> void:
 	tile_manager.cleanup()
+
+
 # ============================================================================
 # Rotation methods (delegates to TileManager)
 # ============================================================================

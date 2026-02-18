@@ -47,12 +47,6 @@ const DIRT = preload("uid://bxl8k6n4i56yn")
 # ============================================================================
 
 func _ready():
-	# Intercept the close button so we can clean up the worker thread before
-	# Godot tears down the scene tree. Without this, WM_CLOSE_REQUEST is
-	# auto-accepted and the tree starts freeing while flush coroutines are
-	# still suspended, causing a multi-second freeze.
-	get_tree().auto_accept_quit = false
-	
 	# Ensure save directory exists
 	LevelSaveLoad.ensure_save_directory()
 	
@@ -166,10 +160,9 @@ func _process(_delta):
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+	if what == NOTIFICATION_PREDELETE or what == NOTIFICATION_WM_CLOSE_REQUEST:
 		if tilemap:
 			tilemap.cleanup()
-		get_tree().quit()
 
 # ============================================================================
 # INPUT HANDLING
@@ -475,20 +468,19 @@ func _export_chunked_meshes(directory: String):
 
 
 func _export_gltf(filepath: String):
-	"""Export as glTF 2.0"""
-	# Ensure .gltf or .glb extension
+	"""Export as glTF 2.0 with materials"""
 	if not filepath.ends_with(".gltf") and not filepath.ends_with(".glb"):
-		filepath += ".gltf"
+		filepath += ".glb"
 	
-	# TODO: Implement glTF export
-	# For now, use single mesh export as placeholder
-	print("⚠ glTF export not yet implemented")
-	print("Using single mesh export as temporary fallback...")
+	print("\n=== EXPORTING glTF ===" )
+	print("Path: ", filepath)
 	
-	var temp_path = filepath.replace(".gltf", ".tres").replace(".glb", ".tres")
-	tilemap.export_level_to_file(temp_path, true)
-	
-	print("Note: Full glTF export with textures coming soon!")
+	var success = tilemap.export_level_gltf(filepath)
+	if success:
+		var real_path = ProjectSettings.globalize_path(filepath)
+		print("✓ glTF export complete: ", real_path)
+	else:
+		push_error("glTF export failed — check output log for details")
 
 
 func _on_save_confirmed(path: String):
@@ -538,6 +530,7 @@ func show_save_dialog():
 func show_load_dialog():
 	"""Show the load file dialog"""
 	load_dialog.popup_centered_ratio(0.6)
+
 
 func debug_corner_culling():
 	"""Print corner culling debug info - call this after placing tiles"""

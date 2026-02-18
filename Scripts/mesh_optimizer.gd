@@ -351,7 +351,7 @@ func append_mesh_surface_to_arrays(mesh: ArrayMesh, surface_idx: int, world_pos:
 
 
 func export_level_to_file(filepath: String, use_multi_material: bool = true):
-	"""Export the entire level as an optimized mesh file (geometry only, no materials)"""
+	"""Export the entire level as an optimized mesh .tres file, preserving materials"""
 	
 	print("Exporting level to: ", filepath)
 	
@@ -361,18 +361,14 @@ func export_level_to_file(filepath: String, use_multi_material: bool = true):
 	else:
 		optimized_mesh = generate_optimized_level_mesh()
 	
-	# Remove all materials before saving to avoid import errors
-	for i in range(optimized_mesh.get_surface_count()):
-		optimized_mesh.surface_set_material(i, null)
-	
-	# Save just the geometry
+	# NOTE: Materials are intentionally kept on the mesh for .tres exports.
+	# StandardMaterial3D is fully serialisable by ResourceSaver.
 	var success = ResourceSaver.save(optimized_mesh, filepath)
 	
 	if success == OK:
 		print("✓ Mesh exported successfully!")
 		print("  Total tiles: ", tiles.size())
 		
-		# Calculate statistics
 		var total_triangles = 0
 		for i in range(optimized_mesh.get_surface_count()):
 			var arrays = optimized_mesh.surface_get_arrays(i)
@@ -384,6 +380,166 @@ func export_level_to_file(filepath: String, use_multi_material: bool = true):
 		push_error("Failed to save mesh: " + str(success))
 	
 	return optimized_mesh
+
+
+func export_level_gltf(filepath: String) -> bool:
+	"""
+	Export the level as a glTF 2.0 file (.gltf or .glb) with all materials embedded.
+	
+	- .glb  → single binary file, textures embedded (recommended for sharing)
+	- .gltf → human-readable JSON + separate texture files in the same folder
+	
+	Uses Godot's built-in GLTFDocument API so StandardMaterial3D properties
+	(albedo colour, roughness, metallic, textures, etc.) are exported automatically.
+	"""
+	
+	if tiles.is_empty():
+		push_error("glTF export: no tiles to export")
+		return false
+	
+	if not filepath.ends_with(".gltf") and not filepath.ends_with(".glb"):
+		filepath += ".glb"
+	
+	print("\n=== glTF EXPORT START ===")
+	print("Path: ", filepath)
+	
+	# ------------------------------------------------------------------ #
+	# 1. Build combined multi-material mesh (materials already set)       #
+	# ------------------------------------------------------------------ #
+	var optimized_mesh = generate_optimized_level_mesh_multi_material()
+	
+	if optimized_mesh.get_surface_count() == 0:
+		push_error("glTF export: mesh generation produced no surfaces")
+		return false
+	
+	# ------------------------------------------------------------------ #
+	# 2. Resolve per-tile palette materials onto surfaces                 #
+	# ------------------------------------------------------------------ #
+	_resolve_palette_materials_on_mesh(optimized_mesh)
+	
+	print("Surfaces to export: ", optimized_mesh.get_surface_count())
+	for i in range(optimized_mesh.get_surface_count()):
+		var mat = optimized_mesh.surface_get_material(i)
+		var mat_label = ""
+		if mat:
+			mat_label = mat.resource_name if mat.resource_name != "" else "material"
+		else:
+			mat_label = "NO MATERIAL"
+		print("  Surface ", i, ": ", mat_label)
+	
+	# ------------------------------------------------------------------ #
+	# 3. Wrap in MeshInstance3D so GLTFDocument can traverse the scene    #
+	# ------------------------------------------------------------------ #
+	var mesh_instance = MeshInstance3D.new()
+	mesh_instance.name = "ExportedLevel"
+	mesh_instance.mesh = optimized_mesh
+	
+	var export_root = Node3D.new()
+	export_root.name = "Scene"
+	export_root.add_child(mesh_instance)
+	mesh_instance.owner = export_root
+	
+	# ------------------------------------------------------------------ #
+	# 4. Run the GLTFDocument export                                      #
+	# ------------------------------------------------------------------ #
+	var gltf_doc = GLTFDocument.new()
+	var gltf_state = GLTFState.new()
+	
+	var append_err = gltf_doc.append_from_scene(export_root, gltf_state)
+	if append_err != OK:
+		push_error("glTF export: append_from_scene failed (error %d)" % append_err)
+		export_root.free()
+		return false
+	
+	var dir = filepath.get_base_dir()
+	if dir != "" and dir != "res://" and dir != "user://":
+		DirAccess.make_dir_recursive_absolute(dir)
+	
+	var write_err = gltf_doc.write_to_filesystem(gltf_state, filepath)
+	export_root.free()
+	
+	if write_err != OK:
+		push_error("glTF export: write_to_filesystem failed (error %d)" % write_err)
+		return false
+	
+	var real_path = ProjectSettings.globalize_path(filepath)
+	print("✓ glTF exported successfully!")
+	print("  File: ", real_path)
+	print("  Tiles: ", tiles.size())
+	print("  Surfaces (materials): ", optimized_mesh.get_surface_count())
+	print("=== glTF EXPORT END ===\n")
+	return true
+
+
+func _resolve_palette_materials_on_mesh(mesh: ArrayMesh) -> void:
+	"""
+	If tiles have been painted with palette materials, find the most-used
+	palette material per mesh surface and apply it. Surfaces with no painted
+	tiles keep the base material set by generate_optimized_level_mesh_multi_material().
+	"""
+	if not tile_map or not tile_map.material_palette_ref:
+		return
+	var palette = tile_map.material_palette_ref
+	if not palette.has_method("get_material_at_index"):
+		return
+	
+	# Count palette material usage per tile type
+	var material_votes: Dictionary = {}
+	for pos in tile_map.tile_materials:
+		var material_index: int = tile_map.tile_materials[pos]
+		if pos not in tiles:
+			continue
+		var tile_type = tiles[pos]
+		if tile_type not in material_votes:
+			material_votes[tile_type] = {}
+		var votes = material_votes[tile_type]
+		votes[material_index] = votes.get(material_index, 0) + 1
+	
+	if material_votes.is_empty():
+		return
+	
+	var surface_tile_types = _build_surface_tile_type_map()
+	
+	for surface_idx in range(mesh.get_surface_count()):
+		if surface_idx >= surface_tile_types.size():
+			break
+		var tile_type = surface_tile_types[surface_idx]
+		if tile_type not in material_votes:
+			continue
+		var votes = material_votes[tile_type]
+		var best_index = -1
+		var best_count = 0
+		for mat_idx in votes:
+			if votes[mat_idx] > best_count:
+				best_count = votes[mat_idx]
+				best_index = mat_idx
+		if best_index < 0:
+			continue
+		var palette_material = palette.get_material_at_index(best_index)
+		if palette_material:
+			mesh.surface_set_material(surface_idx, palette_material)
+
+
+func _build_surface_tile_type_map() -> Array:
+	"""
+	Returns an Array where index == surface index and value == tile_type.
+	Mirrors the surface-addition order in generate_optimized_level_mesh_multi_material().
+	"""
+	var map = []
+	var tiles_by_type = {}
+	for pos in tiles:
+		var tile_type = tiles[pos]
+		if tile_type not in tiles_by_type:
+			tiles_by_type[tile_type] = []
+		tiles_by_type[tile_type].append(pos)
+	for tile_type in tiles_by_type:
+		if tile_type in custom_meshes:
+			var num_surfaces = custom_meshes[tile_type].get_surface_count()
+			for _s in range(num_surfaces):
+				map.append(tile_type)
+		else:
+			map.append(tile_type)
+	return map
 
 
 # ============================================================================
