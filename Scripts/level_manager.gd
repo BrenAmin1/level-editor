@@ -13,7 +13,8 @@ static func save_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 		"grid_size": tilemap.grid_size,
 		"tiles": _serialize_tiles(tilemap.tiles),
 		"tile_materials": _serialize_tile_materials(tilemap.tile_materials),
-		"tile_step_counts": _serialize_step_counts(tilemap.tile_step_counts),  # NEW LINE
+		"tile_step_counts": _serialize_step_counts(tilemap.tile_step_counts),
+		"tile_rotations": _serialize_rotations(tilemap.tile_rotations),
 		"y_level_offsets": _serialize_offsets(y_level_manager.y_level_offsets),
 		"metadata": {
 			"saved_at": Time.get_datetime_string_from_system(),
@@ -39,6 +40,7 @@ static func save_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 	print("  - Tiles saved: ", tilemap.tiles.size())
 	print("  - Tile materials saved: ", tilemap.tile_materials.size())
 	print("  - Stair step counts saved: ", tilemap.tile_step_counts.size())
+	print("  - Tile rotations saved: ", tilemap.tile_rotations.size())
 	print("  - Y-levels with offsets: ", y_level_manager.y_level_offsets.size())
 	
 	return true
@@ -95,13 +97,26 @@ static func load_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 	if save_data.has("tile_materials"):
 		_deserialize_tile_materials(save_data["tile_materials"], tilemap)
 	
-	# Load tile step counts if present (NEW)
+	# Load tile step counts if present
 	if save_data.has("tile_step_counts"):
 		_deserialize_step_counts(save_data["tile_step_counts"], tilemap)
-	
+
+	# Load tile rotations if present
+	if save_data.has("tile_rotations"):
+		_deserialize_rotations(save_data["tile_rotations"], tilemap)
+
 	# Re-evaluate corner tiles after all tiles are loaded
 	var corners_fixed = _reevaluate_corner_tiles(tilemap)
-	
+
+	# If there are saved rotations, register a one-shot callback so they get
+	# applied AFTER the async flush fully completes, not before.
+	if not tilemap.tile_rotations.is_empty():
+		tilemap.tile_manager.flush_completed_callback = func():
+			print("  Applying rotations to ", tilemap.tile_rotations.size(), " tiles...")
+			for pos in tilemap.tile_rotations:
+				tilemap.tile_manager.update_tile_mesh(pos)
+			print("  ✓ Rotations applied")
+
 	# CRITICAL: Ensure culling is ENABLED for the flush
 	# Disable caching for this flush to ensure accurate corner evaluation
 	tilemap.tile_manager.disable_caching_this_flush = true
@@ -119,6 +134,7 @@ static func load_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 	print("  - Corners corrected: ", corners_fixed)
 	print("  - Tile materials loaded: ", tilemap.tile_materials.size())
 	print("  - Stair step counts loaded: ", tilemap.tile_step_counts.size())
+	print("  - Tile rotations loaded: ", tilemap.tile_rotations.size())
 	print("  - Y-levels with offsets: ", y_level_manager.y_level_offsets.size())
 	if save_data.has("metadata") and save_data["metadata"].has("saved_at"):
 		print("  - Originally saved: ", save_data["metadata"]["saved_at"])
@@ -144,22 +160,22 @@ static func _serialize_tiles(tiles: Dictionary) -> Array:
 	return tile_array
 
 
-# Add this after _deserialize_tile_materials function (around line 240)
-static func _deserialize_step_counts(step_counts_array: Array, tilemap: TileMap3D):
-	"""Deserialize tile step counts"""
-	for step_data in step_counts_array:
-		if not step_data is Dictionary:
-			continue
-		
-		if not (step_data.has("x") and step_data.has("y") and 
-				step_data.has("z") and step_data.has("steps")):
-			continue
-		
-		var pos = Vector3i(step_data["x"], step_data["y"], step_data["z"])
-		tilemap.tile_step_counts[pos] = step_data["steps"]
+static func _serialize_tile_materials(tile_materials: Dictionary) -> Array:
+	"""Serialize tile materials dictionary to array"""
+	var material_array = []
+	
+	for pos in tile_materials.keys():
+		var material_index = tile_materials[pos]
+		material_array.append({
+			"x": pos.x,
+			"y": pos.y,
+			"z": pos.z,
+			"material_index": material_index
+		})
+	
+	return material_array
 
 
-# Add this after _serialize_tile_materials function (around line 180)
 static func _serialize_step_counts(tile_step_counts: Dictionary) -> Array:
 	"""Serialize tile step counts dictionary to array"""
 	var step_counts_array = []
@@ -175,6 +191,18 @@ static func _serialize_step_counts(tile_step_counts: Dictionary) -> Array:
 	
 	return step_counts_array
 
+
+static func _serialize_rotations(tile_rotations: Dictionary) -> Array:
+	"""Serialize tile rotations dictionary to array"""
+	var arr = []
+	for pos in tile_rotations.keys():
+		arr.append({
+			"x": pos.x, "y": pos.y, "z": pos.z,
+			"rotation": tile_rotations[pos]
+		})
+	return arr
+
+
 static func _serialize_offsets(offsets: Dictionary) -> Dictionary:
 	var offset_data = {}
 	
@@ -186,22 +214,6 @@ static func _serialize_offsets(offsets: Dictionary) -> Dictionary:
 		}
 	
 	return offset_data
-
-
-static func _serialize_tile_materials(tile_materials: Dictionary) -> Array:
-	"""Serialize tile materials dictionary to array"""
-	var material_array = []
-	
-	for pos in tile_materials.keys():
-		var material_index = tile_materials[pos]
-		material_array.append({
-			"x": pos.x,
-			"y": pos.y,
-			"z": pos.z,
-			"material_index": material_index
-		})
-	
-	return material_array
 
 
 static func _serialize_materials_palette(palette) -> Array:
@@ -268,6 +280,31 @@ static func _deserialize_tile_materials(material_array: Array, tilemap: TileMap3
 		var material_index = material_data["material_index"]
 		
 		tilemap.tile_materials[pos] = material_index
+
+
+static func _deserialize_step_counts(step_counts_array: Array, tilemap: TileMap3D):
+	"""Deserialize tile step counts"""
+	for step_data in step_counts_array:
+		if not step_data is Dictionary:
+			continue
+		
+		if not (step_data.has("x") and step_data.has("y") and 
+				step_data.has("z") and step_data.has("steps")):
+			continue
+		
+		var pos = Vector3i(step_data["x"], step_data["y"], step_data["z"])
+		tilemap.tile_step_counts[pos] = step_data["steps"]
+
+
+static func _deserialize_rotations(rotations_array: Array, tilemap: TileMap3D):
+	"""Deserialize tile rotations"""
+	for entry in rotations_array:
+		if not entry is Dictionary:
+			continue
+		if not (entry.has("x") and entry.has("y") and entry.has("z") and entry.has("rotation")):
+			continue
+		var pos = Vector3i(entry["x"], entry["y"], entry["z"])
+		tilemap.tile_rotations[pos] = float(entry["rotation"])
 
 
 static func _deserialize_materials_palette(materials_array: Array, palette):

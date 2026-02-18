@@ -32,6 +32,16 @@ var current_painting_material_index: int = -1
 var current_stair_steps: int = 4  # NEW: Number of steps for procedural stairs (min 2, max 16)
 
 # ============================================================================
+# EXPORT THREADING
+# ============================================================================
+var _export_thread: Thread = null
+var _export_overlay: CanvasLayer = null
+var _export_label: Label = null
+var _export_bar: ColorRect = null
+var _export_bar_fill: ColorRect = null
+var _export_pct_label: Label = null
+
+# ============================================================================
 # SETTINGS
 # ============================================================================
 @export var grid_range: int = 100
@@ -152,7 +162,6 @@ func _on_material_selected(material_index: int):
 # MAIN LOOP
 # ============================================================================
 
-# In the _process function, add a check for is_popup_open
 func _process(_delta):
 	selection_manager.process_queue()
 	tilemap.tick()
@@ -165,6 +174,10 @@ func _process(_delta):
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		# Wait for any in-progress export before quitting
+		if _export_thread and _export_thread.is_alive():
+			print("Waiting for export thread to finish before quitting...")
+			_export_thread.wait_to_finish()
 		if tilemap:
 			tilemap.cleanup()
 		get_tree().quit()
@@ -213,6 +226,7 @@ func _input(event):
 		show_load_dialog()
 	if Input.is_action_just_pressed("quick_save"):  # Ctrl+S
 		quick_save_level()
+
 # ============================================================================
 # CURSOR UPDATE
 # ============================================================================
@@ -425,67 +439,208 @@ func list_saved_levels():
 @onready var save_dialog: FileDialog = $UI/Save
 @onready var load_dialog: FileDialog = $UI/Load
 
-func _on_export_confirmed(format_index: int, path: String):
-	"""Handle export confirmation from export dialog"""
+func _on_export_confirmed(is_chunked: bool, path: String):
+	"""Handle export confirmation — kicks off background thread"""
+	if _export_thread and _export_thread.is_alive():
+		print("Export already in progress, please wait.")
+		return
+
+	var ext = path.get_extension().to_lower()
 	print("\n=== EXPORTING LEVEL ===")
-	print("Format: ", ["Single", "Chunks", "glTF"][format_index])
+	print("Format: ", "Chunked" if is_chunked else "Single")
+	print("Type: .", ext)
 	print("Path: ", path)
-	
-	match format_index:
-		0: # Single .tres
-			_export_single_mesh(path)
-		1: # Chunked .tres (path is directory)
-			_export_chunked_meshes(path)
-		2: # glTF
-			_export_gltf(path)
-	
+
+	_show_export_overlay("Exporting… please wait")
+
+	_export_thread = Thread.new()
+	if is_chunked:
+		_export_thread.start(_thread_export_chunked.bind(path))
+	elif ext == "glb" or ext == "gltf":
+		_export_thread.start(_thread_export_gltf.bind(path))
+	else:
+		_export_thread.start(_thread_export_single.bind(path))
+
+
+# ── Worker thread functions ──────────────────────────────────────────────────
+# These run on the background thread. Only pure data work — no scene API calls.
+
+func _thread_export_single(filepath: String) -> void:
+	if not filepath.ends_with(".tres"):
+		filepath += ".tres"
+	tilemap.mesh_optimizer.progress_callback = _update_export_progress
+	var mesh = tilemap.mesh_optimizer.build_export_mesh(true)
+	tilemap.mesh_optimizer.progress_callback = Callable()
+	call_deferred("_finish_export_single", mesh, filepath)
+
+
+func _thread_export_gltf(filepath: String) -> void:
+	if not filepath.ends_with(".gltf") and not filepath.ends_with(".glb"):
+		filepath += ".glb"
+	tilemap.mesh_optimizer.progress_callback = _update_export_progress
+	var mesh = tilemap.mesh_optimizer.build_export_mesh(true)
+	tilemap.mesh_optimizer.progress_callback = Callable()
+	call_deferred("_finish_export_gltf", mesh, filepath)
+
+
+func _thread_export_chunked(filepath: String) -> void:
+	var save_name = filepath.get_basename().get_file()
+	if save_name == "":
+		save_name = "level_chunks"
+	var ext = filepath.get_extension().to_lower()
+	if ext == "":
+		ext = "tres"
+	tilemap.export_level_chunked(save_name, Vector3i(32, 32, 32), true, ext)
+	call_deferred("_finish_export_chunked", save_name, ext)
+
+
+# ── Main-thread finish functions ─────────────────────────────────────────────
+# Called via call_deferred once the worker is done.
+
+func _finish_export_single(mesh: ArrayMesh, filepath: String) -> void:
+	_export_thread.wait_to_finish()
+
+	var success = ResourceSaver.save(mesh, filepath)
+	if success == OK:
+		var real_path = ProjectSettings.globalize_path(filepath)
+		print("✓ Single mesh exported!")
+		print("Saved to: ", real_path)
+		_show_export_overlay("✓ Export complete!\n" + real_path, true)
+	else:
+		push_error("Failed to save mesh: " + str(success))
+		_hide_export_overlay()
+
 	print("======================\n")
 
 
-func _export_single_mesh(filepath: String):
-	"""Export as single optimized mesh"""
-	# Ensure .tres extension
-	if not filepath.ends_with(".tres"):
-		filepath += ".tres"
-	
-	tilemap.export_level_to_file(filepath, true)
-	print("✓ Single mesh exported!")
-	
-	# Show actual path
-	var real_path = ProjectSettings.globalize_path(filepath)
-	print("Saved to: ", real_path)
+func _finish_export_gltf(mesh: ArrayMesh, filepath: String) -> void:
+	_export_thread.wait_to_finish()
 
+	var mesh_instance = MeshInstance3D.new()
+	mesh_instance.name = "ExportedLevel"
+	mesh_instance.mesh = mesh
 
-func _export_chunked_meshes(directory: String):
-	"""Export as chunked meshes"""
-	# Extract folder name from path
-	var save_name = directory.get_file()
-	if save_name == "":
-		save_name = "level_chunks"
-	
-	tilemap.export_level_chunked(save_name, Vector3i(32, 32, 32), true)
-	print("✓ Chunked meshes exported!")
-	
-	# Show actual path
-	var export_path = "user://exports/" + save_name + "/"
-	var real_path = ProjectSettings.globalize_path(export_path)
-	print("Saved to: ", real_path)
+	var export_root = Node3D.new()
+	export_root.name = "Scene"
+	export_root.add_child(mesh_instance)
+	mesh_instance.owner = export_root
 
+	var gltf_doc = GLTFDocument.new()
+	var gltf_state = GLTFState.new()
 
-func _export_gltf(filepath: String):
-	"""Export as glTF 2.0 with materials"""
-	if not filepath.ends_with(".gltf") and not filepath.ends_with(".glb"):
-		filepath += ".glb"
-	
-	print("\n=== EXPORTING glTF ===" )
-	print("Path: ", filepath)
-	
-	var success = tilemap.export_level_gltf(filepath)
-	if success:
+	var append_err = gltf_doc.append_from_scene(export_root, gltf_state)
+	export_root.free()
+
+	if append_err != OK:
+		push_error("glTF export: append_from_scene failed (error %d)" % append_err)
+		_hide_export_overlay()
+		return
+
+	var dir = filepath.get_base_dir()
+	if dir != "" and dir != "res://" and dir != "user://":
+		DirAccess.make_dir_recursive_absolute(dir)
+
+	var write_err = gltf_doc.write_to_filesystem(gltf_state, filepath)
+	if write_err == OK:
 		var real_path = ProjectSettings.globalize_path(filepath)
 		print("✓ glTF export complete: ", real_path)
+		_show_export_overlay("✓ Export complete!\n" + real_path, true)
 	else:
-		push_error("glTF export failed — check output log for details")
+		push_error("glTF export: write_to_filesystem failed (error %d)" % write_err)
+		_hide_export_overlay()
+
+	print("======================\n")
+
+
+func _finish_export_chunked(save_name: String, ext: String) -> void:
+	_export_thread.wait_to_finish()
+
+	var export_path = "user://exports/exported_level_" + save_name + "/"
+	var real_path = ProjectSettings.globalize_path(export_path)
+	print("✓ Chunked meshes exported! (.", ext, ")")
+	print("Saved to: ", real_path)
+	_show_export_overlay("✓ Export complete!\n" + real_path, true)
+	print("======================\n")
+
+
+# ── Overlay helpers ──────────────────────────────────────────────────────────
+
+func _update_export_progress(done: int, total: int) -> void:
+	"""Called on main thread via call_deferred during mesh build"""
+	if not _export_bar_fill or not _export_pct_label:
+		return
+	var pct = float(done) / float(total) if total > 0 else 0.0
+	_export_bar_fill.size.x = _export_bar.size.x * pct
+	var pct_int = int(pct * 100)
+	_export_pct_label.text = "%d%%" % pct_int
+	if _export_label:
+		_export_label.text = "Exporting mesh…"
+
+
+func _show_export_overlay(message: String, auto_hide: bool = false) -> void:
+	if not _export_overlay:
+		_export_overlay = CanvasLayer.new()
+		_export_overlay.layer = 128
+
+		var bg = ColorRect.new()
+		bg.color = Color(0, 0, 0, 0.55)
+		bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		_export_overlay.add_child(bg)
+
+		# Centre container
+		var vbox = VBoxContainer.new()
+		vbox.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+		vbox.custom_minimum_size = Vector2(500, 120)
+		vbox.offset_left = -250
+		vbox.offset_top = -60
+		vbox.offset_right = 250
+		vbox.offset_bottom = 60
+		vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+		_export_overlay.add_child(vbox)
+
+		_export_label = Label.new()
+		_export_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_export_label.add_theme_font_size_override("font_size", 22)
+		vbox.add_child(_export_label)
+
+		# Progress bar track
+		_export_bar = ColorRect.new()
+		_export_bar.color = Color(0.2, 0.2, 0.2, 1.0)
+		_export_bar.custom_minimum_size = Vector2(500, 24)
+		vbox.add_child(_export_bar)
+
+		# Progress bar fill (child of track so it anchors correctly)
+		_export_bar_fill = ColorRect.new()
+		_export_bar_fill.color = Color(0.2, 0.8, 0.4, 1.0)
+		_export_bar_fill.size = Vector2(0, 24)
+		_export_bar_fill.position = Vector2(0, 0)
+		_export_bar.add_child(_export_bar_fill)
+
+		_export_pct_label = Label.new()
+		_export_pct_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_export_pct_label.add_theme_font_size_override("font_size", 16)
+		_export_pct_label.text = "0%"
+		vbox.add_child(_export_pct_label)
+
+		add_child(_export_overlay)
+
+	# Reset bar each time we show the overlay
+	if _export_bar_fill:
+		_export_bar_fill.size.x = 0
+	if _export_pct_label:
+		_export_pct_label.text = "0%"
+
+	_export_label.text = message
+	_export_overlay.visible = true
+
+	if auto_hide:
+		await get_tree().create_timer(2.5).timeout
+		_hide_export_overlay()
+
+
+func _hide_export_overlay() -> void:
+	if _export_overlay:
+		_export_overlay.visible = false
 
 
 func _on_save_confirmed(path: String):

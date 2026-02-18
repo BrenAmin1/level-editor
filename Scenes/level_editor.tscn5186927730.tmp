@@ -21,6 +21,7 @@ sky = SubResource("Sky_s1b0e")
 
 [node name="level_editor" type="Node3D" unique_id=1129799652]
 script = ExtResource("1_5o76e")
+grid_range = null
 
 [node name="Camera3D" type="Camera3D" parent="." unique_id=775226364]
 script = ExtResource("2_s1b0e")

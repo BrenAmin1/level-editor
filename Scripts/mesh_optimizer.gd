@@ -11,6 +11,8 @@ var mesh_generator: MeshGenerator  # Reference to MeshGenerator component
 # SETUP
 # ============================================================================
 
+var progress_callback: Callable  # Optional: called with (done: int, total: int) from worker thread
+
 func setup(tilemap: TileMap3D, tiles_ref: Dictionary, meshes_ref: Dictionary, generator: MeshGenerator, materials_ref: Dictionary):
 	tile_map = tilemap
 	tiles = tiles_ref
@@ -43,7 +45,10 @@ func generate_optimized_level_mesh() -> ArrayMesh:
 	
 	print("Optimizing ", tiles.size(), " tiles into single mesh...")
 	print("Tile types found: ", tiles_by_type.keys())
-	
+
+	var _prog_total = tiles.size()
+	var _prog_done = 0
+
 	# Process each tile type
 	for tile_type in tiles_by_type:
 		var positions = tiles_by_type[tile_type]
@@ -74,6 +79,9 @@ func generate_optimized_level_mesh() -> ArrayMesh:
 					all_verts, all_indices, all_normals, all_uvs,
 					vertex_offset, all_tangents, all_colors
 				)
+				_prog_done += 1
+				if progress_callback.is_valid():
+					progress_callback.call_deferred(_prog_done, _prog_total)
 	
 	# Create final combined mesh
 	var surface_array = []
@@ -156,32 +164,59 @@ func append_mesh_to_arrays(mesh: ArrayMesh, world_pos: Vector3,
 
 
 func generate_optimized_level_mesh_multi_material() -> ArrayMesh:
-	"""Generate mesh with separate surfaces per tile type AND surface index (preserves all materials)"""
-	
+	"""
+	Generate mesh with one surface per (tile_type, surface_index, palette_material_index)
+	combination so every per-tile painted material is preserved in the export.
+	"""
 	var mesh = ArrayMesh.new()
-	
-	# Group by tile type
-	var tiles_by_type = {}
+
+	# ------------------------------------------------------------------
+	# 1. Build a lookup: pos -> palette_material_index (-1 if none)
+	# ------------------------------------------------------------------
+	var tile_palette_index: Dictionary = {}  # Vector3i -> int
+	if tile_map and tile_map.tile_materials:
+		for pos in tile_map.tile_materials:
+			tile_palette_index[pos] = int(tile_map.tile_materials[pos])
+
+	# ------------------------------------------------------------------
+	# 2. Group positions by (tile_type, palette_material_index)
+	#    Key: String "tile_type:mat_idx"  (mat_idx = -1 for unpainted)
+	# ------------------------------------------------------------------
+	var groups: Dictionary = {}  # String -> { tile_type, mat_idx, positions[] }
 	for pos in tiles:
 		var tile_type = tiles[pos]
-		if tile_type not in tiles_by_type:
-			tiles_by_type[tile_type] = []
-		tiles_by_type[tile_type].append(pos)
-	
+		var mat_idx = tile_palette_index.get(pos, -1)
+		var key = str(tile_type) + ":" + str(mat_idx)
+		if key not in groups:
+			groups[key] = { "tile_type": tile_type, "mat_idx": mat_idx, "positions": [] }
+		groups[key]["positions"].append(pos)
+
 	print("Optimizing ", tiles.size(), " tiles into multi-material mesh...")
-	
-	# Create surfaces for each tile type
-	for tile_type in tiles_by_type:
-		var positions = tiles_by_type[tile_type]
-		print("  Processing tile type ", tile_type, ": ", positions.size(), " instances")
-		
-		# For custom meshes with multiple surfaces, process each surface separately
+	print("  Unique (tile_type × palette_material) groups: ", groups.size())
+
+	var _prog_total = tiles.size()
+	var _prog_done = 0
+
+	# ------------------------------------------------------------------
+	# 3. For each group, build one surface per mesh surface index
+	# ------------------------------------------------------------------
+	for key in groups:
+		var group = groups[key]
+		var tile_type: int = group["tile_type"]
+		var mat_idx: int = group["mat_idx"]
+		var positions: Array = group["positions"]
+
+		# Resolve the Material object for this group
+		var palette_material: Material = null
+		if mat_idx >= 0 and tile_map and tile_map.material_palette_ref:
+			var palette = tile_map.material_palette_ref
+			if palette.has_method("get_material_at_index"):
+				palette_material = palette.get_material_at_index(mat_idx)
+
 		if tile_type in custom_meshes:
 			var template_mesh = custom_meshes[tile_type]
 			var num_surfaces = template_mesh.get_surface_count()
-			print("    Custom mesh with ", num_surfaces, " surfaces")
-			
-			# Process each surface of the custom mesh
+
 			for surface_idx in range(num_surfaces):
 				var all_verts = PackedVector3Array()
 				var all_indices = PackedInt32Array()
@@ -190,63 +225,57 @@ func generate_optimized_level_mesh_multi_material() -> ArrayMesh:
 				var all_tangents = PackedFloat32Array()
 				var all_colors = PackedColorArray()
 				var vertex_offset = 0
-				
-				# Combine all instances of this surface
+
 				for pos in positions:
 					var neighbors = tile_map.get_neighbors(pos)
 					var tile_mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors)
 					var world_pos = tile_map.grid_to_world(pos)
-					
-					# Extract only this surface
 					if surface_idx < tile_mesh.get_surface_count():
 						vertex_offset = append_mesh_surface_to_arrays(
 							tile_mesh, surface_idx, world_pos,
 							all_verts, all_indices, all_normals, all_uvs,
 							vertex_offset, all_tangents, all_colors
 						)
-				
-				# Add this surface to the final mesh
-				if all_verts.size() > 0:
-					var surface_array = []
-					surface_array.resize(Mesh.ARRAY_MAX)
-					surface_array[Mesh.ARRAY_VERTEX] = all_verts
-					surface_array[Mesh.ARRAY_INDEX] = all_indices
-					surface_array[Mesh.ARRAY_NORMAL] = all_normals
-					surface_array[Mesh.ARRAY_TEX_UV] = all_uvs
-					if all_tangents.size() > 0:
-						surface_array[Mesh.ARRAY_TANGENT] = all_tangents
-					if all_colors.size() > 0:
-						surface_array[Mesh.ARRAY_COLOR] = all_colors
-					
-					# Generate tangents if missing (critical for proper lighting!)
-					if all_tangents.size() == 0:
-						var temp_mesh = ArrayMesh.new()
-						temp_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
-						var st = SurfaceTool.new()
-						st.create_from(temp_mesh, 0)
-						st.generate_tangents()
-						surface_array = st.commit_to_arrays()
-					
-					mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
-					
-					# Apply the correct material for this surface
-					var material: Material = null
-					
-					# Try to get from custom_materials first
-					if tile_type in custom_materials and custom_materials[tile_type].size() > surface_idx:
-						material = custom_materials[tile_type][surface_idx]
-						print("    Surface ", surface_idx, ": Applied custom material from custom_materials")
-					# Fall back to template mesh material
-					elif template_mesh.surface_get_material(surface_idx):
-						material = template_mesh.surface_get_material(surface_idx)
-						print("    Surface ", surface_idx, ": Applied material from template mesh")
-					
-					if material:
-						mesh.surface_set_material(mesh.get_surface_count() - 1, material)
-					else:
-						print("    Surface ", surface_idx, ": WARNING - No material found!")
+					if surface_idx == 0:
+						_prog_done += 1
+						if progress_callback.is_valid():
+							progress_callback.call_deferred(_prog_done, _prog_total)
+
+				if all_verts.size() == 0:
+					continue
+
+				var surface_array = []
+				surface_array.resize(Mesh.ARRAY_MAX)
+				surface_array[Mesh.ARRAY_VERTEX] = all_verts
+				surface_array[Mesh.ARRAY_INDEX] = all_indices
+				surface_array[Mesh.ARRAY_NORMAL] = all_normals
+				surface_array[Mesh.ARRAY_TEX_UV] = all_uvs
+				if all_tangents.size() > 0:
+					surface_array[Mesh.ARRAY_TANGENT] = all_tangents
+				if all_colors.size() > 0:
+					surface_array[Mesh.ARRAY_COLOR] = all_colors
+
+				if all_tangents.size() == 0:
+					var temp_mesh = ArrayMesh.new()
+					temp_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
+					var st = SurfaceTool.new()
+					st.create_from(temp_mesh, 0)
+					st.generate_tangents()
+					surface_array = st.commit_to_arrays()
+
+				mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
+
+				# Priority: palette material > custom_materials > template mesh material
+				var material: Material = palette_material
+				if material == null and tile_type in custom_materials and custom_materials[tile_type].size() > surface_idx:
+					material = custom_materials[tile_type][surface_idx]
+				if material == null and template_mesh.surface_get_material(surface_idx):
+					material = template_mesh.surface_get_material(surface_idx)
+
+				if material:
+					mesh.surface_set_material(mesh.get_surface_count() - 1, material)
 		else:
-			# Standard tiles - single surface per tile type
+			# Standard (procedural) tile type — single surface per group
 			var all_verts = PackedVector3Array()
 			var all_indices = PackedInt32Array()
 			var all_normals = PackedVector3Array()
@@ -254,19 +283,20 @@ func generate_optimized_level_mesh_multi_material() -> ArrayMesh:
 			var all_tangents = PackedFloat32Array()
 			var all_colors = PackedColorArray()
 			var vertex_offset = 0
-			
+
 			for pos in positions:
 				var neighbors = tile_map.get_neighbors(pos)
 				var tile_mesh = mesh_generator.generate_tile_mesh(tile_type, neighbors)
 				var world_pos = tile_map.grid_to_world(pos)
-				
 				vertex_offset = append_mesh_to_arrays(
 					tile_mesh, world_pos,
 					all_verts, all_indices, all_normals, all_uvs,
 					vertex_offset, all_tangents, all_colors
 				)
-			
-			# Add surface to mesh
+				_prog_done += 1
+				if progress_callback.is_valid():
+					progress_callback.call_deferred(_prog_done, _prog_total)
+
 			if all_verts.size() > 0:
 				var surface_array = []
 				surface_array.resize(Mesh.ARRAY_MAX)
@@ -278,25 +308,18 @@ func generate_optimized_level_mesh_multi_material() -> ArrayMesh:
 					surface_array[Mesh.ARRAY_TANGENT] = all_tangents
 				if all_colors.size() > 0:
 					surface_array[Mesh.ARRAY_COLOR] = all_colors
-				
 				mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
-				
-				# Default material for standard tiles
-				var material = StandardMaterial3D.new()
-				if tile_type == 0:
-					material.albedo_color = Color(0.7, 0.7, 0.7)  # Floor - gray
-				elif tile_type == 1:
-					material.albedo_color = Color(0.8, 0.5, 0.3)  # Wall - brown
+
+				var material: Material = palette_material
+				if material == null:
+					var fallback = StandardMaterial3D.new()
+					fallback.albedo_color = Color(0.7, 0.7, 0.7)
+					material = fallback
 				mesh.surface_set_material(mesh.get_surface_count() - 1, material)
-	
+
 	print("✓ Multi-material optimization complete!")
 	print("  Total surfaces: ", mesh.get_surface_count())
-	for i in range(mesh.get_surface_count()):
-		var mat = mesh.surface_get_material(i)
-		print("    Surface ", i, ": ", "Material assigned" if mat else "NO MATERIAL")
-	
 	return mesh
-
 
 func append_mesh_surface_to_arrays(mesh: ArrayMesh, surface_idx: int, world_pos: Vector3,
 								   verts: PackedVector3Array, indices: PackedInt32Array,
@@ -348,6 +371,19 @@ func append_mesh_surface_to_arrays(mesh: ArrayMesh, surface_idx: int, world_pos:
 			colors.append(c)
 	
 	return vertex_offset + mesh_verts.size()
+
+
+func build_export_mesh(use_multi_material: bool = true) -> ArrayMesh:
+	"""
+	Thread-safe mesh build step — only touches tile data and returns an ArrayMesh.
+	No file I/O, no scene nodes, no Godot rendering API calls.
+	Call this from a worker thread; do ResourceSaver / GLTFDocument on the main thread.
+	Materials are baked in directly by generate_optimized_level_mesh_multi_material.
+	"""
+	if use_multi_material:
+		return generate_optimized_level_mesh_multi_material()
+	else:
+		return generate_optimized_level_mesh()
 
 
 func export_level_to_file(filepath: String, use_multi_material: bool = true):
@@ -546,63 +582,80 @@ func _build_surface_tile_type_map() -> Array:
 # CHUNKED EXPORT - NEW
 # ============================================================================
 
-func export_level_chunked(save_name: String, chunk_size: Vector3i = Vector3i(32, 32, 32), 
-						  use_multi_material: bool = true):
+func export_level_chunked(save_name: String, chunk_size: Vector3i = Vector3i(32, 32, 32),
+						  use_multi_material: bool = true, file_ext: String = "tres"):
 	"""Export level in spatial chunks for better memory management and streaming"""
-	
+
 	if tiles.is_empty():
 		print("No tiles to export")
 		return
-	
+
+	# Normalise extension (no leading dot)
+	file_ext = file_ext.trim_prefix(".").to_lower()
+	var is_gltf = (file_ext == "gltf" or file_ext == "glb")
+
 	# Create export directory
-	var export_base = "res://exports/"
+	var export_base = "user://exports/"
 	var export_dir = export_base + "exported_level_" + save_name + "/"
-	
-	# Ensure directories exist
+
 	DirAccess.make_dir_recursive_absolute(export_base)
 	DirAccess.make_dir_recursive_absolute(export_dir)
-	
+
 	print("\n=== CHUNKED EXPORT START ===")
 	print("Save name: ", save_name)
+	print("Format: ", file_ext)
 	print("Export directory: ", export_dir)
 	print("Chunk size: ", chunk_size)
 	print("Total tiles: ", tiles.size())
-	
-	# Find bounding box of all tiles
+
 	var bounds = _calculate_tile_bounds()
 	print("Level bounds: ", bounds["min"], " to ", bounds["max"])
-	
-	# Divide into chunks
+
 	var chunks = _divide_into_chunks(bounds, chunk_size)
 	print("Total chunks: ", chunks.size())
-	
-	# Export each chunk
+
 	for chunk in chunks:
 		var chunk_tiles = _get_tiles_in_chunk(chunk)
-		
 		if chunk_tiles.is_empty():
-			continue  # Skip empty chunks
-		
+			continue
+
 		var chunk_name = "chunk_%d_%d_%d" % [chunk["coord"].x, chunk["coord"].y, chunk["coord"].z]
-		var chunk_filepath = export_dir + chunk_name + ".tres"
-		
+		var chunk_filepath = export_dir + chunk_name + "." + file_ext
+
 		print("  Exporting chunk [%d, %d, %d]: %d tiles" % [
 			chunk["coord"].x, chunk["coord"].y, chunk["coord"].z, chunk_tiles.size()
 		])
-		
-		# Generate mesh for this chunk only
+
 		var chunk_mesh = _generate_chunk_mesh(chunk_tiles, chunk["min"], use_multi_material)
-		
-		# Remove materials before saving
-		for i in range(chunk_mesh.get_surface_count()):
-			chunk_mesh.surface_set_material(i, null)
-		
-		# Save chunk
-		var success = ResourceSaver.save(chunk_mesh, chunk_filepath)
-		if success == OK:
-			print("    ✓ Saved: ", chunk_filepath)
+
+		if is_gltf:
+			var mesh_instance = MeshInstance3D.new()
+			mesh_instance.name = chunk_name
+			mesh_instance.mesh = chunk_mesh
+			var export_root = Node3D.new()
+			export_root.name = "Scene"
+			export_root.add_child(mesh_instance)
+			mesh_instance.owner = export_root
+			var gltf_doc = GLTFDocument.new()
+			var gltf_state = GLTFState.new()
+			var append_err = gltf_doc.append_from_scene(export_root, gltf_state)
+			export_root.free()
+			if append_err != OK:
+				push_error("    ✗ glTF append failed for chunk: " + str(append_err))
+				continue
+			var write_err = gltf_doc.write_to_filesystem(gltf_state, chunk_filepath)
+			if write_err == OK:
+				print("    ✓ Saved: ", chunk_filepath)
+			else:
+				push_error("    ✗ glTF write failed for chunk: " + str(write_err))
 		else:
-			push_error("    ✗ Failed to save chunk: " + str(success))
+			for i in range(chunk_mesh.get_surface_count()):
+				chunk_mesh.surface_set_material(i, null)
+			var success = ResourceSaver.save(chunk_mesh, chunk_filepath)
+			if success == OK:
+				print("    ✓ Saved: ", chunk_filepath)
+			else:
+				push_error("    ✗ Failed to save chunk: " + str(success))
 		
 	
 	# Save metadata file

@@ -1,29 +1,31 @@
 extends FileDialog
 
-# Emitted when user confirms export with the selected format and path
-signal export_confirmed(format_index: int, filepath: String)
-
-# Export format constants
-enum ExportFormat {
-	SINGLE_MESH = 0,
-	CHUNKED = 1,
-	GLTF = 2
-}
+signal export_confirmed(is_chunked: bool, filepath: String)
 
 func _ready():
-	# Connect to own file_selected signal
+	# Save as Type dropdown — controls file format only
+	filters = PackedStringArray([
+		"*.tres ; Mesh Resource (.tres)",
+		"*.gltf ; glTF 2.0 (.gltf)",
+		"*.glb ; glTF Binary (.glb)"
+	])
+
+	# Format dropdown — controls single vs chunked only
+	add_option("Format", ["Single", "Chunked"], 0)
+
 	file_selected.connect(_on_file_selected)
 
 
 func _on_file_selected(path: String):
-	"""Handle file selection and emit with format info"""
-	# Get the selected format from the dialog option
-	# The selected option is stored separately from the option values
-	var format_index = get_selected_options()[0] if get_selected_options().size() > 0 else 0
-	
-	# Emit to level_editor with both pieces of info
-	export_confirmed.emit(format_index, path)
-	
-	# Debug output
-	var format_names = ["Single Mesh (.tres)", "Chunked Meshes", "glTF 2.0"]
-	print("Export dialog: User selected ", format_names[format_index], " → ", path)
+	# Read format option: 0 = Single, 1 = Chunked
+	var is_chunked = get_selected_options().get(0, 0) == 1
+
+	# Ensure the path has a valid extension
+	var ext = path.get_extension().to_lower()
+	if ext != "tres" and ext != "gltf" and ext != "glb":
+		path += ".tres"
+
+	export_confirmed.emit(is_chunked, path)
+
+	var export_mode = "Chunked" if is_chunked else "Single"
+	print("Export dialog: ", export_mode, " (.", path.get_extension(), ") → ", path)

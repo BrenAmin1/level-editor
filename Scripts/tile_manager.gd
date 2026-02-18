@@ -24,6 +24,7 @@ var generated_meshes: Dictionary = {}
 var generation_mutex: Mutex = null
 var should_stop_thread: bool = false
 var is_flushing: bool = false  # Prevent overlapping flushes
+var flush_completed_callback: Callable  # Optional: called once when flush fully finishes
 
 # MESH CACHING: Reuse identical meshes
 var mesh_cache: Dictionary = {}
@@ -228,6 +229,12 @@ func _finalise_flush(completed_successfully: bool):
 	dirty_tiles.clear()
 	print("=== BATCH FLUSH END ===\n")
 	is_flushing = false
+
+	# Fire the one-shot callback if set (used e.g. to re-apply rotations after load)
+	if flush_completed_callback.is_valid():
+		var cb = flush_completed_callback
+		flush_completed_callback = Callable()  # Clear before calling to avoid re-entrancy
+		cb.call()
 
 
 

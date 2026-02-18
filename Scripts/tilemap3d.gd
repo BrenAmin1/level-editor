@@ -254,9 +254,9 @@ func export_level_gltf(filepath: String) -> bool:
 	return mesh_optimizer.export_level_gltf(filepath)
 
 
-func export_level_chunked(save_name: String, chunk_size: Vector3i = Vector3i(32, 32, 32), 
-						  use_multi_material: bool = true):
-	return mesh_optimizer.export_level_chunked(save_name, chunk_size, use_multi_material)
+func export_level_chunked(save_name: String, chunk_size: Vector3i = Vector3i(32, 32, 32),
+						  use_multi_material: bool = true, file_ext: String = "tres"):
+	return mesh_optimizer.export_level_chunked(save_name, chunk_size, use_multi_material, file_ext)
 
 
 func tick() -> void:
@@ -280,7 +280,7 @@ func set_tile_rotation(pos: Vector3i, rotation_degrees: float):
 		return
 	
 	tile_rotations[pos] = rotation_degrees
-	tile_manager.update_tile_mesh(pos)  # ← replaces regenerate_tile_with_rotation
+	tile_manager.update_tile_mesh(pos)
 
 
 # ============================================================================
