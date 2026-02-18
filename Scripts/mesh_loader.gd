@@ -285,28 +285,50 @@ func align_mesh_to_grid(tile_type: int) -> bool:
 	# Calculate scale to fit within grid_size
 	var max_dimension = max(size.x, max(size.y, size.z))
 	var scale_factor = grid_size / max_dimension if max_dimension > 0 else 1.0
-	
+
+	# After scaling, find the actual max Y so we can snap top vertices to exactly
+	# grid_size. The bevel OBJ's rounded top edges would otherwise sit slightly below
+	# grid_size with tilted normals, causing them to catch less light and appear as
+	# dark dots across the surface.
+	# Only snap the very top (top 3%) — a wider threshold also catches upper side-face
+	# vertices and yanks them up to grid_size, creating visible spikes along the edge.
+	var scaled_max_y = (max_bounds.y - min_bounds.y) * scale_factor
+	var top_snap_threshold = scaled_max_y * 0.97  # vertices in top 3% only
+
 	# Transform all surfaces
 	var new_mesh = ArrayMesh.new()
-	
+
 	for surface_idx in range(mesh.get_surface_count()):
 		var arrays = mesh.surface_get_arrays(surface_idx)
 		var vertices = arrays[Mesh.ARRAY_VERTEX].duplicate()
-		
-		# Transform vertices
+
+		# Transform vertices and snap top surface to exactly grid_size
 		for i in range(vertices.size()):
-			vertices[i] = (vertices[i] - min_bounds) * scale_factor
+			var v = (vertices[i] - min_bounds) * scale_factor
+			# Snap vertices near the top to exactly grid_size so the top face is
+			# a perfectly flat plane — eliminates lighting artifacts from bevel normals
+			if v.y >= top_snap_threshold:
+				v.y = grid_size
+			vertices[i] = v
 		
-		# Create new surface
+		# Recalculate normals for any vertex that was snapped to the top plane.
+		# The original bevel normals point slightly sideways at the rounded edge,
+		# causing those faces to appear darker. After snapping the geometry flat
+		# the normals must also be flat (straight up) to light correctly.
+		var normals = arrays[Mesh.ARRAY_NORMAL].duplicate()
+		for i in range(vertices.size()):
+			if vertices[i].y >= grid_size - 0.001:
+				normals[i] = Vector3.UP
+
 		var surface_array = []
 		surface_array.resize(Mesh.ARRAY_MAX)
 		surface_array[Mesh.ARRAY_VERTEX] = vertices
-		surface_array[Mesh.ARRAY_NORMAL] = arrays[Mesh.ARRAY_NORMAL]
+		surface_array[Mesh.ARRAY_NORMAL] = normals
 		surface_array[Mesh.ARRAY_TEX_UV] = arrays[Mesh.ARRAY_TEX_UV]
 		surface_array[Mesh.ARRAY_INDEX] = arrays[Mesh.ARRAY_INDEX]
-		
+
 		new_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
 		new_mesh.surface_set_material(surface_idx, mesh.surface_get_material(surface_idx))
-	
+
 	custom_meshes[tile_type] = new_mesh
 	return true

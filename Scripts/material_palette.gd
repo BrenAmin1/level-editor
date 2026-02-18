@@ -133,11 +133,12 @@ func _on_load_palette_pressed() -> void:
 func _on_material_created(material_dict: Dictionary) -> void:
 	print("Material created: ", material_dict.name)
 	
-	var godot_material = _create_godot_material(material_dict)
-	
+	var surface_resources = _create_surface_resources(material_dict)
+
 	var material_entry = {
 		"data": material_dict,
-		"resource": godot_material
+		"resource": surface_resources[0],       # TOP  - used for card display / legacy callers
+		"surface_resources": surface_resources  # [top, sides, bottom]
 	}
 	materials.append(material_entry)
 	
@@ -149,13 +150,14 @@ func _on_material_edited(index: int, material_dict: Dictionary) -> void:
 	if index >= 0 and index < materials.size():
 		print("Material edited at index ", index, ": ", material_dict.name)
 		
-		# Create updated Godot material resource
-		var godot_material = _create_godot_material(material_dict)
-		
+		# Create updated Godot material resources (one per surface)
+		var surface_resources = _create_surface_resources(material_dict)
+
 		# Update the materials array
 		materials[index] = {
 			"data": material_dict,
-			"resource": godot_material
+			"resource": surface_resources[0],
+			"surface_resources": surface_resources
 		}
 		
 		# Update the card
@@ -266,31 +268,62 @@ func _clear_all_materials() -> void:
 # ============================================================================
 
 func _create_godot_material(material_dict: Dictionary) -> StandardMaterial3D:
+	# Convenience wrapper - returns the top-surface material.
+	# Used for display (material cards, selection, etc.)
+	return _create_godot_material_for_surface(material_dict, 0)
+
+
+func _create_godot_material_for_surface(material_dict: Dictionary, surface_idx: int) -> StandardMaterial3D:
+	# surface_idx matches MeshGenerator.SurfaceType: 0 = TOP, 1 = SIDES, 2 = BOTTOM
 	var m_material = StandardMaterial3D.new()
-	
 	m_material.uv1_triplanar = true
 	m_material.uv1_world_triplanar = true
 	m_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-	
-	var texture_path = material_dict.get("top_texture", "")
+
+	# Pick texture/normal keys based on which surface we are building for.
+	var texture_key: String
+	var normal_key: String
+	match surface_idx:
+		1:  # SIDES
+			texture_key = "side_texture"
+			normal_key  = "side_normal"
+		2:  # BOTTOM
+			texture_key = "bottom_texture"
+			normal_key  = "bottom_normal"
+		_:  # TOP (0) and any unknown surface
+			texture_key = "top_texture"
+			normal_key  = "top_normal"
+
+	# Load albedo texture, falling back through top -> side -> bottom if missing.
+	var texture_path = material_dict.get(texture_key, "")
+	if texture_path == "" or not FileAccess.file_exists(texture_path):
+		for fallback_key in ["top_texture", "side_texture", "bottom_texture"]:
+			var fp = material_dict.get(fallback_key, "")
+			if fp != "" and FileAccess.file_exists(fp):
+				texture_path = fp
+				break
+
 	if texture_path != "" and FileAccess.file_exists(texture_path):
 		var texture = load(texture_path) as Texture2D
 		if texture:
 			m_material.albedo_texture = texture
-	elif material_dict.get("side_texture", "") != "":
-		texture_path = material_dict.get("side_texture", "")
-		if FileAccess.file_exists(texture_path):
-			var texture = load(texture_path) as Texture2D
-			if texture:
-				m_material.albedo_texture = texture
-	
-	var normal_path = material_dict.get("top_normal", "")
+
+	# Load normal map, falling back to any available normal.
+	var normal_path = material_dict.get(normal_key, "")
+	if normal_path == "" or not FileAccess.file_exists(normal_path):
+		for fallback_key in ["top_normal", "side_normal", "bottom_normal"]:
+			var fp = material_dict.get(fallback_key, "")
+			if fp != "" and FileAccess.file_exists(fp):
+				normal_path = fp
+				break
+
 	if normal_path != "" and FileAccess.file_exists(normal_path):
 		var normal_map = load(normal_path) as Texture2D
 		if normal_map:
 			m_material.normal_enabled = true
 			m_material.normal_texture = normal_map
-	
+
+	# Fallback colour if no texture loaded.
 	if m_material.albedo_texture == null:
 		if material_dict.get("name", "").to_lower().contains("grass"):
 			m_material.albedo_color = Color(0.3, 0.6, 0.3)
@@ -298,8 +331,17 @@ func _create_godot_material(material_dict: Dictionary) -> StandardMaterial3D:
 			m_material.albedo_color = Color(0.5, 0.3, 0.2)
 		else:
 			m_material.albedo_color = Color(0.6, 0.6, 0.6)
-	
+
 	return m_material
+
+
+func _create_surface_resources(material_dict: Dictionary) -> Array[StandardMaterial3D]:
+	# Returns [top_material, sides_material, bottom_material] in SurfaceType order.
+	return [
+		_create_godot_material_for_surface(material_dict, 0),
+		_create_godot_material_for_surface(material_dict, 1),
+		_create_godot_material_for_surface(material_dict, 2),
+	]
 
 
 func _create_material_card(material_dict: Dictionary, index: int) -> void:
@@ -415,13 +457,13 @@ func _add_default_materials() -> void:
 		"bottom_normal": ""
 	}
 	
-	var grass_material = _create_godot_material(default_grass_data)
-	var dirt_material = _create_godot_material(default_dirt_data)
-	var gravel_material = _create_godot_material(default_gravel_data)
-	
-	materials.append({"data": default_grass_data, "resource": grass_material})
-	materials.append({"data": default_dirt_data, "resource": dirt_material})
-	materials.append({"data": default_gravel_data, "resource": gravel_material})
+	var grass_resources = _create_surface_resources(default_grass_data)
+	var dirt_resources = _create_surface_resources(default_dirt_data)
+	var gravel_resources = _create_surface_resources(default_gravel_data)
+
+	materials.append({"data": default_grass_data, "resource": grass_resources[0], "surface_resources": grass_resources})
+	materials.append({"data": default_dirt_data, "resource": dirt_resources[0], "surface_resources": dirt_resources})
+	materials.append({"data": default_gravel_data, "resource": gravel_resources[0], "surface_resources": gravel_resources})
 	
 	_create_material_card(default_grass_data, 0)
 	_create_material_card(default_dirt_data, 1)
@@ -445,9 +487,24 @@ func get_selected_material_data() -> Dictionary:
 
 
 func get_material_at_index(index: int) -> StandardMaterial3D:
+	# Returns the top-surface material. Kept for backwards compatibility.
 	if index >= 0 and index < materials.size():
 		return materials[index].resource
 	return null
+
+
+func get_material_for_surface(index: int, surface_idx: int) -> StandardMaterial3D:
+	# Returns the correct material for a specific mesh surface.
+	# surface_idx: 0 = TOP, 1 = SIDES, 2 = BOTTOM (matches MeshGenerator.SurfaceType)
+	if index < 0 or index >= materials.size():
+		return null
+	var entry = materials[index]
+	if entry.has("surface_resources"):
+		var surface_resources: Array = entry["surface_resources"]
+		if surface_idx >= 0 and surface_idx < surface_resources.size():
+			return surface_resources[surface_idx]
+	# Fallback for entries created before this change (no surface_resources key).
+	return entry.resource
 
 
 func get_material_data_at_index(index: int) -> Dictionary:

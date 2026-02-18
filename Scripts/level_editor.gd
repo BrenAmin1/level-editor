@@ -490,8 +490,12 @@ func _thread_export_chunked(filepath: String) -> void:
 	var ext = filepath.get_extension().to_lower()
 	if ext == "":
 		ext = "tres"
-	tilemap.export_level_chunked(save_name, Vector3i(32, 32, 32), true, ext)
-	call_deferred("_finish_export_chunked", save_name, ext)
+	# Only build meshes on the worker thread — file I/O (especially GLTFDocument)
+	# must happen on the main thread to avoid scene-tree threading errors.
+	tilemap.mesh_optimizer.progress_callback = _update_export_progress
+	var chunk_data = tilemap.mesh_optimizer.build_chunk_meshes(save_name, Vector3i(32, 32, 32), true, ext)
+	tilemap.mesh_optimizer.progress_callback = Callable()
+	call_deferred("_finish_export_chunked", chunk_data)
 
 
 # ── Main-thread finish functions ─────────────────────────────────────────────
@@ -552,12 +556,20 @@ func _finish_export_gltf(mesh: ArrayMesh, filepath: String) -> void:
 	print("======================\n")
 
 
-func _finish_export_chunked(save_name: String, ext: String) -> void:
+func _finish_export_chunked(chunk_data: Dictionary) -> void:
 	_export_thread.wait_to_finish()
 
-	var export_path = "user://exports/exported_level_" + save_name + "/"
-	var real_path = ProjectSettings.globalize_path(export_path)
-	print("✓ Chunked meshes exported! (.", ext, ")")
+	if chunk_data.is_empty():
+		push_error("Chunked export: mesh build returned no data")
+		_hide_export_overlay()
+		return
+
+	# File I/O happens here on the main thread — safe for GLTFDocument and ResourceSaver.
+	_show_export_overlay("Saving chunks…")
+	tilemap.mesh_optimizer._save_chunk_data(chunk_data)
+
+	var real_path = ProjectSettings.globalize_path(chunk_data["export_dir"])
+	print("✓ Chunked meshes exported! (.", chunk_data["file_ext"], ")")
 	print("Saved to: ", real_path)
 	_show_export_overlay("✓ Export complete!\n" + real_path, true)
 	print("======================\n")

@@ -71,7 +71,13 @@ func generate_optimized_level_mesh() -> ArrayMesh:
 			# Standard tiles - bake each with neighbor culling
 			for pos in positions:
 				var neighbors = tile_map.get_neighbors(pos)
-				var tile_mesh = mesh_generator.generate_tile_mesh(tile_type, neighbors)
+				var tile_mesh: ArrayMesh
+				# Stairs must go through generate_custom_tile_mesh so per-tile rotation is applied
+				if tile_type == MeshGenerator.TILE_TYPE_STAIRS:
+					var rotation = tile_map.tile_rotations.get(pos, 0.0)
+					tile_mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation)
+				else:
+					tile_mesh = mesh_generator.generate_tile_mesh(tile_type, neighbors)
 				var world_pos = tile_map.grid_to_world(pos)
 				
 				vertex_offset = append_mesh_to_arrays(
@@ -206,16 +212,25 @@ func generate_optimized_level_mesh_multi_material() -> ArrayMesh:
 		var mat_idx: int = group["mat_idx"]
 		var positions: Array = group["positions"]
 
-		# Resolve the Material object for this group
-		var palette_material: Material = null
-		if mat_idx >= 0 and tile_map and tile_map.material_palette_ref:
-			var palette = tile_map.material_palette_ref
-			if palette.has_method("get_material_at_index"):
-				palette_material = palette.get_material_at_index(mat_idx)
+		# Resolve the Material object for this group — kept for reference by surface loops below.
+		# Note: per-surface resolution is now done inside each surface loop via
+		# get_material_for_surface(mat_idx, surface_idx) so top/side/bottom get correct textures.
+		var _palette_material_unused: Material = null  # Unused; retained for clarity only.
 
 		if tile_type in custom_meshes:
 			var template_mesh = custom_meshes[tile_type]
 			var num_surfaces = template_mesh.get_surface_count()
+
+			# Cache generated meshes keyed by position so each tile is only built once,
+			# not once per surface (which would be num_surfaces times the work).
+			var mesh_cache: Dictionary = {}  # Vector3i -> ArrayMesh
+			for pos in positions:
+				var neighbors = tile_map.get_neighbors(pos)
+				var rotation = tile_map.tile_rotations.get(pos, 0.0)
+				mesh_cache[pos] = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation)
+				_prog_done += 1
+				if progress_callback.is_valid():
+					progress_callback.call_deferred(_prog_done, _prog_total)
 
 			for surface_idx in range(num_surfaces):
 				var all_verts = PackedVector3Array()
@@ -227,8 +242,7 @@ func generate_optimized_level_mesh_multi_material() -> ArrayMesh:
 				var vertex_offset = 0
 
 				for pos in positions:
-					var neighbors = tile_map.get_neighbors(pos)
-					var tile_mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors)
+					var tile_mesh: ArrayMesh = mesh_cache[pos]
 					var world_pos = tile_map.grid_to_world(pos)
 					if surface_idx < tile_mesh.get_surface_count():
 						vertex_offset = append_mesh_surface_to_arrays(
@@ -236,10 +250,6 @@ func generate_optimized_level_mesh_multi_material() -> ArrayMesh:
 							all_verts, all_indices, all_normals, all_uvs,
 							vertex_offset, all_tangents, all_colors
 						)
-					if surface_idx == 0:
-						_prog_done += 1
-						if progress_callback.is_valid():
-							progress_callback.call_deferred(_prog_done, _prog_total)
 
 				if all_verts.size() == 0:
 					continue
@@ -265,8 +275,15 @@ func generate_optimized_level_mesh_multi_material() -> ArrayMesh:
 
 				mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
 
-				# Priority: palette material > custom_materials > template mesh material
-				var material: Material = palette_material
+				# Priority: per-surface palette material > custom_materials > template mesh material
+				# Use get_material_for_surface if available so top/side/bottom get distinct textures.
+				var material: Material = null
+				if mat_idx >= 0 and tile_map and tile_map.material_palette_ref:
+					var palette = tile_map.material_palette_ref
+					if palette.has_method("get_material_for_surface"):
+						material = palette.get_material_for_surface(mat_idx, surface_idx)
+					elif palette.has_method("get_material_at_index"):
+						material = palette.get_material_at_index(mat_idx)
 				if material == null and tile_type in custom_materials and custom_materials[tile_type].size() > surface_idx:
 					material = custom_materials[tile_type][surface_idx]
 				if material == null and template_mesh.surface_get_material(surface_idx):
@@ -275,29 +292,50 @@ func generate_optimized_level_mesh_multi_material() -> ArrayMesh:
 				if material:
 					mesh.surface_set_material(mesh.get_surface_count() - 1, material)
 		else:
-			# Standard (procedural) tile type — single surface per group
-			var all_verts = PackedVector3Array()
-			var all_indices = PackedInt32Array()
-			var all_normals = PackedVector3Array()
-			var all_uvs = PackedVector2Array()
-			var all_tangents = PackedFloat32Array()
-			var all_colors = PackedColorArray()
-			var vertex_offset = 0
+			# Standard (procedural) tile type — one surface per mesh surface index.
+			# Stairs are procedural but need per-tile rotation, so we determine the
+			# number of surfaces from a sample mesh and iterate like custom tiles do.
+			var is_stairs = (tile_type == MeshGenerator.TILE_TYPE_STAIRS)
 
+			# Cache generated meshes keyed by position so each tile is only built once,
+			# not once per surface (which would be num_surfaces times the work).
+			var mesh_cache: Dictionary = {}  # Vector3i -> ArrayMesh
 			for pos in positions:
 				var neighbors = tile_map.get_neighbors(pos)
-				var tile_mesh = mesh_generator.generate_tile_mesh(tile_type, neighbors)
-				var world_pos = tile_map.grid_to_world(pos)
-				vertex_offset = append_mesh_to_arrays(
-					tile_mesh, world_pos,
-					all_verts, all_indices, all_normals, all_uvs,
-					vertex_offset, all_tangents, all_colors
-				)
+				if is_stairs:
+					var rotation = tile_map.tile_rotations.get(pos, 0.0)
+					mesh_cache[pos] = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation)
+				else:
+					mesh_cache[pos] = mesh_generator.generate_tile_mesh(tile_type, neighbors)
 				_prog_done += 1
 				if progress_callback.is_valid():
 					progress_callback.call_deferred(_prog_done, _prog_total)
 
-			if all_verts.size() > 0:
+			# Determine surface count from the first cached mesh.
+			var num_surfaces = max(1, mesh_cache[positions[0]].get_surface_count())
+
+			for surface_idx in range(num_surfaces):
+				var all_verts = PackedVector3Array()
+				var all_indices = PackedInt32Array()
+				var all_normals = PackedVector3Array()
+				var all_uvs = PackedVector2Array()
+				var all_tangents = PackedFloat32Array()
+				var all_colors = PackedColorArray()
+				var vertex_offset = 0
+
+				for pos in positions:
+					var tile_mesh: ArrayMesh = mesh_cache[pos]
+					var world_pos = tile_map.grid_to_world(pos)
+					if surface_idx < tile_mesh.get_surface_count():
+						vertex_offset = append_mesh_surface_to_arrays(
+							tile_mesh, surface_idx, world_pos,
+							all_verts, all_indices, all_normals, all_uvs,
+							vertex_offset, all_tangents, all_colors
+						)
+
+				if all_verts.size() == 0:
+					continue
+
 				var surface_array = []
 				surface_array.resize(Mesh.ARRAY_MAX)
 				surface_array[Mesh.ARRAY_VERTEX] = all_verts
@@ -310,12 +348,22 @@ func generate_optimized_level_mesh_multi_material() -> ArrayMesh:
 					surface_array[Mesh.ARRAY_COLOR] = all_colors
 				mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
 
-				var material: Material = palette_material
-				if material == null:
+				# Resolve material per-surface so that, e.g., a "Grass" palette entry
+				# correctly applies Grass.png to the top (surface 0) and dirt.png to the
+				# sides (surface 1) rather than stamping Grass.png on every surface.
+				var surface_material: Material = null
+				if mat_idx >= 0 and tile_map and tile_map.material_palette_ref:
+					var palette = tile_map.material_palette_ref
+					if palette.has_method("get_material_for_surface"):
+						surface_material = palette.get_material_for_surface(mat_idx, surface_idx)
+					elif palette.has_method("get_material_at_index"):
+						# Fallback: palette doesn't support per-surface lookup yet
+						surface_material = palette.get_material_at_index(mat_idx)
+				if surface_material == null:
 					var fallback = StandardMaterial3D.new()
 					fallback.albedo_color = Color(0.7, 0.7, 0.7)
-					material = fallback
-				mesh.surface_set_material(mesh.get_surface_count() - 1, material)
+					surface_material = fallback
+				mesh.surface_set_material(mesh.get_surface_count() - 1, surface_material)
 
 	print("✓ Multi-material optimization complete!")
 	print("  Total surfaces: ", mesh.get_surface_count())
@@ -582,26 +630,32 @@ func _build_surface_tile_type_map() -> Array:
 # CHUNKED EXPORT - NEW
 # ============================================================================
 
-func export_level_chunked(save_name: String, chunk_size: Vector3i = Vector3i(32, 32, 32),
-						  use_multi_material: bool = true, file_ext: String = "tres"):
-	"""Export level in spatial chunks for better memory management and streaming"""
+func build_chunk_meshes(save_name: String, chunk_size: Vector3i = Vector3i(32, 32, 32),
+						use_multi_material: bool = true, file_ext: String = "tres") -> Dictionary:
+	"""Thread-safe: builds all chunk meshes and returns data needed for file I/O.
+
+	Returns a Dictionary with:
+	  "export_dir"  : String   - destination directory path
+	  "file_ext"    : String   - normalised extension (no dot)
+	  "is_gltf"     : bool
+	  "chunks"      : Array[Dictionary]  each: { "name", "filepath", "mesh" }
+	  "metadata"    : Dictionary         - chunk manifest data
+	File I/O (ResourceSaver / GLTFDocument) must be done on the main thread.
+	"""
 
 	if tiles.is_empty():
 		print("No tiles to export")
-		return
+		return {}
 
 	# Normalise extension (no leading dot)
 	file_ext = file_ext.trim_prefix(".").to_lower()
 	var is_gltf = (file_ext == "gltf" or file_ext == "glb")
 
-	# Create export directory
+	# Prepare export directory paths (creation happens on main thread later)
 	var export_base = "user://exports/"
 	var export_dir = export_base + "exported_level_" + save_name + "/"
 
-	DirAccess.make_dir_recursive_absolute(export_base)
-	DirAccess.make_dir_recursive_absolute(export_dir)
-
-	print("\n=== CHUNKED EXPORT START ===")
+	print("\n=== CHUNKED EXPORT — BUILDING MESHES ===")
 	print("Save name: ", save_name)
 	print("Format: ", file_ext)
 	print("Export directory: ", export_dir)
@@ -611,10 +665,11 @@ func export_level_chunked(save_name: String, chunk_size: Vector3i = Vector3i(32,
 	var bounds = _calculate_tile_bounds()
 	print("Level bounds: ", bounds["min"], " to ", bounds["max"])
 
-	var chunks = _divide_into_chunks(bounds, chunk_size)
-	print("Total chunks: ", chunks.size())
+	var chunk_defs = _divide_into_chunks(bounds, chunk_size)
+	print("Total chunks: ", chunk_defs.size())
 
-	for chunk in chunks:
+	var built_chunks: Array = []
+	for chunk in chunk_defs:
 		var chunk_tiles = _get_tiles_in_chunk(chunk)
 		if chunk_tiles.is_empty():
 			continue
@@ -622,11 +677,60 @@ func export_level_chunked(save_name: String, chunk_size: Vector3i = Vector3i(32,
 		var chunk_name = "chunk_%d_%d_%d" % [chunk["coord"].x, chunk["coord"].y, chunk["coord"].z]
 		var chunk_filepath = export_dir + chunk_name + "." + file_ext
 
-		print("  Exporting chunk [%d, %d, %d]: %d tiles" % [
+		print("  Building chunk [%d, %d, %d]: %d tiles" % [
 			chunk["coord"].x, chunk["coord"].y, chunk["coord"].z, chunk_tiles.size()
 		])
 
 		var chunk_mesh = _generate_chunk_mesh(chunk_tiles, chunk["min"], use_multi_material)
+		built_chunks.append({ "name": chunk_name, "filepath": chunk_filepath, "mesh": chunk_mesh })
+
+	var metadata = {
+		"save_name": save_name,
+		"chunk_size": {"x": chunk_size.x, "y": chunk_size.y, "z": chunk_size.z},
+		"bounds_min": {"x": bounds["min"].x, "y": bounds["min"].y, "z": bounds["min"].z},
+		"bounds_max": {"x": bounds["max"].x, "y": bounds["max"].y, "z": bounds["max"].z},
+		"total_tiles": tiles.size(),
+		"total_chunks": built_chunks.size(),
+		"export_date": Time.get_datetime_string_from_system()
+	}
+
+	print("=== CHUNK MESH BUILD COMPLETE ===\n")
+	return {
+		"export_dir": export_dir,
+		"file_ext": file_ext,
+		"is_gltf": is_gltf,
+		"chunks": built_chunks,
+		"metadata": metadata
+	}
+
+
+func export_level_chunked(save_name: String, chunk_size: Vector3i = Vector3i(32, 32, 32),
+						  use_multi_material: bool = true, file_ext: String = "tres"):
+	"""Convenience wrapper — builds and saves all chunks on the calling thread.
+	Only safe to call from the main thread. For background export use
+	build_chunk_meshes() on a worker thread then _finish_export_chunked() on main.
+	"""
+	var data = build_chunk_meshes(save_name, chunk_size, use_multi_material, file_ext)
+	if data.is_empty():
+		return
+	_save_chunk_data(data)
+
+
+func _save_chunk_data(data: Dictionary) -> void:
+	"""Main-thread only: writes all chunk meshes and the metadata file to disk."""
+	var export_dir: String = data["export_dir"]
+	var is_gltf: bool = data["is_gltf"]
+	var file_ext: String = data["file_ext"]
+
+	DirAccess.make_dir_recursive_absolute("user://exports/")
+	DirAccess.make_dir_recursive_absolute(export_dir)
+
+	print("\n=== CHUNKED EXPORT — SAVING FILES ===")
+
+	for chunk in data["chunks"]:
+		var chunk_name: String = chunk["name"]
+		var chunk_filepath: String = chunk["filepath"]
+		var chunk_mesh: ArrayMesh = chunk["mesh"]
 
 		if is_gltf:
 			var mesh_instance = MeshInstance3D.new()
@@ -656,25 +760,14 @@ func export_level_chunked(save_name: String, chunk_size: Vector3i = Vector3i(32,
 				print("    ✓ Saved: ", chunk_filepath)
 			else:
 				push_error("    ✗ Failed to save chunk: " + str(success))
-		
-	
+
 	# Save metadata file
-	var metadata = {
-		"save_name": save_name,
-		"chunk_size": {"x": chunk_size.x, "y": chunk_size.y, "z": chunk_size.z},
-		"bounds_min": {"x": bounds["min"].x, "y": bounds["min"].y, "z": bounds["min"].z},
-		"bounds_max": {"x": bounds["max"].x, "y": bounds["max"].y, "z": bounds["max"].z},
-		"total_tiles": tiles.size(),
-		"total_chunks": chunks.size(),
-		"export_date": Time.get_datetime_string_from_system()
-	}
-	
 	var metadata_file = FileAccess.open(export_dir + "metadata.json", FileAccess.WRITE)
 	if metadata_file:
-		metadata_file.store_string(JSON.stringify(metadata, "\t"))
+		metadata_file.store_string(JSON.stringify(data["metadata"], "\t"))
 		metadata_file.close()
 		print("✓ Metadata saved")
-	
+
 	print("=== CHUNKED EXPORT COMPLETE ===\n")
 
 
@@ -750,22 +843,35 @@ func _get_tiles_in_chunk(chunk: Dictionary) -> Dictionary:
 	return chunk_tiles
 
 
-func _generate_chunk_mesh(chunk_tiles: Dictionary, _chunk_origin: Vector3i, 
+func _generate_chunk_mesh(chunk_tiles: Dictionary, _chunk_origin: Vector3i,
 						  use_multi_material: bool) -> ArrayMesh:
-	"""Generate optimized mesh for a single chunk"""
-	
-	# Temporarily replace global tiles with chunk tiles
+	"""Generate optimized mesh for a single chunk.
+
+	Keeps the full tiles dictionary intact during generation so that neighbor
+	lookups at chunk boundaries correctly see adjacent tiles and cull shared
+	faces. Only tiles present in chunk_tiles emit actual geometry.
+	"""
+
+	# Swap in a restricted emit-set without touching the full tiles dict.
+	# mesh_generator.get_neighbors() reads from tile_map.tiles (the full set),
+	# while we override the local tiles reference used by the surface-building
+	# loops so they only iterate over this chunk's positions.
 	var original_tiles = tiles
 	tiles = chunk_tiles
-	
-	# Generate mesh using existing multi-material function
+
+	# Patch tile_map.tiles to the FULL set so get_neighbors() sees everything,
+	# but the optimizer loops only visit chunk_tiles positions.
+	var original_tilemap_tiles = tile_map.tiles
+	tile_map.tiles = original_tiles  # full set for neighbor lookups
+
 	var chunk_mesh: ArrayMesh
 	if use_multi_material:
 		chunk_mesh = generate_optimized_level_mesh_multi_material()
 	else:
 		chunk_mesh = generate_optimized_level_mesh()
-	
-	# Restore original tiles
+
+	# Restore both references
 	tiles = original_tiles
-	
+	tile_map.tiles = original_tilemap_tiles
+
 	return chunk_mesh

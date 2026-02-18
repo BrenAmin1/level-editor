@@ -17,8 +17,9 @@ func _ready():
 
 
 func _on_file_selected(path: String):
-	# Read format option: 0 = Single, 1 = Chunked
-	var is_chunked = get_selected_options().get(0, 0) == 1
+	# get_selected_options() returns a Dictionary keyed by option NAME (String), not index.
+	# The value is the selected item index within that option's value list.
+	var is_chunked = get_selected_options().get("Format", 0) == 1
 
 	# Ensure the path has a valid extension
 	var ext = path.get_extension().to_lower()
