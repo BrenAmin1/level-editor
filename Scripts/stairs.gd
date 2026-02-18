@@ -8,7 +8,7 @@ const CUBE_HEIGHT_RATIO = 0.8338  # Actual ratio after scaling
 static func generate_stairs_mesh(
 	num_steps: int = 4,
 	grid_size: float = 1.0,
-	direction: int = 0
+	direction: float = 0.0
 ) -> ArrayMesh:
 	
 	# Tiles are CUBE_HEIGHT_RATIO tall, not a full grid unit.
@@ -36,7 +36,7 @@ static func generate_stairs_mesh(
 		
 		var left = 0.0
 		var right = step_width
-		var base = y_offset  # Bottom of the solid side panels
+		var base = bottom  # Bottom of the solid side panels
 		
 		# Front face
 		vertex_index = _add_quad(
@@ -89,9 +89,8 @@ static func generate_stairs_mesh(
 				Vector3(0, 0, 1)
 			)
 	
-	if direction != 0:
-		var rotation_angle = direction * 90.0
-		_rotate_vertices(vertices, normals, rotation_angle, grid_size)
+	if direction != 0.0:
+		_rotate_vertices(vertices, normals, direction, grid_size)
 	
 	var arrays = []
 	arrays.resize(Mesh.ARRAY_MAX)

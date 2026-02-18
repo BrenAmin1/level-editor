@@ -259,6 +259,10 @@ func export_level_chunked(save_name: String, chunk_size: Vector3i = Vector3i(32,
 	return mesh_optimizer.export_level_chunked(save_name, chunk_size, use_multi_material)
 
 
+func tick() -> void:
+	tile_manager.tick()
+
+
 func cleanup() -> void:
 	tile_manager.cleanup()
 
@@ -272,14 +276,11 @@ func get_tile_rotation(pos: Vector3i) -> float:
 	return tile_rotations.get(pos, 0.0)
 
 func set_tile_rotation(pos: Vector3i, rotation_degrees: float):
-	"""Set the rotation of a tile and regenerate its mesh"""
 	if pos not in tiles:
 		return
 	
 	tile_rotations[pos] = rotation_degrees
-	
-	# Delegate to tile_manager to regenerate the tile
-	tile_manager.regenerate_tile_with_rotation(pos, rotation_degrees)
+	tile_manager.update_tile_mesh(pos)  # ← replaces regenerate_tile_with_rotation
 
 
 # ============================================================================

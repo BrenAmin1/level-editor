@@ -35,51 +35,54 @@ func find_exposed_corners(neighbors: Dictionary) -> Array:
 	
 	return exposed_corners
 
+
 func should_cull_stair_face(face_normal: Vector3, neighbors: Dictionary, rotation_degrees: float) -> bool:
-	"""
-	Cull the solid side and back faces of a stair mesh based on neighbors.
-	
-	Stairs have three fully-solid faces that can be culled:
-	  - Left side   (West face of the unrotated mesh, normal -X)
-	  - Right side  (East face of the unrotated mesh, normal +X)
-	  - Back face   (South face of the unrotated mesh, normal +Z)
-	
-	These map to world-space directions after the stair's rotation is applied.
-	We rotate the face normal back into the stair's local space, then check
-	whether the corresponding neighbor slot is occupied.
-	
-	The bottom face is always culled (it's on the ground).
-	The front and top step faces are never culled (they're always visible).
-	"""
-	var NeighborDir = MeshGenerator.NeighborDir
-
-	# Bottom face — always hidden (flush with ground plane)
 	if face_normal.y < -0.7:
-		return true
+		return true  # Bottom face — always cull
 
-	# Only side/back faces are candidates for culling.
-	# Top-facing normals (step tops) and front-facing step risers are never culled.
 	if face_normal.y > 0.1:
-		return false  # Step top surface — never cull
+		return false  # Step top — never cull
 
-	# Rotate the world-space face normal back to stair local space
-	# so we can test against the canonical left/right/back directions.
+	# Convert face normal to stair-local space
 	var local_normal = _rotate_normal_to_local(face_normal, rotation_degrees)
 
-	# Left side of stairs (local -X)
+	# Map local-space face direction to the world-space neighbor direction it corresponds to
+	var world_dir = _local_dir_to_world_neighbor(local_normal, rotation_degrees)
+	if world_dir == -1:
+		return false  # Front face / step risers — never cull
+
+	return neighbors[world_dir] != -1
+
+
+func _local_dir_to_world_neighbor(local_normal: Vector3, rotation_degrees: float) -> int:
+	var NeighborDir = MeshGenerator.NeighborDir
+
+	# Determine local-space direction
+	var local_dir: int
 	if local_normal.x < -0.7:
-		return neighbors[NeighborDir.WEST] != -1
+		local_dir = NeighborDir.WEST   # Left side of stairs
+	elif local_normal.x > 0.7:
+		local_dir = NeighborDir.EAST   # Right side
+	elif local_normal.z > 0.7:
+		local_dir = NeighborDir.SOUTH  # Back wall
+	else:
+		return -1  # Front/risers — don't cull
 
-	# Right side of stairs (local +X)
-	if local_normal.x > 0.7:
-		return neighbors[NeighborDir.EAST] != -1
+	# Rotate that local direction into world space by applying the stair's rotation
+	# Use _rotate_neighbors logic: rotate local_dir by +rotation_degrees
+	var rot = int(round(rotation_degrees)) % 360
+	if rot < 0:
+		rot += 360
 
-	# Back of stairs (local +Z, the tall solid back wall)
-	if local_normal.z > 0.7:
-		return neighbors[NeighborDir.SOUTH] != -1
+	# Rotation table: maps local dir -> world dir for each rotation
+	var rotation_map = {
+		0: { NeighborDir.WEST: NeighborDir.WEST, NeighborDir.EAST: NeighborDir.EAST, NeighborDir.SOUTH: NeighborDir.SOUTH },
+		90: { NeighborDir.WEST: NeighborDir.NORTH, NeighborDir.EAST: NeighborDir.SOUTH, NeighborDir.SOUTH: NeighborDir.WEST },
+		180: { NeighborDir.WEST: NeighborDir.EAST, NeighborDir.EAST: NeighborDir.WEST, NeighborDir.SOUTH: NeighborDir.NORTH },
+		270: { NeighborDir.WEST: NeighborDir.SOUTH, NeighborDir.EAST: NeighborDir.NORTH, NeighborDir.SOUTH: NeighborDir.EAST },
+	}
 
-	# Front / step risers (local -Z) — never cull, always visible
-	return false
+	return rotation_map.get(rot, {}).get(local_dir, local_dir)
 
 
 func _rotate_normal_to_local(world_normal: Vector3, rotation_degrees: float) -> Vector3:
@@ -111,7 +114,10 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary, face_center: Vec
 	var DEBUG_INSIDE_TILES = false  # Turn off verbose debug
 	
 	# Check if this cube has a cube on top
-	var has_cube_above = neighbors[NeighborDir.UP] != -1
+	var TILE_TYPE_STAIRS = 5
+	# Stairs don't cause the block below to bulge — treat them as no block above
+	# so the bulge side faces get culled correctly.
+	var has_cube_above = neighbors[NeighborDir.UP] != -1 and neighbors[NeighborDir.UP] != TILE_TYPE_STAIRS
 	
 	# Use the PRE-CAPTURED is_fully_enclosed status
 	# (No longer checking tiles dictionary here - it's done before threading)
@@ -147,10 +153,7 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary, face_center: Vec
 				return true
 	
 	# Otherwise, use normal culling logic with bulge handling
-	
-	# STAIRS CONSTANT
-	var TILE_TYPE_STAIRS = 5
-	
+
 	# West face (normal pointing in -X direction)
 	if face_normal.x < -0.7:
 		# Check if this face is part of ANY exposed corner
@@ -271,8 +274,12 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary, face_center: Vec
 	# Top face (normal pointing in +Y direction)
 	if face_normal.y > 0.7:
 		if neighbors[NeighborDir.UP] != -1:
-			# Only cull the top face if it's below the bulge area
-			# The bulge extends above standard grid height, so top faces in the bulge stay visible
+			# If a stair is above, cull the bulge top face entirely — the stair base
+			# sits at the bulge height and will z-fight with it otherwise.
+			if neighbors[NeighborDir.UP] == TILE_TYPE_STAIRS:
+				return true
+			# For any other tile above, only cull below the bulge area.
+			# The bulge top stays visible so it connects with the block above.
 			if not _face_is_in_bulge(face_center):
 				return true
 	

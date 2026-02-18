@@ -142,17 +142,7 @@ func _refresh_cursor_mesh() -> void:
 
 
 func _build_stair_mesh() -> ArrayMesh:
-	# Map rotation degrees to the direction int used by ProceduralStairsGenerator
-	var normalized = int(round(current_rotation)) % 360
-	if normalized < 0:
-		normalized += 360
-	var direction = 0
-	match normalized:
-		0:   direction = 0
-		90:  direction = 1
-		180: direction = 2
-		270: direction = 3
-	return ProceduralStairsGenerator.generate_stairs_mesh(current_step_count, grid_size, direction)
+	return ProceduralStairsGenerator.generate_stairs_mesh(current_step_count, grid_size, 180)
 
 
 func update_cursor_outline(grid_pos: Vector3i, offset: Vector2):

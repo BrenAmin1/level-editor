@@ -86,7 +86,7 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 	var rotated_neighbors = _rotate_neighbors(neighbors, rotation_degrees)
 	
 	# Culling setup
-	var has_block_above = rotated_neighbors[NeighborDir.UP] != -1
+	var has_block_above = rotated_neighbors[NeighborDir.UP] != -1 and rotated_neighbors[NeighborDir.UP] != TILE_TYPE_STAIRS
 	var exposed_corners = culling_manager.find_exposed_corners(rotated_neighbors)
 	var disable_all_culling = has_block_above
 	
@@ -162,24 +162,7 @@ func _generate_procedural_stairs_culled(rotation_degrees: float, num_steps: int,
 
 # Generate procedural stairs based on rotation and step count
 func _generate_procedural_stairs(rotation_degrees: float, num_steps: int = 4) -> ArrayMesh:
-	# Convert rotation to direction (0=North, 1=East, 2=South, 3=West)
-	var direction = 0
-	var normalized_rotation = int(round(rotation_degrees)) % 360
-	if normalized_rotation < 0:
-		normalized_rotation += 360
-	
-	match normalized_rotation:
-		0:
-			direction = 0  # North
-		90:
-			direction = 1  # East
-		180:
-			direction = 2  # South
-		270:
-			direction = 3  # West
-	
-	# Generate stairs with custom step count
-	return ProceduralStairsGenerator.generate_stairs_mesh(num_steps, grid_size, direction)
+	return ProceduralStairsGenerator.generate_stairs_mesh(num_steps, grid_size, rotation_degrees)
 
 
 func _rotate_neighbors(neighbors: Dictionary, rotation_degrees: float) -> Dictionary:
@@ -301,6 +284,6 @@ func _process_mesh_surface(base_mesh: ArrayMesh, surface_idx: int, pos: Vector3i
 func generate_tile_mesh(tile_type: int, neighbors: Dictionary) -> ArrayMesh:
 	# CHECK IF STAIRS - Handle procedurally with default rotation (South-facing)
 	if tile_type == TILE_TYPE_STAIRS:
-		return ProceduralStairsGenerator.generate_stairs_mesh(4, grid_size, 2)
+		return ProceduralStairsGenerator.generate_stairs_mesh(4, grid_size, 180)
 	
 	return mesh_builder.generate_simple_tile_mesh(tile_type, neighbors, grid_size)

@@ -67,37 +67,33 @@ func _start_flush_async():
 func flush_batch_updates():
 	if dirty_tiles.is_empty():
 		return
-	
+
 	# If only a few tiles, don't use threading (likely edit mode)
 	if dirty_tiles.size() < 25:
 		_flush_without_threading()
 		return
-		
+
 	# Prevent overlapping flush operations
 	if is_flushing:
 		print("Flush already in progress, skipping...")
 		return
-	
+
 	is_flushing = true
-	
+
 	# Clean up any existing thread first
 	if worker_thread != null:
 		if worker_thread.is_alive():
 			should_stop_thread = true
 			worker_thread.wait_to_finish()
-		# MUST set to null after wait_to_finish() before creating new thread
 		worker_thread = null
-	
+
 	print("\n=== BATCH FLUSH START ===")
 	print("Dirty tiles: ", dirty_tiles.size())
-	
-	# TECHNIQUE 3: Collect all tiles that need updates (dirty + their neighbors)
+
+	# Collect all tiles that need updates (dirty + their neighbors)
 	var tiles_to_update = {}
-	
 	for pos in dirty_tiles.keys():
 		tiles_to_update[pos] = true
-		
-		# Add all neighbors (cardinal + diagonal)
 		for offset in [
 			Vector3i(1, 0, 0), Vector3i(-1, 0, 0),
 			Vector3i(0, 1, 0), Vector3i(0, -1, 0),
@@ -108,14 +104,10 @@ func flush_batch_updates():
 			var neighbor_pos = pos + offset
 			if neighbor_pos in tiles:
 				tiles_to_update[neighbor_pos] = true
-		
-		# CRITICAL: If this tile has a y-component, also update cardinal neighbors
-		# of tiles below it (for "fully enclosed" detection)
 		if pos.y > 0:
 			var below_pos = pos + Vector3i(0, -1, 0)
 			if below_pos in tiles:
 				tiles_to_update[below_pos] = true
-				# Add cardinal neighbors of the tile below
 				for cardinal_offset in [
 					Vector3i(1, 0, 0), Vector3i(-1, 0, 0),
 					Vector3i(0, 0, 1), Vector3i(0, 0, -1)
@@ -123,35 +115,30 @@ func flush_batch_updates():
 					var affected_pos = below_pos + cardinal_offset
 					if affected_pos in tiles:
 						tiles_to_update[affected_pos] = true
-	
-	var positions = tiles_to_update.keys()
-	print("Total tiles to update (including neighbors): ", positions.size())
-	
-	# TECHNIQUE 5: Dynamic batch sizing based on operation size
-	var batch_size = 50
-	if positions.size() > 5000:
-		batch_size = 20
-		print("Large operation detected - using smaller batches (20)")
-	elif positions.size() > 1000:
-		batch_size = 30
-		print("Medium operation detected - using medium batches (30)")
-	
-	# Reset cache statistics
+
+	_flush_positions_size = tiles_to_update.size()
+	print("Total tiles to update (including neighbors): ", _flush_positions_size)
+
+	_flush_batch_size = 50
+	if _flush_positions_size > 5000:
+		_flush_batch_size = 20
+	elif _flush_positions_size > 1000:
+		_flush_batch_size = 30
+
 	cache_hits = 0
 	cache_misses = 0
-	
-	# TECHNIQUE 9: Capture all tile data WITH neighbors before threading
-	# This is critical - neighbors must be captured while all tiles exist in dictionary
+	_flush_applied_count = 0
+	_flush_start_time = Time.get_ticks_msec()
+	_flush_last_progress_print = 0
+
 	should_stop_thread = false
 	if generation_mutex == null:
 		generation_mutex = Mutex.new()
 	mesh_generation_queue = []
 	generated_meshes.clear()
-	
-	# Prepare mesh generation batch with pre-captured data
+
 	mesh_generation_queue = _prepare_mesh_generation_batch(tiles_to_update)
-	
-	# Create fresh thread object (required in Godot 4 - can't reuse after wait_to_finish)
+
 	worker_thread = Thread.new()
 	var thread_error = worker_thread.start(_generate_meshes_threaded)
 	if thread_error != OK:
@@ -159,100 +146,90 @@ func flush_batch_updates():
 		worker_thread = null
 		is_flushing = false
 		return
-	
-	print("Worker thread started")
-	
-	# TECHNIQUE 6: Process generated meshes as they complete
-	var start_time = Time.get_ticks_msec()
-	var applied_count = 0
-	var last_progress_print = 0
-	
-	# Use a try-finally pattern to ensure cleanup
-	var completed_successfully = false
-	
-	while applied_count < positions.size():
-		# Exit immediately if shutdown was requested
-		if should_stop_thread:
+
+	print("Worker thread started, tick() will apply meshes each frame")
+
+
+# Per-frame state for the tick-driven flush
+var _flush_positions_size: int = 0
+var _flush_applied_count: int = 0
+var _flush_batch_size: int = 50
+var _flush_start_time: int = 0
+var _flush_last_progress_print: int = 0
+
+
+func tick():
+	"""Drive the flush one frame at a time. Call every frame from level_editor._process.
+	No coroutines, no awaits — safe to stop instantly via should_stop_thread."""
+	if not is_flushing:
+		return
+
+	# Bail immediately on shutdown — caller sets should_stop_thread then calls tick()
+	# one final time via cleanup(), which forces finalisation without blocking.
+	if should_stop_thread:
+		_finalise_flush(false)
+		return
+
+	generation_mutex.lock()
+	var available_meshes = generated_meshes.keys()
+	var thread_alive = worker_thread != null and worker_thread.is_alive()
+	generation_mutex.unlock()
+
+	# Acknowledge a finished thread
+	if worker_thread != null and not thread_alive:
+		worker_thread.wait_to_finish()
+		worker_thread = null
+		thread_alive = false
+
+	# Apply a batch of completed meshes this frame
+	var processed_this_frame = 0
+	for pos in available_meshes:
+		if processed_this_frame >= _flush_batch_size:
 			break
-		
-		# Check for completed meshes from worker thread
 		generation_mutex.lock()
-		var available_meshes = generated_meshes.keys()
-		var thread_alive = worker_thread != null and worker_thread.is_alive()
+		var mesh = generated_meshes.get(pos)
+		if mesh:
+			generated_meshes.erase(pos)
 		generation_mutex.unlock()
-		
-		# If thread just finished, call wait_to_finish immediately to acknowledge completion
-		if worker_thread != null and not thread_alive and not worker_thread.is_started():
-			# Thread finished but we haven't called wait_to_finish yet
-			pass  # We'll handle this in cleanup
-		elif worker_thread != null and not thread_alive:
-			# Thread is done, acknowledge it now to prevent warning
-			worker_thread.wait_to_finish()
-		
-		# If thread is done AND no meshes available AND we haven't applied everything, something went wrong
-		if not thread_alive and available_meshes.is_empty() and applied_count < positions.size():
-			break
-		
-		# Apply a batch of completed meshes
-		var processed_this_frame = 0
-		for pos in available_meshes:
-			if processed_this_frame >= batch_size:
-				break
-			
-			generation_mutex.lock()
-			var mesh = generated_meshes.get(pos)
-			if mesh:
-				generated_meshes.erase(pos)
-			generation_mutex.unlock()
-			
-			if mesh:
-				_apply_mesh_to_scene(pos, mesh)
-				applied_count += 1
-				processed_this_frame += 1
-		
-		# Yield to keep framerate smooth — but bail immediately on shutdown
-		var tree = tile_map.parent_node.get_tree() if tile_map.parent_node else null
-		if not tree or not is_instance_valid(tree) or should_stop_thread:
-			break
-		await tree.process_frame
-		if should_stop_thread:
-			break
-		
-		# Progress feedback every 500 tiles or at completion
-		if positions.size() > 100 and (applied_count - last_progress_print >= 500 or applied_count == positions.size()):
-			var progress_elapsed = Time.get_ticks_msec() - start_time
-			var rate = float(applied_count) / (progress_elapsed / 1000.0) if progress_elapsed > 0 else 0.0
-			print("  Progress: ", applied_count, "/", positions.size(), " (", int(rate), " tiles/sec)")
-			last_progress_print = applied_count
-	
-	completed_successfully = (applied_count >= positions.size())
-	
-	# ALWAYS cleanup thread, even if interrupted
+		if mesh:
+			_apply_mesh_to_scene(pos, mesh)
+			_flush_applied_count += 1
+			processed_this_frame += 1
+
+	# Progress logging
+	if _flush_positions_size > 100 and (_flush_applied_count - _flush_last_progress_print >= 500 or _flush_applied_count == _flush_positions_size):
+		var elapsed = Time.get_ticks_msec() - _flush_start_time
+		var rate = float(_flush_applied_count) / (elapsed / 1000.0) if elapsed > 0 else 0.0
+		print("  Progress: ", _flush_applied_count, "/", _flush_positions_size, " (", int(rate), " tiles/sec)")
+		_flush_last_progress_print = _flush_applied_count
+
+	# Finalise when thread is done and no meshes remain, or all applied
+	var done = _flush_applied_count >= _flush_positions_size
+	var stalled = not thread_alive and available_meshes.is_empty()
+	if done or stalled:
+		_finalise_flush(done)
+
+
+func _finalise_flush(completed_successfully: bool):
 	_cleanup_worker_thread()
-	
-	# TECHNIQUE 8: Re-enable culling
+
 	if mesh_generator.culling_manager:
 		mesh_generator.culling_manager.batch_mode_skip_culling = false
-	
-	# Print cache statistics
+
 	if completed_successfully:
 		var total_requests = cache_hits + cache_misses
 		var hit_rate = (float(cache_hits) / total_requests * 100.0) if total_requests > 0 else 0.0
 		print("Cache: ", cache_hits, " hits / ", cache_misses, " misses (", "%.1f" % hit_rate, "% hit rate)")
-		
-		var elapsed = Time.get_ticks_msec() - start_time
+		var elapsed = Time.get_ticks_msec() - _flush_start_time
 		print("✓ Flush complete in ", elapsed / 1000.0, " seconds")
 	else:
 		print("⚠ Flush interrupted")
-	
+
 	dirty_tiles.clear()
 	print("=== BATCH FLUSH END ===\n")
-	
-	# Print corner summary for debugging
-	#if mesh_generator and mesh_generator.culling_manager:
-	#	mesh_generator.culling_manager.print_corner_summary()
-	
 	is_flushing = false
+
+
 
 
 func _prepare_mesh_generation_batch(tiles_to_update: Dictionary) -> Array:
@@ -663,15 +640,15 @@ func _immediate_update_tile_mesh(pos: Vector3i):
 	if tile_type == TILE_TYPE_STAIRS and pos in tile_map.tile_step_counts:
 		step_count = tile_map.tile_step_counts[pos]
 	
-	# Use custom mesh if available, otherwise generate default
+	# Use custom mesh if available, otherwise generate default.
+	# Stairs (TILE_TYPE_STAIRS) are procedural and must also go through the
+	# rotation-aware path even though they have no entry in custom_meshes.
 	var mesh: ArrayMesh
-	if tile_type in custom_meshes:
-		var neighbors = get_neighbors(pos)
+	var neighbors = get_neighbors(pos)
+	if tile_type in custom_meshes or tile_type == TILE_TYPE_STAIRS:
 		var is_fully_enclosed = _check_if_fully_enclosed(pos, neighbors)
-		# Pass step count to mesh generator
 		mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation, is_fully_enclosed, step_count)
 	else:
-		var neighbors = get_neighbors(pos)
 		mesh = mesh_generator.generate_tile_mesh(tile_type, neighbors)
 	
 	# Position at corner of grid cell
@@ -788,21 +765,40 @@ func regenerate_tile_with_rotation(pos: Vector3i, rotation_degrees: float):
 
 
 func _apply_rotation_center_offset(mesh_instance: MeshInstance3D):
-	"""Offset the position so rotation happens around tile center"""
+	"""Offset the position so rotation happens around tile center.
+	
+	Always call this AFTER setting both position (reset to world_pos) and
+	rotation_degrees on the instance. Uses the node's basis so the result
+	is stable at any angle, not just multiples of 90 degrees.
+	"""
 	var center_offset = Vector3(grid_size * 0.5, 0, grid_size * 0.5)
-	
-	# Move position to center
+	# Shift node origin to tile center in world space
 	mesh_instance.position += center_offset
-	
-	# Translate mesh vertices back so they stay in place
-	mesh_instance.translate_object_local(-center_offset)
+	# Undo that shift in local (rotated) space via the node's basis,
+	# keeping the mesh vertices at the same world position.
+	mesh_instance.position -= mesh_instance.basis * center_offset
 
 func _flush_without_threading():
 	"""Fast path for small updates (edit mode)"""
+	# Expand dirty set to include neighbors, matching the threaded flush path.
+	# This ensures adjacent tiles re-cull their faces correctly (e.g. after rotation).
+	var to_update: Dictionary = {}
 	for pos in dirty_tiles.keys():
+		to_update[pos] = true
+		for offset in [
+			Vector3i(1, 0, 0), Vector3i(-1, 0, 0),
+			Vector3i(0, 0, 1), Vector3i(0, 0, -1),
+			Vector3i(1, 0, 1), Vector3i(1, 0, -1),
+			Vector3i(-1, 0, 1), Vector3i(-1, 0, -1)
+		]:
+			var neighbor_pos = pos + offset
+			if neighbor_pos in tiles:
+				to_update[neighbor_pos] = true
+
+	for pos in to_update.keys():
 		if pos in tiles:
 			_immediate_update_tile_mesh(pos)
-	
+
 	dirty_tiles.clear()
 	
 	# Print corner summary for debugging
@@ -845,12 +841,22 @@ func print_corner_debug():
 # ============================================================================
 
 func cleanup() -> void:
-	# Signal everything to stop as early as possible
+	# Signal stop immediately — tick() checks this flag and calls _finalise_flush()
+	# which stops the worker thread without blocking the main thread on await.
 	should_stop_thread = true
-	# Drain the queue so the worker thread's while-loop exits on its next iteration
-	# rather than grinding through potentially thousands of remaining tiles
+
+	# Drain the queue under the mutex to avoid a race with the worker thread.
+	if generation_mutex == null:
+		generation_mutex = Mutex.new()
+	generation_mutex.lock()
 	mesh_generation_queue.clear()
+	generation_mutex.unlock()
+
+	# Wait for worker thread — queue is empty so it exits almost immediately.
 	if worker_thread and worker_thread.is_started():
 		worker_thread.wait_to_finish()
 	worker_thread = null
-	is_flushing = false
+
+	# Force-finalise the flush if one was in progress. No await, no blocking.
+	if is_flushing:
+		_finalise_flush(false)

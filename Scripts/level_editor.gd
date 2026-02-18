@@ -47,6 +47,9 @@ const DIRT = preload("uid://bxl8k6n4i56yn")
 # ============================================================================
 
 func _ready():
+	# Disable auto-quit so we can cleanly stop threads before the process exits.
+	get_tree().set_auto_accept_quit(false)
+
 	# Ensure save directory exists
 	LevelSaveLoad.ensure_save_directory()
 	
@@ -152,6 +155,7 @@ func _on_material_selected(material_index: int):
 # In the _process function, add a check for is_popup_open
 func _process(_delta):
 	selection_manager.process_queue()
+	tilemap.tick()
 	
 	# FIXED: Don't update cursor when popup is open
 	if camera and cursor_visualizer and not is_popup_open:
@@ -160,9 +164,10 @@ func _process(_delta):
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_PREDELETE or what == NOTIFICATION_WM_CLOSE_REQUEST:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
 		if tilemap:
 			tilemap.cleanup()
+		get_tree().quit()
 
 # ============================================================================
 # INPUT HANDLING
