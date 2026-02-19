@@ -309,6 +309,27 @@ func _check_if_fully_enclosed(pos: Vector3i, neighbors: Dictionary) -> bool:
 	return north_has_above and south_has_above and east_has_above and west_has_above
 
 
+func _check_if_only_top_exposed(neighbors: Dictionary) -> bool:
+	var NeighborDir = MeshGenerator.NeighborDir
+	# No tile above
+	if neighbors[NeighborDir.UP] != -1:
+		return false
+	# All 4 cardinal sides must be filled
+	if neighbors[NeighborDir.NORTH] == -1 or \
+	   neighbors[NeighborDir.SOUTH] == -1 or \
+	   neighbors[NeighborDir.EAST] == -1 or \
+	   neighbors[NeighborDir.WEST] == -1:
+		return false
+	# All 4 diagonal corners must also be filled — if any diagonal is missing
+	# this is an inner corner tile and the bulge mesh should be kept
+	if neighbors[NeighborDir.DIAGONAL_NW] == -1 or \
+	   neighbors[NeighborDir.DIAGONAL_NE] == -1 or \
+	   neighbors[NeighborDir.DIAGONAL_SW] == -1 or \
+	   neighbors[NeighborDir.DIAGONAL_SE] == -1:
+		return false
+	return true
+
+
 # Helper function to ensure thread is always cleaned up properly
 func _cleanup_worker_thread():
 	should_stop_thread = true
@@ -654,7 +675,8 @@ func _immediate_update_tile_mesh(pos: Vector3i):
 	var neighbors = get_neighbors(pos)
 	if tile_type in custom_meshes or tile_type == TILE_TYPE_STAIRS:
 		var is_fully_enclosed = _check_if_fully_enclosed(pos, neighbors)
-		mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation, is_fully_enclosed, step_count)
+		var is_only_top_exposed = _check_if_only_top_exposed(neighbors)
+		mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation, is_fully_enclosed, step_count, is_only_top_exposed)
 	else:
 		mesh = mesh_generator.generate_tile_mesh(tile_type, neighbors)
 	

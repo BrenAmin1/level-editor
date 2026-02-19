@@ -68,14 +68,19 @@ func setup(tilemap: TileMap3D, meshes_ref: Dictionary, tiles_ref: Dictionary, gr
 	mesh_builder.setup(tile_map)
 
 
-func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Dictionary, rotation_degrees: float = 0.0, is_fully_enclosed: bool = false, step_count: int = 4) -> ArrayMesh:
+func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Dictionary, rotation_degrees: float = 0.0, is_fully_enclosed: bool = false, step_count: int = 4, is_only_top_exposed: bool = false) -> ArrayMesh:
 	# CHECK IF STAIRS - Generate geometry procedurally, then cull side/back faces
 	if tile_type == TILE_TYPE_STAIRS:
 		return _generate_procedural_stairs_culled(rotation_degrees, step_count, neighbors)
 	
 	if tile_type not in custom_meshes:
 		return ArrayMesh.new()
-	
+
+	# If only the top face is exposed (all 4 sides have neighbors, nothing above),
+	# return a flat plane instead of the bulge mesh — no bevel, no seams.
+	if is_only_top_exposed:
+		return _generate_flat_top_plane(tile_type)
+
 	var base_mesh = custom_meshes[tile_type]
 	
 	
@@ -99,6 +104,47 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 
 
 # Generate procedural stairs based on rotation and step count, with neighbor culling
+func _generate_flat_top_plane(tile_type: int) -> ArrayMesh:
+	# Get the top Y of the custom mesh so the plane sits at the right height
+	var base_mesh = custom_meshes[tile_type]
+	var top_y = 0.0
+	for surface_idx in range(base_mesh.get_surface_count()):
+		var vertx = base_mesh.surface_get_arrays(surface_idx)[Mesh.ARRAY_VERTEX]
+		for v in vertx:
+			top_y = max(top_y, v.y)
+
+	var s = grid_size
+	var y_offset = 0.001
+	var verts = PackedVector3Array([
+		Vector3(0, top_y + y_offset, 0),
+		Vector3(s, top_y + y_offset, 0),
+		Vector3(s, top_y + y_offset, s),
+		Vector3(0, top_y + y_offset, s)
+	])
+	var normals = PackedVector3Array([
+		Vector3.UP, Vector3.UP, Vector3.UP, Vector3.UP
+	])
+	var uvs = PackedVector2Array([
+		Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)
+	])
+	var indices = PackedInt32Array([0, 1, 2, 0, 2, 3])
+
+	var surface_array = []
+	surface_array.resize(Mesh.ARRAY_MAX)
+	surface_array[Mesh.ARRAY_VERTEX] = verts
+	surface_array[Mesh.ARRAY_NORMAL] = normals
+	surface_array[Mesh.ARRAY_TEX_UV] = uvs
+	surface_array[Mesh.ARRAY_INDEX] = indices
+
+	var mesh = ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
+	# Use the same top surface material as the base mesh
+	var material = base_mesh.surface_get_material(SurfaceType.TOP)
+	if material:
+		mesh.surface_set_material(0, material)
+	return mesh
+
+
 func _generate_procedural_stairs_culled(rotation_degrees: float, num_steps: int, neighbors: Dictionary) -> ArrayMesh:
 	# Get the raw stair mesh (all faces present)
 	var raw_mesh = _generate_procedural_stairs(rotation_degrees, num_steps)

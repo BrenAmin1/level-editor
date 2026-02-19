@@ -720,7 +720,7 @@ func _save_chunk_data(data: Dictionary) -> void:
 	"""Main-thread only: writes all chunk meshes and the metadata file to disk."""
 	var export_dir: String = data["export_dir"]
 	var is_gltf: bool = data["is_gltf"]
-	var file_ext: String = data["file_ext"]
+	var _file_ext: String = data["file_ext"]
 
 	DirAccess.make_dir_recursive_absolute("user://exports/")
 	DirAccess.make_dir_recursive_absolute(export_dir)
