@@ -18,9 +18,6 @@ var tile_step_counts: Dictionary = {}
 # ============================================================================
 # COMPONENTS
 # ============================================================================
-var top_plane_mesh_instance: MeshInstance3D = null  # Single merged mesh for all exposed tops
-
-
 var mesh_loader: MeshLoader
 var mesh_generator: MeshGenerator
 var mesh_editor: MeshEditor
@@ -30,37 +27,64 @@ var mesh_optimizer: MeshOptimizer
 var material_palette_ref = null  # Reference to material palette for applying materials
 
 # ============================================================================
+# TOP PLANE — per-tile MeshInstance3D nodes
+# ============================================================================
+# One MeshInstance3D per tile that has a visible top quad, stored in
+# _top_plane_nodes. All nodes that share a material reference the same
+# QuadMesh resource (stored in _top_plane_quad_meshes keyed by material RID
+# string) so Godot's renderer can batch them into a single draw call per
+# material group — equivalent to the old merged ArrayMesh but with O(1)
+# placement cost instead of O(n).
+#
+# Layout note: QuadMesh with FACE_Y orientation is a flat horizontal plane.
+# We set its size per-node via set_surface_override_material so each node can
+# carry its own material while sharing the mesh resource for batching.
+# The size is baked into the node's scale instead (see _flush_top_plane_dirty).
+var _top_plane_nodes: Dictionary = {}        # Vector3i -> MeshInstance3D
+var _top_plane_quad_mesh: QuadMesh = null    # Single shared QuadMesh (unit size, scaled per node)
+var _top_plane_container: Node3D = null      # Parent node — keeps scene tree tidy
+
+var _top_plane_dirty: bool = false
+var _top_plane_dirty_positions: Dictionary = {}  # Vector3i -> true
+
+# Quad geometry constants — must match the original merged mesh values exactly
+const _TOP_Y_OFFSET: float = 0.99948
+const _TOP_FACE_INSET: float = 0.070246
+
+# ============================================================================
 # INITIALIZATION
 # ============================================================================
 
 func _init(grid_sz: float = 1.0):
 	grid_size = grid_sz
-	
-	# Initialize all components
+
 	mesh_editor = MeshEditor.new()
 	mesh_generator = MeshGenerator.new()
 	mesh_loader = MeshLoader.new()
 	tile_manager = TileManager.new()
 	mesh_optimizer = MeshOptimizer.new()
 	material_manager = MaterialManager.new()
-	
+
+	# One shared unit-size QuadMesh; individual nodes are scaled to their quad size
+	_top_plane_quad_mesh = QuadMesh.new()
+	_top_plane_quad_mesh.orientation = PlaneMesh.FACE_Y
+	_top_plane_quad_mesh.size = Vector2(1.0, 1.0)
+
 	print("TileMap3D: Components initialized")
 
-# Setup components after parent_node is set
+
 func _setup_components():
 	if not parent_node:
 		push_error("Cannot setup components: parent_node is null")
 		return
-	
-	# Setup in dependency order
+
 	mesh_editor.setup(self, custom_meshes, tiles)
 	mesh_generator.setup(self, custom_meshes, tiles, grid_size)
 	mesh_loader.setup(custom_meshes, custom_materials, grid_size, mesh_editor)
 	tile_manager.setup(self, tiles, tile_meshes, custom_meshes, grid_size, parent_node, mesh_generator)
 	mesh_optimizer.setup(self, tiles, custom_meshes, mesh_generator, custom_materials)
-
 	material_manager.setup(self, custom_meshes, custom_materials, tiles)
-	
+
 	print("TileMap3D: Components setup complete")
 
 # ============================================================================
@@ -70,44 +94,71 @@ func _setup_components():
 func set_parent(node: Node3D):
 	parent_node = node
 	_setup_components()
-	# Create the top plane mesh instance
-	top_plane_mesh_instance = MeshInstance3D.new()
-	top_plane_mesh_instance.name = "TopPlaneMesh"
-	parent_node.add_child(top_plane_mesh_instance)
+	_top_plane_container = Node3D.new()
+	_top_plane_container.name = "TopPlaneQuads"
+	parent_node.add_child(_top_plane_container)
 
 
-func rebuild_top_plane_mesh():
-	if not top_plane_mesh_instance:
+func _request_top_plane_rebuild():
+	if not _top_plane_dirty:
+		_top_plane_dirty = true
+		call_deferred("_deferred_rebuild_top_plane")
+
+
+func _deferred_rebuild_top_plane():
+	_top_plane_dirty = false
+	if _top_plane_dirty_positions.is_empty():
+		return
+	_flush_top_plane_dirty()
+
+
+# Mark a placed/removed position and its 4 cardinal neighbors dirty.
+# Cardinals matter because each neighbor's inset edges depend on whether the
+# adjacent tile exists.
+func _mark_top_plane_dirty_around(pos: Vector3i):
+	_top_plane_dirty_positions[pos] = true
+	for offset in [Vector3i(1,0,0), Vector3i(-1,0,0), Vector3i(0,0,1), Vector3i(0,0,-1)]:
+		_top_plane_dirty_positions[pos + offset] = true
+
+
+# Process only the dirty positions — O(dirty) not O(all tiles).
+func _flush_top_plane_dirty():
+	if not _top_plane_container:
 		return
 
-	if tiles.is_empty():
-		top_plane_mesh_instance.mesh = null
-		return
+	var ND = MeshGenerator.NeighborDir
+	var inset = _TOP_FACE_INSET
 
-	var top_y_offset: float = 0.99948
-	var top_face_inset: float = 0.070246
-	var inset = top_face_inset
-
-	# Group quads by their effective top Material object
-	# Key: Material reference, Value: {verts, normals, uvs, indices, idx, material}
-	var quads_by_material: Dictionary = {}
-
-	for pos in tiles.keys():
-		var neighbors = tile_manager.get_neighbors(pos)
-		if neighbors[MeshGenerator.NeighborDir.UP] != -1:
+	for pos in _top_plane_dirty_positions.keys():
+		# Tile removed — destroy its quad node
+		if pos not in tiles:
+			_remove_top_plane_node(pos)
 			continue
 
-		var ND = MeshGenerator.NeighborDir
+		var neighbors = tile_manager.get_neighbors(pos)
+
+		# Stairs are 3-D geometry — never get a flat top quad
+		if tiles[pos] == 5:  # TILE_TYPE_STAIRS
+			_remove_top_plane_node(pos)
+			continue
+
+		# Covered from above — no top quad
+		if neighbors[ND.UP] != -1:
+			_remove_top_plane_node(pos)
+			continue
+
 		var has_north = neighbors[ND.NORTH] != -1
 		var has_south = neighbors[ND.SOUTH] != -1
 		var has_east  = neighbors[ND.EAST]  != -1
 		var has_west  = neighbors[ND.WEST]  != -1
 
+		# Exposed corner tile — skip (matches original logic)
 		if (not has_north and not has_west) or (not has_north and not has_east) or \
 		   (not has_south and not has_west) or (not has_south and not has_east):
+			_remove_top_plane_node(pos)
 			continue
 
-		# Resolve the top material: per-tile palette override takes priority
+		# Resolve material: per-tile palette override takes priority
 		var top_mat: Material = null
 		var palette_index = tile_materials.get(pos, -1)
 		if palette_index >= 0 and material_palette_ref:
@@ -115,69 +166,62 @@ func rebuild_top_plane_mesh():
 		if top_mat == null:
 			top_mat = get_custom_material(tiles[pos], 0)
 
-		# Use the material's RID as grouping key (null materials get grouped together)
-		var group_key = top_mat.get_rid() if top_mat else "null"
-		if group_key not in quads_by_material:
-			quads_by_material[group_key] = {
-				"verts": PackedVector3Array(),
-				"normals": PackedVector3Array(),
-				"uvs": PackedVector2Array(),
-				"indices": PackedInt32Array(),
-				"idx": 0,
-				"material": top_mat
-			}
-		var b = quads_by_material[group_key]
-
+		# Compute quad bounds
 		var world_pos = tile_manager.grid_to_world(pos)
 		var s = grid_size
-		var y = world_pos.y + top_y_offset
-		var xL = world_pos.x
-		var xR = world_pos.x + s
-		var zN = world_pos.z
-		var zS = world_pos.z + s
+		var x0 = world_pos.x + (0.0 if has_west  else inset)
+		var x1 = world_pos.x + s - (0.0 if has_east  else inset)
+		var z0 = world_pos.z + (0.0 if has_north else inset)
+		var z1 = world_pos.z + s - (0.0 if has_south else inset)
 
-		var x0 = xL + (0.0 if has_west  else inset)
-		var x1 = xR - (0.0 if has_east  else inset)
-		var z0 = zN + (0.0 if has_north else inset)
-		var z1 = zS - (0.0 if has_south else inset)
+		var quad_w = x0 + (x1 - x0) * 0.5   # center x
+		var quad_z = z0 + (z1 - z0) * 0.5   # center z
+		var quad_y = world_pos.y + _TOP_Y_OFFSET
 
-		var base = b["idx"]
-		b["verts"].append(Vector3(x0, y, z0))
-		b["verts"].append(Vector3(x1, y, z0))
-		b["verts"].append(Vector3(x1, y, z1))
-		b["verts"].append(Vector3(x0, y, z1))
-		b["normals"].append(Vector3.UP)
-		b["normals"].append(Vector3.UP)
-		b["normals"].append(Vector3.UP)
-		b["normals"].append(Vector3.UP)
-		b["uvs"].append(Vector2((x0 - xL) / s, (z0 - zN) / s))
-		b["uvs"].append(Vector2((x1 - xL) / s, (z0 - zN) / s))
-		b["uvs"].append(Vector2((x1 - xL) / s, (z1 - zN) / s))
-		b["uvs"].append(Vector2((x0 - xL) / s, (z1 - zN) / s))
-		b["indices"].append(base);     b["indices"].append(base + 1); b["indices"].append(base + 2)
-		b["indices"].append(base);     b["indices"].append(base + 2); b["indices"].append(base + 3)
-		b["idx"] += 4
+		# Get or create the MeshInstance3D for this tile
+		var mi: MeshInstance3D
+		if pos in _top_plane_nodes:
+			mi = _top_plane_nodes[pos]
+		else:
+			mi = MeshInstance3D.new()
+			mi.mesh = _top_plane_quad_mesh
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			_top_plane_container.add_child(mi)
+			_top_plane_nodes[pos] = mi
 
-	if quads_by_material.is_empty():
-		top_plane_mesh_instance.mesh = null
+		# Scale encodes the quad's width (X) and depth (Z); Y scale is irrelevant
+		mi.scale = Vector3(x1 - x0, 1.0, z1 - z0)
+		mi.position = Vector3(quad_w, quad_y, quad_z)
+		mi.set_surface_override_material(0, top_mat)
+
+	_top_plane_dirty_positions.clear()
+
+
+func _remove_top_plane_node(pos: Vector3i):
+	if pos in _top_plane_nodes:
+		_top_plane_nodes[pos].queue_free()
+		_top_plane_nodes.erase(pos)
+
+
+# Full rebuild from scratch — used after a batch load where the entire level
+# changes at once.
+func rebuild_top_plane_mesh():
+	if not _top_plane_container:
 		return
 
-	var new_mesh = ArrayMesh.new()
-	var surface_idx = 0
-	for group_key in quads_by_material:
-		var b = quads_by_material[group_key]
-		var surface_array = []
-		surface_array.resize(Mesh.ARRAY_MAX)
-		surface_array[Mesh.ARRAY_VERTEX] = b["verts"]
-		surface_array[Mesh.ARRAY_NORMAL] = b["normals"]
-		surface_array[Mesh.ARRAY_TEX_UV] = b["uvs"]
-		surface_array[Mesh.ARRAY_INDEX]  = b["indices"]
-		new_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
-		if b["material"]:
-			new_mesh.surface_set_material(surface_idx, b["material"])
-		surface_idx += 1
+	# Destroy all existing quad nodes
+	for pos in _top_plane_nodes.keys():
+		_top_plane_nodes[pos].queue_free()
+	_top_plane_nodes.clear()
+	_top_plane_dirty_positions.clear()
 
-	top_plane_mesh_instance.mesh = new_mesh
+	if tiles.is_empty():
+		return
+
+	# Mark every tile dirty and flush in one pass
+	for pos in tiles.keys():
+		_top_plane_dirty_positions[pos] = true
+	_flush_top_plane_dirty()
 
 
 func set_offset_provider(provider: Callable):
@@ -252,7 +296,7 @@ func get_custom_material(tile_type: int, surface_index: int) -> Material:
 	return material_manager.get_custom_material(tile_type, surface_index)
 
 
-func create_custom_material(albedo_color: Color, metallic: float = 0.0, 
+func create_custom_material(albedo_color: Color, metallic: float = 0.0,
 							roughness: float = 1.0, emission: Color = Color.BLACK) -> StandardMaterial3D:
 	return material_manager.create_custom_material(albedo_color, metallic, roughness, emission)
 
@@ -270,30 +314,47 @@ func grid_to_world(pos: Vector3i) -> Vector3:
 
 func place_tile(pos: Vector3i, tile_type: int):
 	tile_manager.place_tile(pos, tile_type)
+	if not tile_manager.batch_mode:
+		_mark_top_plane_dirty_around(pos)
+		# The tile directly below now has a tile above it — its top quad must be removed
+		var below = pos + Vector3i(0, -1, 0)
+		if below in tiles:
+			_mark_top_plane_dirty_around(below)
+		_request_top_plane_rebuild()
 
 
 func place_tile_with_material(pos: Vector3i, tile_type: int, material_index: int, palette_ref):
 	"""Place a tile and apply a material to it"""
 	tile_manager.place_tile(pos, tile_type)
 	apply_material_to_tile(pos, material_index, palette_ref)
+	# apply_material_to_tile already triggers _request_top_plane_rebuild
 
 
 func apply_material_to_tile(pos: Vector3i, material_index: int, palette_ref):
 	"""Apply a material to an existing tile"""
 	if pos not in tiles:
 		return
-	
-	# Store material index
+
 	tile_materials[pos] = material_index
-	
-	# Get material from palette
+
 	var material = palette_ref.get_material_at_index(material_index)
-	
-	# Apply to mesh instance if it exists
+
+	# Update the main tile mesh — override ALL surfaces so cached meshes with a
+	# different tile's baked side/bottom material don't bleed through.
 	if pos in tile_meshes and material:
-		tile_meshes[pos].set_surface_override_material(0, material)
-	
-	rebuild_top_plane_mesh()
+		var mi = tile_meshes[pos]
+		if mi.mesh:
+			for surf_idx in range(mi.mesh.get_surface_count()):
+				mi.set_surface_override_material(surf_idx, material)
+
+	# Update the top-plane node directly — no deferred rebuild needed at all,
+	# just swap the material override on the existing node
+	if pos in _top_plane_nodes:
+		_top_plane_nodes[pos].set_surface_override_material(0, material)
+	elif not tile_manager.batch_mode:
+		# Node doesn't exist yet — mark dirty so it gets created on next flush
+		_top_plane_dirty_positions[pos] = true
+		_request_top_plane_rebuild()
 
 
 func get_tile_material_index(pos: Vector3i) -> int:
@@ -303,10 +364,14 @@ func get_tile_material_index(pos: Vector3i) -> int:
 
 func remove_tile(pos: Vector3i):
 	tile_manager.remove_tile(pos)
-	# Clean up material data
 	if pos in tile_materials:
 		tile_materials.erase(pos)
-	rebuild_top_plane_mesh()
+	_mark_top_plane_dirty_around(pos)
+	# The tile directly below now has no tile above it — mark it so it gets a top quad
+	var below = pos + Vector3i(0, -1, 0)
+	if below in tiles:
+		_mark_top_plane_dirty_around(below)
+	_request_top_plane_rebuild()
 
 
 func has_tile(pos: Vector3i) -> bool:
@@ -380,22 +445,20 @@ func tick() -> void:
 func cleanup() -> void:
 	tile_manager.cleanup()
 
-
 # ============================================================================
-# Rotation methods (delegates to TileManager)
+# ROTATION (Delegate to TileManager)
 # ============================================================================
 
 func get_tile_rotation(pos: Vector3i) -> float:
 	"""Get the rotation of a tile in degrees (0-360)"""
 	return tile_rotations.get(pos, 0.0)
 
+
 func set_tile_rotation(pos: Vector3i, rotation_degrees: float):
 	if pos not in tiles:
 		return
-	
 	tile_rotations[pos] = rotation_degrees
 	tile_manager.update_tile_mesh(pos)
-
 
 # ============================================================================
 # BATCH MODE OPERATIONS
@@ -408,6 +471,10 @@ func set_batch_mode(enabled: bool):
 
 func flush_batch_updates():
 	"""Manually flush all pending tile updates (only needed if batch mode is still enabled)"""
+	# Only set the default top-plane callback if the caller (e.g. level_manager)
+	# hasn't already registered a richer one that handles materials + rotations too.
+	if not tile_manager.flush_completed_callback.is_valid():
+		tile_manager.flush_completed_callback = func(): rebuild_top_plane_mesh()
 	tile_manager.flush_batch_updates()
 
 # ============================================================================

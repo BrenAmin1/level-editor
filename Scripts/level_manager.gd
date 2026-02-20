@@ -108,14 +108,41 @@ static func load_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 	# Re-evaluate corner tiles after all tiles are loaded
 	var corners_fixed = _reevaluate_corner_tiles(tilemap)
 
-	# If there are saved rotations, register a one-shot callback so they get
-	# applied AFTER the async flush fully completes, not before.
-	if not tilemap.tile_rotations.is_empty():
-		tilemap.tile_manager.flush_completed_callback = func():
+	# Register a one-shot callback that fires after the async flush fully
+	# completes. It handles two things:
+	#
+	# 1. Rotations — mesh_generator uses tile_rotations at generation time, so
+	#    rotated tiles must be regenerated after the flush (not during it).
+	#
+	# 2. Palette materials — _apply_mesh_to_scene applies materials during the
+	#    flush, but the rotation regeneration above creates fresh meshes without
+	#    re-applying palette overrides. A final pass guarantees every painted
+	#    tile shows the correct material on all surfaces.
+	tilemap.tile_manager.flush_completed_callback = func():
+		# Step 1: re-generate meshes for rotated tiles
+		if not tilemap.tile_rotations.is_empty():
 			print("  Applying rotations to ", tilemap.tile_rotations.size(), " tiles...")
 			for pos in tilemap.tile_rotations:
 				tilemap.tile_manager.update_tile_mesh(pos)
 			print("  ✓ Rotations applied")
+
+		# Step 2: re-apply palette material overrides to ALL surfaces on every
+		# painted tile. This fixes cases where a cached or freshly-regenerated
+		# mesh has a different tile's baked material on its side/bottom surfaces.
+		if not tilemap.tile_materials.is_empty() and tilemap.material_palette_ref:
+			print("  Re-applying materials to ", tilemap.tile_materials.size(), " tiles...")
+			for pos in tilemap.tile_materials:
+				var material_index: int = tilemap.tile_materials[pos]
+				var material = tilemap.material_palette_ref.get_material_at_index(material_index)
+				if material and pos in tilemap.tile_meshes:
+					var mi = tilemap.tile_meshes[pos]
+					if mi.mesh:
+						for surf_idx in range(mi.mesh.get_surface_count()):
+							mi.set_surface_override_material(surf_idx, material)
+			print("  ✓ Materials re-applied")
+
+		# Step 3: rebuild top plane now that all meshes and materials are final
+		tilemap.rebuild_top_plane_mesh()
 
 	# CRITICAL: Ensure culling is ENABLED for the flush
 	# Disable caching for this flush to ensure accurate corner evaluation

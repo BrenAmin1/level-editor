@@ -230,14 +230,15 @@ func _finalise_flush(completed_successfully: bool):
 	print("=== BATCH FLUSH END ===\n")
 	is_flushing = false
 
-	# Rebuild the top plane mesh after all tiles are updated
-	tile_map.rebuild_top_plane_mesh()
-
-	# Fire the one-shot callback if set (used e.g. to re-apply rotations after load)
+	# Fire the one-shot callback if set. The callback is responsible for rebuilding
+	# the top plane AFTER materials/rotations are applied (level_manager sets this).
+	# If no callback was registered, fall back to a plain top plane rebuild.
 	if flush_completed_callback.is_valid():
 		var cb = flush_completed_callback
 		flush_completed_callback = Callable()  # Clear before calling to avoid re-entrancy
 		cb.call()
+	else:
+		tile_map.rebuild_top_plane_mesh()
 
 
 
@@ -409,7 +410,7 @@ func _create_cache_key(tile_type: int, neighbors: Dictionary, rotation: float, i
 		n.get(MeshGenerator.NeighborDir.DIAGONAL_SW, -1),
 		n.get(MeshGenerator.NeighborDir.DIAGONAL_SE, -1),
 		rounded_rotation,
-		enclosed_flag  # Add this to the cache key
+		enclosed_flag
 	]
 
 
@@ -458,13 +459,19 @@ func _apply_mesh_to_scene(pos: Vector3i, mesh: ArrayMesh):
 		parent_node.add_child(mesh_instance)
 		tile_meshes[pos] = mesh_instance
 	
-	# Apply stored material if exists
+	# Apply stored material if exists.
+	# Override ALL surfaces so that cached meshes (which may have a different
+	# tile's baked material on surfaces 1/2) show the correct palette material
+	# on every face — not just the top.
 	if pos in tile_map.tile_materials:
 		var material_index = tile_map.tile_materials[pos]
 		if tile_map.material_palette_ref and tile_map.material_palette_ref.has_method("get_material_at_index"):
 			var material = tile_map.material_palette_ref.get_material_at_index(material_index)
 			if material and pos in tile_meshes:
-				tile_meshes[pos].set_surface_override_material(0, material)
+				var mi = tile_meshes[pos]
+				if mi.mesh:
+					for surf_idx in range(mi.mesh.get_surface_count()):
+						mi.set_surface_override_material(surf_idx, material)
 
 
 func mark_dirty(pos: Vector3i):
@@ -516,86 +523,60 @@ func place_tile(pos: Vector3i, tile_type: int):
 	if batch_mode:
 		dirty_tiles[pos] = true
 		# Neighbors will be marked in flush_batch_updates()
-	else:
-		# Normal mode: update immediately with smart neighbor updating
-		update_tile_mesh(pos)
-		
-		# Update cardinal neighbors (always)
-		for offset in [
-			Vector3i(1,0,0), Vector3i(-1,0,0),
-			Vector3i(0,1,0), Vector3i(0,-1,0),
-			Vector3i(0,0,1), Vector3i(0,0,-1)
-		]:
-			var neighbor_pos = pos + offset
-			if neighbor_pos in tiles:
-				update_tile_mesh(neighbor_pos)
-		
-		# Diagonal neighbors: Only update if they're next to 2+ of this tile's cardinal neighbors
-		for diag_offset in [
-			Vector3i(1, 0, 1), Vector3i(1, 0, -1),
-			Vector3i(-1, 0, 1), Vector3i(-1, 0, -1)
-		]:
-			var diag_pos = pos + diag_offset
-			if diag_pos in tiles:
-				# Check if this diagonal has 2+ cardinal connections to 'pos' through other tiles
-				var shared_cardinals = 0
-				
-				# For diagonal (1,0,1), check (1,0,0) and (0,0,1)
-				# For diagonal (1,0,-1), check (1,0,0) and (0,0,-1)
-				# For diagonal (-1,0,1), check (-1,0,0) and (0,0,1)
-				# For diagonal (-1,0,-1), check (-1,0,0) and (0,0,-1)
-				var cardinal_a = Vector3i(diag_offset.x, 0, 0)  # X neighbor
-				var cardinal_b = Vector3i(0, 0, diag_offset.z)  # Z neighbor
-				
-				if (pos + cardinal_a) in tiles:
-					shared_cardinals += 1
-				if (pos + cardinal_b) in tiles:
-					shared_cardinals += 1
-				
-				# Only update diagonal if it has 2 shared cardinals (forms a corner)
-				if shared_cardinals >= 2:
-					update_tile_mesh(diag_pos)
-		
-		# SPECIAL: If placing on top of another tile, check if any of the lower tile's
-		# CARDINAL neighbors need re-evaluation (for bulge culling)
-		var tiles_to_update = []  # DECLARE HERE AT PROPER SCOPE
-		if pos.y > 0:
-			var below_pos = pos + Vector3i(0, -1, 0)
-			if below_pos in tiles:
-				# Collect all affected tiles first
-				tiles_to_update.append(below_pos)
-				
-				# Add cardinal neighbors of the tile below
-				for cardinal_offset in [
-					Vector3i(1, 0, 0),   # East of below
-					Vector3i(-1, 0, 0),  # West of below
-					Vector3i(0, 0, 1),   # South of below
-					Vector3i(0, 0, -1)   # North of below
-				]:
-					var affected_pos = below_pos + cardinal_offset
-					if affected_pos in tiles:
-						if affected_pos not in tiles_to_update:
-							tiles_to_update.append(affected_pos)
-		
-		# TWO-PASS UPDATE: Update all collected tiles
-		# This ensures all neighbor data is fresh before checking "fully enclosed" status
-		for update_pos in tiles_to_update:
-			update_tile_mesh(update_pos)
-		
-		# SECOND PASS: Re-update tiles that might have had their "fully enclosed" status change
-		# This is needed because the first pass updated meshes, but some tiles' enclosed status
-		# depends on their neighbors having fresh data
-		if pos.y > 0:
-			var below_pos = pos + Vector3i(0, -1, 0)
-			if below_pos in tiles:
-				# Re-update cardinal neighbors of the tile below
-				for cardinal_offset in [
-					Vector3i(1, 0, 0), Vector3i(-1, 0, 0),
-					Vector3i(0, 0, 1), Vector3i(0, 0, -1)
-				]:
-					var affected_pos = below_pos + cardinal_offset
-					if affected_pos in tiles:
-						update_tile_mesh(affected_pos)
+		return
+
+	# Normal mode: update immediately with smart neighbor updating.
+	# Pre-fetch neighbors for all positions we'll touch so get_neighbors()
+	# is called at most once per unique position rather than once per update call.
+	var neighbor_cache: Dictionary = {}
+
+	var _get_neighbors_cached = func(p: Vector3i) -> Dictionary:
+		if p not in neighbor_cache:
+			neighbor_cache[p] = get_neighbors(p)
+		return neighbor_cache[p]
+
+	_update_tile_mesh_with_neighbors(pos, _get_neighbors_cached.call(pos))
+
+	# Update cardinal neighbors (always)
+	for offset in [
+		Vector3i(1,0,0), Vector3i(-1,0,0),
+		Vector3i(0,1,0), Vector3i(0,-1,0),
+		Vector3i(0,0,1), Vector3i(0,0,-1)
+	]:
+		var neighbor_pos = pos + offset
+		if neighbor_pos in tiles:
+			_update_tile_mesh_with_neighbors(neighbor_pos, _get_neighbors_cached.call(neighbor_pos))
+
+	# Diagonal neighbors: only update if they form a corner with 2+ shared cardinals
+	for diag_offset in [
+		Vector3i(1, 0, 1), Vector3i(1, 0, -1),
+		Vector3i(-1, 0, 1), Vector3i(-1, 0, -1)
+	]:
+		var diag_pos = pos + diag_offset
+		if diag_pos in tiles:
+			var cardinal_a = Vector3i(diag_offset.x, 0, 0)
+			var cardinal_b = Vector3i(0, 0, diag_offset.z)
+			var shared_cardinals = 0
+			if (pos + cardinal_a) in tiles:
+				shared_cardinals += 1
+			if (pos + cardinal_b) in tiles:
+				shared_cardinals += 1
+			if shared_cardinals >= 2:
+				_update_tile_mesh_with_neighbors(diag_pos, _get_neighbors_cached.call(diag_pos))
+
+	# SPECIAL: If placing on top of another tile, update the tile below and its
+	# cardinal neighbors (affects bulge culling / fully-enclosed detection).
+	if pos.y > 0:
+		var below_pos = pos + Vector3i(0, -1, 0)
+		if below_pos in tiles:
+			_update_tile_mesh_with_neighbors(below_pos, _get_neighbors_cached.call(below_pos))
+			for cardinal_offset in [
+				Vector3i(1, 0, 0), Vector3i(-1, 0, 0),
+				Vector3i(0, 0, 1), Vector3i(0, 0, -1)
+			]:
+				var affected_pos = below_pos + cardinal_offset
+				if affected_pos in tiles:
+					_update_tile_mesh_with_neighbors(affected_pos, _get_neighbors_cached.call(affected_pos))
 
 
 func remove_tile(pos: Vector3i):
@@ -650,10 +631,30 @@ func update_tile_mesh(pos: Vector3i):
 		mark_dirty(pos)
 	else:
 		_immediate_update_tile_mesh(pos)
-		tile_map.rebuild_top_plane_mesh()
+		# Top plane dirty-marking is handled by the caller (tilemap3d.gd place_tile /
+		# remove_tile / set_tile_rotation) so we don't double-trigger it here.
+
+
+# Variant called from place_tile when we already have fresh neighbor data,
+# avoiding a redundant get_neighbors() call.
+func _update_tile_mesh_with_neighbors(pos: Vector3i, neighbors: Dictionary):
+	if batch_mode:
+		mark_dirty(pos)
+	else:
+		_immediate_update_tile_mesh_with_neighbors(pos, neighbors)
+		# Top plane dirty-marking handled by caller — see update_tile_mesh note above.
 
 
 func _immediate_update_tile_mesh(pos: Vector3i):
+	if not parent_node:
+		return
+	if pos not in tiles:
+		return
+	var neighbors = get_neighbors(pos)
+	_immediate_update_tile_mesh_with_neighbors(pos, neighbors)
+
+
+func _immediate_update_tile_mesh_with_neighbors(pos: Vector3i, neighbors: Dictionary):
 	if not parent_node:
 		return
 	
@@ -674,10 +675,7 @@ func _immediate_update_tile_mesh(pos: Vector3i):
 		step_count = tile_map.tile_step_counts[pos]
 	
 	# Use custom mesh if available, otherwise generate default.
-	# Stairs (TILE_TYPE_STAIRS) are procedural and must also go through the
-	# rotation-aware path even though they have no entry in custom_meshes.
 	var mesh: ArrayMesh
-	var neighbors = get_neighbors(pos)
 	if tile_type in custom_meshes or tile_type == TILE_TYPE_STAIRS:
 		var is_fully_enclosed = _check_if_fully_enclosed(pos, neighbors)
 		var n = neighbors[MeshGenerator.NeighborDir.NORTH] != -1
@@ -694,16 +692,12 @@ func _immediate_update_tile_mesh(pos: Vector3i):
 	# Position at corner of grid cell
 	var world_pos = grid_to_world(pos)
 	
-	# Stairs bake rotation into vertices, so the node must NOT be rotated too.
-	# All other tile types keep geometry unrotated and rely on node rotation.
-	# (TILE_TYPE_STAIRS already declared above)
 	var node_rotation = 0.0 if tile_type == TILE_TYPE_STAIRS else rotation
 	
 	if pos in tile_meshes:
 		tile_meshes[pos].mesh = mesh
 		tile_meshes[pos].position = world_pos
 		tile_meshes[pos].rotation_degrees.y = node_rotation
-		# Apply center offset when rotating
 		if node_rotation != 0.0:
 			_apply_rotation_center_offset(tile_meshes[pos])
 	else:
@@ -713,7 +707,6 @@ func _immediate_update_tile_mesh(pos: Vector3i):
 		mesh_instance.rotation_degrees.y = node_rotation
 		mesh_instance.process_priority = 1
 		
-		# Apply center offset when rotating
 		if node_rotation != 0.0:
 			_apply_rotation_center_offset(mesh_instance)
 		
@@ -730,13 +723,18 @@ func _immediate_update_tile_mesh(pos: Vector3i):
 		tile_meshes[pos] = mesh_instance
 		parent_node.add_child(mesh_instance)
 	
-	# Apply stored material if exists (in _immediate_update_tile_mesh)
+	# Apply stored material if exists — override ALL surfaces (not just surface 0)
+	# so cached meshes with a different tile's baked material on sides/bottom
+	# don't bleed through.
 	if pos in tile_map.tile_materials:
 		var material_index = tile_map.tile_materials[pos]
 		if tile_map.material_palette_ref and tile_map.material_palette_ref.has_method("get_material_at_index"):
 			var material = tile_map.material_palette_ref.get_material_at_index(material_index)
 			if material and pos in tile_meshes:
-				tile_meshes[pos].set_surface_override_material(0, material)
+				var mi = tile_meshes[pos]
+				if mi.mesh:
+					for surf_idx in range(mi.mesh.get_surface_count()):
+						mi.set_surface_override_material(surf_idx, material)
 
 # ============================================================================
 # Regenerate tile with rotation
@@ -780,7 +778,6 @@ func regenerate_tile_with_rotation(pos: Vector3i, rotation_degrees: float):
 		tile_meshes[pos].mesh = mesh
 		tile_meshes[pos].position = world_pos
 		tile_meshes[pos].rotation_degrees.y = node_rotation
-		# Apply center offset when rotating
 		if node_rotation != 0.0:
 			_apply_rotation_center_offset(tile_meshes[pos])
 		else:
@@ -793,7 +790,6 @@ func regenerate_tile_with_rotation(pos: Vector3i, rotation_degrees: float):
 		mesh_instance.rotation_degrees.y = node_rotation
 		mesh_instance.process_priority = 1
 		
-		# Apply center offset when rotating
 		if node_rotation != 0.0:
 			_apply_rotation_center_offset(mesh_instance)
 		
@@ -827,7 +823,6 @@ func _apply_rotation_center_offset(mesh_instance: MeshInstance3D):
 func _flush_without_threading():
 	"""Fast path for small updates (edit mode)"""
 	# Expand dirty set to include neighbors, matching the threaded flush path.
-	# This ensures adjacent tiles re-cull their faces correctly (e.g. after rotation).
 	var to_update: Dictionary = {}
 	for pos in dirty_tiles.keys():
 		to_update[pos] = true
@@ -849,10 +844,6 @@ func _flush_without_threading():
 
 	# Rebuild the top plane mesh after all tiles are updated
 	tile_map.rebuild_top_plane_mesh()
-	
-	# Print corner summary for debugging
-	#if mesh_generator and mesh_generator.culling_manager:
-	#	mesh_generator.culling_manager.print_corner_summary()
 
 # ============================================================================
 # NEIGHBOR QUERIES
