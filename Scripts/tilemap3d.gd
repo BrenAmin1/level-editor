@@ -18,6 +18,9 @@ var tile_step_counts: Dictionary = {}
 # ============================================================================
 # COMPONENTS
 # ============================================================================
+var top_plane_mesh_instance: MeshInstance3D = null  # Single merged mesh for all exposed tops
+
+
 var mesh_loader: MeshLoader
 var mesh_generator: MeshGenerator
 var mesh_editor: MeshEditor
@@ -67,6 +70,114 @@ func _setup_components():
 func set_parent(node: Node3D):
 	parent_node = node
 	_setup_components()
+	# Create the top plane mesh instance
+	top_plane_mesh_instance = MeshInstance3D.new()
+	top_plane_mesh_instance.name = "TopPlaneMesh"
+	parent_node.add_child(top_plane_mesh_instance)
+
+
+func rebuild_top_plane_mesh():
+	if not top_plane_mesh_instance:
+		return
+
+	if tiles.is_empty():
+		top_plane_mesh_instance.mesh = null
+		return
+
+	var top_y_offset: float = 0.99948
+	var top_face_inset: float = 0.070246
+	var inset = top_face_inset
+
+	# Group quads by their effective top Material object
+	# Key: Material reference, Value: {verts, normals, uvs, indices, idx, material}
+	var quads_by_material: Dictionary = {}
+
+	for pos in tiles.keys():
+		var neighbors = tile_manager.get_neighbors(pos)
+		if neighbors[MeshGenerator.NeighborDir.UP] != -1:
+			continue
+
+		var ND = MeshGenerator.NeighborDir
+		var has_north = neighbors[ND.NORTH] != -1
+		var has_south = neighbors[ND.SOUTH] != -1
+		var has_east  = neighbors[ND.EAST]  != -1
+		var has_west  = neighbors[ND.WEST]  != -1
+
+		if (not has_north and not has_west) or (not has_north and not has_east) or \
+		   (not has_south and not has_west) or (not has_south and not has_east):
+			continue
+
+		# Resolve the top material: per-tile palette override takes priority
+		var top_mat: Material = null
+		var palette_index = tile_materials.get(pos, -1)
+		if palette_index >= 0 and material_palette_ref:
+			top_mat = material_palette_ref.get_material_for_surface(palette_index, 0)
+		if top_mat == null:
+			top_mat = get_custom_material(tiles[pos], 0)
+
+		# Use the material's RID as grouping key (null materials get grouped together)
+		var group_key = top_mat.get_rid() if top_mat else "null"
+		if group_key not in quads_by_material:
+			quads_by_material[group_key] = {
+				"verts": PackedVector3Array(),
+				"normals": PackedVector3Array(),
+				"uvs": PackedVector2Array(),
+				"indices": PackedInt32Array(),
+				"idx": 0,
+				"material": top_mat
+			}
+		var b = quads_by_material[group_key]
+
+		var world_pos = tile_manager.grid_to_world(pos)
+		var s = grid_size
+		var y = world_pos.y + top_y_offset
+		var xL = world_pos.x
+		var xR = world_pos.x + s
+		var zN = world_pos.z
+		var zS = world_pos.z + s
+
+		var x0 = xL + (0.0 if has_west  else inset)
+		var x1 = xR - (0.0 if has_east  else inset)
+		var z0 = zN + (0.0 if has_north else inset)
+		var z1 = zS - (0.0 if has_south else inset)
+
+		var base = b["idx"]
+		b["verts"].append(Vector3(x0, y, z0))
+		b["verts"].append(Vector3(x1, y, z0))
+		b["verts"].append(Vector3(x1, y, z1))
+		b["verts"].append(Vector3(x0, y, z1))
+		b["normals"].append(Vector3.UP)
+		b["normals"].append(Vector3.UP)
+		b["normals"].append(Vector3.UP)
+		b["normals"].append(Vector3.UP)
+		b["uvs"].append(Vector2((x0 - xL) / s, (z0 - zN) / s))
+		b["uvs"].append(Vector2((x1 - xL) / s, (z0 - zN) / s))
+		b["uvs"].append(Vector2((x1 - xL) / s, (z1 - zN) / s))
+		b["uvs"].append(Vector2((x0 - xL) / s, (z1 - zN) / s))
+		b["indices"].append(base);     b["indices"].append(base + 1); b["indices"].append(base + 2)
+		b["indices"].append(base);     b["indices"].append(base + 2); b["indices"].append(base + 3)
+		b["idx"] += 4
+
+	if quads_by_material.is_empty():
+		top_plane_mesh_instance.mesh = null
+		return
+
+	var new_mesh = ArrayMesh.new()
+	var surface_idx = 0
+	for group_key in quads_by_material:
+		var b = quads_by_material[group_key]
+		var surface_array = []
+		surface_array.resize(Mesh.ARRAY_MAX)
+		surface_array[Mesh.ARRAY_VERTEX] = b["verts"]
+		surface_array[Mesh.ARRAY_NORMAL] = b["normals"]
+		surface_array[Mesh.ARRAY_TEX_UV] = b["uvs"]
+		surface_array[Mesh.ARRAY_INDEX]  = b["indices"]
+		new_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
+		if b["material"]:
+			new_mesh.surface_set_material(surface_idx, b["material"])
+		surface_idx += 1
+
+	top_plane_mesh_instance.mesh = new_mesh
 
 
 func set_offset_provider(provider: Callable):
@@ -181,6 +292,8 @@ func apply_material_to_tile(pos: Vector3i, material_index: int, palette_ref):
 	# Apply to mesh instance if it exists
 	if pos in tile_meshes and material:
 		tile_meshes[pos].set_surface_override_material(0, material)
+	
+	rebuild_top_plane_mesh()
 
 
 func get_tile_material_index(pos: Vector3i) -> int:
@@ -193,6 +306,7 @@ func remove_tile(pos: Vector3i):
 	# Clean up material data
 	if pos in tile_materials:
 		tile_materials.erase(pos)
+	rebuild_top_plane_mesh()
 
 
 func has_tile(pos: Vector3i) -> bool:

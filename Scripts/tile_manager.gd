@@ -230,6 +230,9 @@ func _finalise_flush(completed_successfully: bool):
 	print("=== BATCH FLUSH END ===\n")
 	is_flushing = false
 
+	# Rebuild the top plane mesh after all tiles are updated
+	tile_map.rebuild_top_plane_mesh()
+
 	# Fire the one-shot callback if set (used e.g. to re-apply rotations after load)
 	if flush_completed_callback.is_valid():
 		var cb = flush_completed_callback
@@ -497,6 +500,7 @@ func grid_to_world(pos: Vector3i) -> Vector3:
 # ============================================================================
 
 func place_tile(pos: Vector3i, tile_type: int):
+	print("place_tile called at ", pos)
 	tiles[pos] = tile_type
 	
 	# Store step count for stairs, and set default facing direction
@@ -646,6 +650,7 @@ func update_tile_mesh(pos: Vector3i):
 		mark_dirty(pos)
 	else:
 		_immediate_update_tile_mesh(pos)
+		tile_map.rebuild_top_plane_mesh()
 
 
 func _immediate_update_tile_mesh(pos: Vector3i):
@@ -675,8 +680,14 @@ func _immediate_update_tile_mesh(pos: Vector3i):
 	var neighbors = get_neighbors(pos)
 	if tile_type in custom_meshes or tile_type == TILE_TYPE_STAIRS:
 		var is_fully_enclosed = _check_if_fully_enclosed(pos, neighbors)
-		var is_only_top_exposed = _check_if_only_top_exposed(neighbors)
-		mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation, is_fully_enclosed, step_count, is_only_top_exposed)
+		var n = neighbors[MeshGenerator.NeighborDir.NORTH] != -1
+		var s2 = neighbors[MeshGenerator.NeighborDir.SOUTH] != -1
+		var e = neighbors[MeshGenerator.NeighborDir.EAST] != -1
+		var w = neighbors[MeshGenerator.NeighborDir.WEST] != -1
+		var no_exposed_corner = not (not n and not w) and not (not n and not e) and \
+								not (not s2 and not w) and not (not s2 and not e)
+		var cull_top = neighbors[MeshGenerator.NeighborDir.UP] == -1 and tile_type != TILE_TYPE_STAIRS and no_exposed_corner
+		mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation, is_fully_enclosed, step_count, cull_top)
 	else:
 		mesh = mesh_generator.generate_tile_mesh(tile_type, neighbors)
 	
@@ -746,8 +757,14 @@ func regenerate_tile_with_rotation(pos: Vector3i, rotation_degrees: float):
 	
 	var mesh: ArrayMesh
 	if tile_type in custom_meshes:
-		# PASS ROTATION AND is_fully_enclosed to mesh generator
-		mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation_degrees, is_fully_enclosed)
+		var n2 = neighbors[MeshGenerator.NeighborDir.NORTH] != -1
+		var s3 = neighbors[MeshGenerator.NeighborDir.SOUTH] != -1
+		var e2 = neighbors[MeshGenerator.NeighborDir.EAST] != -1
+		var w2 = neighbors[MeshGenerator.NeighborDir.WEST] != -1
+		var no_exposed_corner2 = not (not n2 and not w2) and not (not n2 and not e2) and \
+								 not (not s3 and not w2) and not (not s3 and not e2)
+		var cull_top = neighbors[MeshGenerator.NeighborDir.UP] == -1 and tile_type != MeshGenerator.TILE_TYPE_STAIRS and no_exposed_corner2
+		mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation_degrees, is_fully_enclosed, 4, cull_top)
 	else:
 		mesh = mesh_generator.generate_tile_mesh(tile_type, neighbors)
 	
@@ -829,6 +846,9 @@ func _flush_without_threading():
 			_immediate_update_tile_mesh(pos)
 
 	dirty_tiles.clear()
+
+	# Rebuild the top plane mesh after all tiles are updated
+	tile_map.rebuild_top_plane_mesh()
 	
 	# Print corner summary for debugging
 	#if mesh_generator and mesh_generator.culling_manager:

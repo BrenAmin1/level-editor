@@ -7,7 +7,6 @@
 [ext_resource type="Script" uid="uid://vy5kk1hqmj06" path="res://Scripts/right_side_menu.gd" id="5_wchaa"]
 [ext_resource type="PackedScene" uid="uid://ul0bm45ob3bd" path="res://Scenes/material_palette.tscn" id="6_fhsmn"]
 [ext_resource type="Script" uid="uid://c75ehuws5po5n" path="res://Scripts/export_filedialog.gd" id="6_i8l5y"]
-[ext_resource type="Script" uid="uid://btlh4wrv04rc3" path="res://addons/collapsible_container/collapsible_elements/collapsible_container.gd" id="7_5ogug"]
 [ext_resource type="Script" uid="uid://b2t4yav0slfc5" path="res://Scripts/save_filedialog.gd" id="7_fhsmn"]
 [ext_resource type="Script" uid="uid://dtm42xqkessre" path="res://Scripts/load_filedialog.gd" id="8_5ogug"]
 
@@ -109,45 +108,10 @@ anchor_top = 0.892
 offset_top = 38.98401
 focus_mode = 1
 
-[node name="BlockMenu" type="Control" parent="UI" unique_id=509298409]
-layout_mode = 1
-anchors_preset = 6
-anchor_left = 1.0
-anchor_top = 0.5
-anchor_right = 1.0
-anchor_bottom = 0.5
-offset_left = -322.0
-offset_top = -79.0
-offset_bottom = 165.0
-grow_horizontal = 0
-grow_vertical = 2
-
-[node name="CollapsibleContainer" type="Control" parent="UI/BlockMenu" unique_id=1937718532]
-process_mode = 3
-editor_description = "
-			A custom/plugin Control node capable of hiding and revealing its children by folding and unfolding.
-			
-Give feedback at: https://github.com/ArshvirGoraya/Godot-Collapsible-Container"
-clip_contents = true
-custom_minimum_size = Vector2(322, 244)
-anchors_preset = 0
-offset_right = 322.0
-offset_bottom = 244.0
-script = ExtResource("7_5ogug")
-sizing_node = NodePath("..")
-
-[node name="FlowContainer" type="FlowContainer" parent="UI/BlockMenu/CollapsibleContainer" unique_id=483318666]
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-
 [node name="Controls" type="Label" parent="UI" unique_id=1335712705]
 layout_mode = 0
 offset_right = 225.0
-offset_bottom = 361.0
+offset_bottom = 319.0
 text = "WASD -> MOVE
 LMB -> PLACE
 RMB -> REMOVE

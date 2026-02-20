@@ -68,7 +68,7 @@ func setup(tilemap: TileMap3D, meshes_ref: Dictionary, tiles_ref: Dictionary, gr
 	mesh_builder.setup(tile_map)
 
 
-func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Dictionary, rotation_degrees: float = 0.0, is_fully_enclosed: bool = false, step_count: int = 4, is_only_top_exposed: bool = false) -> ArrayMesh:
+func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Dictionary, rotation_degrees: float = 0.0, is_fully_enclosed: bool = false, step_count: int = 4, cull_top: bool = false) -> ArrayMesh:
 	# CHECK IF STAIRS - Generate geometry procedurally, then cull side/back faces
 	if tile_type == TILE_TYPE_STAIRS:
 		return _generate_procedural_stairs_culled(rotation_degrees, step_count, neighbors)
@@ -76,13 +76,7 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 	if tile_type not in custom_meshes:
 		return ArrayMesh.new()
 
-	# If only the top face is exposed (all 4 sides have neighbors, nothing above),
-	# return a flat plane instead of the bulge mesh — no bevel, no seams.
-	if is_only_top_exposed:
-		return _generate_flat_top_plane(tile_type)
-
 	var base_mesh = custom_meshes[tile_type]
-	
 	
 	# Initialize surface data
 	var triangles_by_surface = _initialize_surface_arrays()
@@ -98,7 +92,7 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 	# Process each surface with rotated neighbors but NO geometry rotation
 	for surface_idx in range(base_mesh.get_surface_count()):
 		_process_mesh_surface(base_mesh, surface_idx, pos, rotated_neighbors,
-							  triangles_by_surface, exposed_corners, disable_all_culling, is_fully_enclosed)
+							  triangles_by_surface, exposed_corners, disable_all_culling, is_fully_enclosed, cull_top)
 	
 	return mesh_builder.build_final_mesh(triangles_by_surface, tile_type, base_mesh)
 
@@ -282,7 +276,7 @@ func _initialize_surface_arrays() -> Dictionary:
 
 func _process_mesh_surface(base_mesh: ArrayMesh, surface_idx: int, pos: Vector3i, 
 							neighbors: Dictionary, triangles_by_surface: Dictionary,
-							exposed_corners: Array, disable_all_culling: bool, is_fully_enclosed: bool = false):
+							exposed_corners: Array, disable_all_culling: bool, is_fully_enclosed: bool = false, cull_top: bool = false):
 	var arrays = base_mesh.surface_get_arrays(surface_idx)
 	var vertices = arrays[Mesh.ARRAY_VERTEX]
 	var normals = arrays[Mesh.ARRAY_NORMAL]
@@ -313,6 +307,11 @@ func _process_mesh_surface(base_mesh: ArrayMesh, surface_idx: int, pos: Vector3i
 		
 		var face_normal = (n0 + n1 + n2).normalized()
 		var face_center = (v0 + v1 + v2) / 3.0
+		
+		# Skip top-facing triangles when cull_top is set — the top plane mesh
+		# will cover these tiles instead
+		if cull_top and face_normal.y > 0.7:
+			continue
 		
 		# Check culling - pass pre-captured is_fully_enclosed
 		if culling_manager.should_cull_triangle(pos, neighbors, face_center, face_normal, 
