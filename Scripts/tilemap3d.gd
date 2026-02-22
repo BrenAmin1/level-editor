@@ -106,10 +106,16 @@ func _request_top_plane_rebuild():
 
 
 func _deferred_rebuild_top_plane():
+	# Reset the flag BEFORE flushing so that any new dirty marks added during
+	# the flush (or between frames) correctly re-queue another deferred call.
+	# Without this, the flag stays true after flush, blocking future rebuilds.
 	_top_plane_dirty = false
 	if _top_plane_dirty_positions.is_empty():
 		return
 	_flush_top_plane_dirty()
+	# If new positions were dirtied during the flush, queue another pass.
+	if not _top_plane_dirty_positions.is_empty():
+		_request_top_plane_rebuild()
 
 
 # Mark a placed/removed position and its 4 cardinal neighbors dirty.
@@ -152,17 +158,19 @@ func _flush_top_plane_dirty():
 		var has_east  = neighbors[ND.EAST]  != -1
 		var has_west  = neighbors[ND.WEST]  != -1
 
-		# Exposed corner tile — skip (matches original logic)
-		if (not has_north and not has_west) or (not has_north and not has_east) or \
-		   (not has_south and not has_west) or (not has_south and not has_east):
-			_remove_top_plane_node(pos)
-			continue
+		# NOTE: The old "exposed corner skip" has been removed. With per-tile
+		# MeshInstance3D quad nodes there are no UV-seam issues at corners, and
+		# skipping corner tiles caused missing top materials on legitimately
+		# exposed corner tiles (e.g. a tile with only north+east neighbors).
 
 		# Resolve material: per-tile palette override takes priority
 		var top_mat: Material = null
-		var palette_index = tile_materials.get(pos, -1)
+		var palette_index = int(tile_materials.get(pos, -1))
 		if palette_index >= 0 and material_palette_ref:
 			top_mat = material_palette_ref.get_material_for_surface(palette_index, 0)
+		print("[TOPPLANE_DBG] pos=", pos, " palette_index=", palette_index,
+			" has_palette_ref=", material_palette_ref != null,
+			" palette_mat=", top_mat, " -> will_fallback=", top_mat == null)
 		if top_mat == null:
 			top_mat = get_custom_material(tiles[pos], 0)
 
@@ -193,12 +201,16 @@ func _flush_top_plane_dirty():
 		mi.scale = Vector3(x1 - x0, 1.0, z1 - z0)
 		mi.position = Vector3(quad_w, quad_y, quad_z)
 		mi.set_surface_override_material(0, top_mat)
+		print("[TOPPLANE_DBG] SET quad override pos=", pos,
+			" mat=", top_mat,
+			" confirmed=", mi.get_surface_override_material(0))
 
 	_top_plane_dirty_positions.clear()
 
 
 func _remove_top_plane_node(pos: Vector3i):
 	if pos in _top_plane_nodes:
+		print("[TOPPLANE_DBG] REMOVING quad for pos=", pos)
 		_top_plane_nodes[pos].queue_free()
 		_top_plane_nodes.erase(pos)
 
@@ -209,6 +221,7 @@ func rebuild_top_plane_mesh():
 	if not _top_plane_container:
 		return
 
+	print("[TOPPLANE_DBG] rebuild_top_plane_mesh called — destroying ", _top_plane_nodes.size(), " nodes")
 	# Destroy all existing quad nodes
 	for pos in _top_plane_nodes.keys():
 		_top_plane_nodes[pos].queue_free()
@@ -300,6 +313,36 @@ func create_custom_material(albedo_color: Color, metallic: float = 0.0,
 							roughness: float = 1.0, emission: Color = Color.BLACK) -> StandardMaterial3D:
 	return material_manager.create_custom_material(albedo_color, metallic, roughness, emission)
 
+
+# ============================================================================
+# PALETTE MATERIAL HELPER
+# ============================================================================
+
+# Applies a palette material override to the TOP surface only.
+# Each surface is tagged at build time with its MeshGenerator.SurfaceRole enum
+# value (stored as a string of the int, e.g. "0" for TOP). We compare against
+# SurfaceRole.TOP rather than a magic string so a typo can't silently break it.
+# If no TOP-role surface exists (culled because a tile is above), we do nothing —
+# the top-plane quad handles the visual top and mesh surfaces must stay untouched.
+static func apply_palette_material_to_mesh(mi: MeshInstance3D, top_mat: Material) -> void:
+	var mesh_res = mi.mesh
+	if not mesh_res:
+		print("[APPLY_DBG] early exit: no mesh")
+		return
+	var surf_count = mesh_res.get_surface_count()
+	if surf_count == 0:
+		print("[APPLY_DBG] early exit: surf_count=0")
+		return
+	var top_role = str(MeshGenerator.SurfaceRole.TOP)
+	for surf_idx in range(surf_count):
+		var name = mesh_res.surface_get_name(surf_idx)
+		print("[APPLY_DBG] surf ", surf_idx, " name='", name, "' top_role='", top_role, "' match=", name == top_role)
+		if name == top_role:
+			mi.set_surface_override_material(surf_idx, top_mat)
+			print("[APPLY_DBG] SET override on surf ", surf_idx, " mat=", top_mat)
+			return
+	print("[APPLY_DBG] NO TOP surface found — nothing set")
+
 # ============================================================================
 # TILE MANAGEMENT (Delegate to TileManager)
 # ============================================================================
@@ -315,12 +358,33 @@ func grid_to_world(pos: Vector3i) -> Vector3:
 func place_tile(pos: Vector3i, tile_type: int):
 	tile_manager.place_tile(pos, tile_type)
 	if not tile_manager.batch_mode:
+		# If this position had a material entry before it was removed, re-apply it
+		# now so the tile does not lose its palette assignment after erase-repaint.
+		if pos in tile_materials and material_palette_ref:
+			var mat_idx = int(tile_materials[pos])
+			var top_mat = material_palette_ref.get_material_for_surface(mat_idx, 0)
+			if pos in tile_meshes:
+				apply_palette_material_to_mesh(tile_meshes[pos], top_mat)
+
 		_mark_top_plane_dirty_around(pos)
-		# The tile directly below now has a tile above it — its top quad must be removed
+
 		var below = pos + Vector3i(0, -1, 0)
 		if below in tiles:
 			_mark_top_plane_dirty_around(below)
-		_request_top_plane_rebuild()
+
+		for diag in [Vector3i(1,0,1), Vector3i(1,0,-1), Vector3i(-1,0,1), Vector3i(-1,0,-1)]:
+			var diag_pos = pos + diag
+			if diag_pos in tiles:
+				_top_plane_dirty_positions[diag_pos] = true
+
+		if below in tiles:
+			for cardinal in [Vector3i(1,0,0), Vector3i(-1,0,0), Vector3i(0,0,1), Vector3i(0,0,-1)]:
+				var below_neighbor = below + cardinal
+				if below_neighbor in tiles:
+					_top_plane_dirty_positions[below_neighbor] = true
+
+		print("[PLACE_DBG] dirty positions before flush: ", _top_plane_dirty_positions.keys())
+		_flush_top_plane_dirty()
 
 
 func place_tile_with_material(pos: Vector3i, tile_type: int, material_index: int, palette_ref):
@@ -337,24 +401,22 @@ func apply_material_to_tile(pos: Vector3i, material_index: int, palette_ref):
 
 	tile_materials[pos] = material_index
 
-	var material = palette_ref.get_material_at_index(material_index)
+	var top_mat = palette_ref.get_material_for_surface(material_index, 0)
 
-	# Update the main tile mesh — override ALL surfaces so cached meshes with a
-	# different tile's baked side/bottom material don't bleed through.
-	if pos in tile_meshes and material:
-		var mi = tile_meshes[pos]
-		if mi.mesh:
-			for surf_idx in range(mi.mesh.get_surface_count()):
-				mi.set_surface_override_material(surf_idx, material)
+	# Apply palette material to the TOP surface only, identified by name.
+	# See apply_palette_material_to_mesh() for why we use names not indices.
+	if pos in tile_meshes:
+		apply_palette_material_to_mesh(tile_meshes[pos], top_mat)
 
-	# Update the top-plane node directly — no deferred rebuild needed at all,
-	# just swap the material override on the existing node
+	# Update the top-plane node directly — it's always a single-surface QuadMesh
+	# so surface 0 is always correct here.
 	if pos in _top_plane_nodes:
-		_top_plane_nodes[pos].set_surface_override_material(0, material)
+		print("[TOPPLANE_DBG] apply_material_to_tile: SET node override pos=", pos, " mat=", top_mat)
+		_top_plane_nodes[pos].set_surface_override_material(0, top_mat)
 	elif not tile_manager.batch_mode:
-		# Node doesn't exist yet — mark dirty so it gets created on next flush
+		print("[TOPPLANE_DBG] apply_material_to_tile: node missing, flushing now pos=", pos)
 		_top_plane_dirty_positions[pos] = true
-		_request_top_plane_rebuild()
+		_flush_top_plane_dirty()
 
 
 func get_tile_material_index(pos: Vector3i) -> int:
@@ -363,15 +425,38 @@ func get_tile_material_index(pos: Vector3i) -> int:
 
 
 func remove_tile(pos: Vector3i):
+	# Guard: if the tile is already gone there is nothing to do.  Without this
+	# check the dirty-marking and flush below run on every repeated call even
+	# though tile_manager.remove_tile() already returned early, causing the
+	# identical-flush loop visible in the debug log.
+	if pos not in tiles:
+		return
+	print("[REMOVE_DBG] removing pos=", pos)
 	tile_manager.remove_tile(pos)
-	if pos in tile_materials:
-		tile_materials.erase(pos)
+	# Stash the material index so that a subsequent place_tile at the same
+	# position (e.g. the editor's erase-then-repaint pattern) can restore it.
+	# We keep the entry in tile_materials rather than erasing it; the tile is
+	# gone from `tiles` so the stashed value is inert until the tile is re-placed.
+	# Do NOT erase tile_materials[pos] here.
 	_mark_top_plane_dirty_around(pos)
-	# The tile directly below now has no tile above it — mark it so it gets a top quad
 	var below = pos + Vector3i(0, -1, 0)
 	if below in tiles:
 		_mark_top_plane_dirty_around(below)
-	_request_top_plane_rebuild()
+
+	for diag in [Vector3i(1,0,1), Vector3i(1,0,-1), Vector3i(-1,0,1), Vector3i(-1,0,-1)]:
+		var diag_pos = pos + diag
+		if diag_pos in tiles:
+			_top_plane_dirty_positions[diag_pos] = true
+
+	if below in tiles:
+		for cardinal in [Vector3i(1,0,0), Vector3i(-1,0,0), Vector3i(0,0,1), Vector3i(0,0,-1)]:
+			var below_neighbor = below + cardinal
+			if below_neighbor in tiles:
+				_top_plane_dirty_positions[below_neighbor] = true
+
+	print("[REMOVE_DBG] dirty positions before flush: ", _top_plane_dirty_positions.keys())
+	_flush_top_plane_dirty()
+	print("[REMOVE_DBG] flush done")
 
 
 func has_tile(pos: Vector3i) -> bool:

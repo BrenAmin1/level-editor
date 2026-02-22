@@ -101,7 +101,7 @@ static func generate_stairs_mesh(
 	
 	var mesh = ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	
+	mesh.surface_set_name(0, str(MeshGenerator.SurfaceRole.TOP))
 	return mesh
 
 

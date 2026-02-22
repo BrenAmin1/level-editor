@@ -109,7 +109,7 @@ static func load_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 	var corners_fixed = _reevaluate_corner_tiles(tilemap)
 
 	# Register a one-shot callback that fires after the async flush fully
-	# completes. It handles two things:
+	# completes. It handles three things:
 	#
 	# 1. Rotations — mesh_generator uses tile_rotations at generation time, so
 	#    rotated tiles must be regenerated after the flush (not during it).
@@ -118,6 +118,8 @@ static func load_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 	#    flush, but the rotation regeneration above creates fresh meshes without
 	#    re-applying palette overrides. A final pass guarantees every painted
 	#    tile shows the correct material on all surfaces.
+	#
+	# 3. Top plane — rebuilt last, after meshes and materials are both final.
 	tilemap.tile_manager.flush_completed_callback = func():
 		# Step 1: re-generate meshes for rotated tiles
 		if not tilemap.tile_rotations.is_empty():
@@ -126,35 +128,37 @@ static func load_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 				tilemap.tile_manager.update_tile_mesh(pos)
 			print("  ✓ Rotations applied")
 
-		# Step 2: re-apply palette material overrides to ALL surfaces on every
-		# painted tile. This fixes cases where a cached or freshly-regenerated
-		# mesh has a different tile's baked material on its side/bottom surfaces.
+		# Step 2: re-apply palette material to the TOP surface of every painted tile.
+		# Uses TileMap3D.apply_palette_material_to_mesh() which finds the TOP surface
+		# by name — safe even when the top is culled and surface 0 is actually SIDES.
 		if not tilemap.tile_materials.is_empty() and tilemap.material_palette_ref:
 			print("  Re-applying materials to ", tilemap.tile_materials.size(), " tiles...")
 			for pos in tilemap.tile_materials:
 				var material_index: int = tilemap.tile_materials[pos]
-				var material = tilemap.material_palette_ref.get_material_at_index(material_index)
-				if material and pos in tilemap.tile_meshes:
-					var mi = tilemap.tile_meshes[pos]
-					if mi.mesh:
-						for surf_idx in range(mi.mesh.get_surface_count()):
-							mi.set_surface_override_material(surf_idx, material)
+				if pos in tilemap.tile_meshes:
+					var top_mat = tilemap.material_palette_ref.get_material_for_surface(material_index, 0)
+					TileMap3D.apply_palette_material_to_mesh(tilemap.tile_meshes[pos], top_mat)
 			print("  ✓ Materials re-applied")
 
 		# Step 3: rebuild top plane now that all meshes and materials are final
 		tilemap.rebuild_top_plane_mesh()
 
+		# Re-enable caching now that the flush is fully done. Moving this into the
+		# callback prevents a race where the flag was reset on the main thread
+		# before the worker thread had a chance to read it.
+		tilemap.tile_manager.disable_caching_this_flush = false
+
 	# CRITICAL: Ensure culling is ENABLED for the flush
-	# Disable caching for this flush to ensure accurate corner evaluation
+	# Disable caching for this flush to ensure accurate corner evaluation.
+	# NOTE: The flag is reset to false inside flush_completed_callback above,
+	# so it stays true for the entire async flush instead of being reset
+	# immediately here before the worker thread has read it.
 	tilemap.tile_manager.disable_caching_this_flush = true
 	tilemap.tile_manager.clear_mesh_cache()
 	print("  Caching disabled for this flush to ensure correct corner detection")
 	
 	# Now end batch mode, which will trigger flush with correct neighbor data
 	tilemap.set_batch_mode(false)
-	
-	# Re-enable caching after flush completes
-	tilemap.tile_manager.disable_caching_this_flush = false
 	
 	print("Level loaded successfully from: ", filepath)
 	print("  - Tiles loaded: ", tiles_loaded)

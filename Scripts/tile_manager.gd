@@ -232,13 +232,13 @@ func _finalise_flush(completed_successfully: bool):
 
 	# Fire the one-shot callback if set. The callback is responsible for rebuilding
 	# the top plane AFTER materials/rotations are applied (level_manager sets this).
-	# If no callback was registered, fall back to a plain top plane rebuild.
+	# The fallback rebuild has been removed: top plane quads are now managed
+	# synchronously by tilemap3d.place_tile / remove_tile, so a blanket
+	# rebuild here would wipe correctly-set overrides from interactive edits.
 	if flush_completed_callback.is_valid():
 		var cb = flush_completed_callback
 		flush_completed_callback = Callable()  # Clear before calling to avoid re-entrancy
 		cb.call()
-	else:
-		tile_map.rebuild_top_plane_mesh()
 
 
 
@@ -430,12 +430,17 @@ func _apply_mesh_to_scene(pos: Vector3i, mesh: ArrayMesh):
 	var node_rotation = 0.0 if tiles[pos] == TILE_TYPE_STAIRS else rotation
 	
 	if pos in tile_meshes:
-		# Update existing mesh instance
-		tile_meshes[pos].mesh = mesh
-		tile_meshes[pos].position = world_pos
-		tile_meshes[pos].rotation_degrees.y = node_rotation
+		var mi = tile_meshes[pos]
+		mi.mesh = mesh
+		# Assigning a new mesh resets the override slot count but does not clear
+		# stale values — explicitly null every slot so no old override bleeds onto
+		# the wrong surface of the newly-assigned mesh.
+		for _si in range(mesh.get_surface_count()):
+			mi.set_surface_override_material(_si, null)
+		mi.position = world_pos
+		mi.rotation_degrees.y = node_rotation
 		if node_rotation != 0.0:
-			_apply_rotation_center_offset(tile_meshes[pos])
+			_apply_rotation_center_offset(mi)
 	else:
 		# Create new mesh instance
 		var mesh_instance = MeshInstance3D.new()
@@ -459,19 +464,32 @@ func _apply_mesh_to_scene(pos: Vector3i, mesh: ArrayMesh):
 		parent_node.add_child(mesh_instance)
 		tile_meshes[pos] = mesh_instance
 	
-	# Apply stored material if exists.
-	# Override ALL surfaces so that cached meshes (which may have a different
-	# tile's baked material on surfaces 1/2) show the correct palette material
-	# on every face — not just the top.
+	# Apply palette material to the TOP surface only, identified by role.
+	var _fdbg_mi2 = tile_meshes.get(pos)
+	var _fdbg_mesh2 = _fdbg_mi2.mesh if _fdbg_mi2 else null
+	var _fdbg_surf_count2 = _fdbg_mesh2.get_surface_count() if _fdbg_mesh2 else 0
+	var _fdbg_names2 = []
+	for _i2 in range(_fdbg_surf_count2):
+		_fdbg_names2.append(_fdbg_mesh2.surface_get_name(_i2))
+	print("[FLUSH_DBG] pos=", pos, " surfs=", _fdbg_surf_count2, " names=", _fdbg_names2,
+		" in_tile_materials=", pos in tile_map.tile_materials)
 	if pos in tile_map.tile_materials:
 		var material_index = tile_map.tile_materials[pos]
-		if tile_map.material_palette_ref and tile_map.material_palette_ref.has_method("get_material_at_index"):
-			var material = tile_map.material_palette_ref.get_material_at_index(material_index)
-			if material and pos in tile_meshes:
-				var mi = tile_meshes[pos]
-				if mi.mesh:
-					for surf_idx in range(mi.mesh.get_surface_count()):
-						mi.set_surface_override_material(surf_idx, material)
+		if tile_map.material_palette_ref and tile_map.material_palette_ref.has_method("get_material_for_surface"):
+			if pos in tile_meshes:
+				var top_mat = tile_map.material_palette_ref.get_material_for_surface(material_index, 0)
+				var _fdbg_top_role2 = str(MeshGenerator.SurfaceRole.TOP)
+				var _fdbg_found2 = false
+				if _fdbg_mesh2:
+					for _si2 in range(_fdbg_surf_count2):
+						if _fdbg_mesh2.surface_get_name(_si2) == _fdbg_top_role2:
+							_fdbg_found2 = true
+							break
+				print("[FLUSH_DBG]   -> mat_idx=", material_index, " top_mat=", top_mat,
+					" found_TOP=", _fdbg_found2)
+				TileMap3D.apply_palette_material_to_mesh(tile_meshes[pos], top_mat)
+	else:
+		print("[FLUSH_DBG]   -> NOT in tile_materials")
 
 
 func mark_dirty(pos: Vector3i):
@@ -695,11 +713,17 @@ func _immediate_update_tile_mesh_with_neighbors(pos: Vector3i, neighbors: Dictio
 	var node_rotation = 0.0 if tile_type == TILE_TYPE_STAIRS else rotation
 	
 	if pos in tile_meshes:
-		tile_meshes[pos].mesh = mesh
-		tile_meshes[pos].position = world_pos
-		tile_meshes[pos].rotation_degrees.y = node_rotation
+		var mi = tile_meshes[pos]
+		mi.mesh = mesh
+		# Assigning a new mesh resets the override slot count but does not clear
+		# stale values — explicitly null every slot so no old override bleeds onto
+		# the wrong surface of the newly-assigned mesh.
+		for _si in range(mesh.get_surface_count()):
+			mi.set_surface_override_material(_si, null)
+		mi.position = world_pos
+		mi.rotation_degrees.y = node_rotation
 		if node_rotation != 0.0:
-			_apply_rotation_center_offset(tile_meshes[pos])
+			_apply_rotation_center_offset(mi)
 	else:
 		var mesh_instance = MeshInstance3D.new()
 		mesh_instance.mesh = mesh
@@ -723,18 +747,38 @@ func _immediate_update_tile_mesh_with_neighbors(pos: Vector3i, neighbors: Dictio
 		tile_meshes[pos] = mesh_instance
 		parent_node.add_child(mesh_instance)
 	
-	# Apply stored material if exists — override ALL surfaces (not just surface 0)
-	# so cached meshes with a different tile's baked material on sides/bottom
-	# don't bleed through.
+	# DEBUG — log surface layout and material application for every neighbor update
+	var _dbg_mi = tile_meshes.get(pos)
+	var _dbg_mesh = _dbg_mi.mesh if _dbg_mi else null
+	var _dbg_surf_count = _dbg_mesh.get_surface_count() if _dbg_mesh else 0
+	var _dbg_names = []
+	for _i in range(_dbg_surf_count):
+		_dbg_names.append(_dbg_mesh.surface_get_name(_i))
+	print("[NEIGHBOR_DBG] pos=", pos, " tile_type=", tile_type,
+		" surfs=", _dbg_surf_count, " names=", _dbg_names,
+		" in_tile_materials=", pos in tile_map.tile_materials,
+		" mat_idx=", tile_map.tile_materials.get(pos, -1))
+
+	# Apply palette material to the TOP surface only, identified by role.
 	if pos in tile_map.tile_materials:
 		var material_index = tile_map.tile_materials[pos]
-		if tile_map.material_palette_ref and tile_map.material_palette_ref.has_method("get_material_at_index"):
-			var material = tile_map.material_palette_ref.get_material_at_index(material_index)
-			if material and pos in tile_meshes:
-				var mi = tile_meshes[pos]
-				if mi.mesh:
-					for surf_idx in range(mi.mesh.get_surface_count()):
-						mi.set_surface_override_material(surf_idx, material)
+		if tile_map.material_palette_ref and tile_map.material_palette_ref.has_method("get_material_for_surface"):
+			if pos in tile_meshes:
+				var top_mat = tile_map.material_palette_ref.get_material_for_surface(material_index, 0)
+				var _dbg_top_role = str(MeshGenerator.SurfaceRole.TOP)
+				var _dbg_found_top = false
+				var _dbg_applied_idx = -1
+				if _dbg_mesh:
+					for _si in range(_dbg_surf_count):
+						if _dbg_mesh.surface_get_name(_si) == _dbg_top_role:
+							_dbg_found_top = true
+							_dbg_applied_idx = _si
+							break
+				print("[NEIGHBOR_DBG]   -> top_mat=", top_mat, " top_role='", _dbg_top_role,
+					"' found_TOP=", _dbg_found_top, " would_apply_at=", _dbg_applied_idx)
+				TileMap3D.apply_palette_material_to_mesh(tile_meshes[pos], top_mat)
+	else:
+		print("[NEIGHBOR_DBG]   -> NOT in tile_materials, skipping")
 
 # ============================================================================
 # Regenerate tile with rotation
@@ -835,6 +879,25 @@ func _flush_without_threading():
 			var neighbor_pos = pos + offset
 			if neighbor_pos in tiles:
 				to_update[neighbor_pos] = true
+		# Also expand along Y, matching flush_batch_updates — without this,
+		# tiles directly above/below a dirty tile are skipped in edit mode,
+		# leaving their surface overrides stale after a mesh rebuild.
+		for y_offset in [Vector3i(0, 1, 0), Vector3i(0, -1, 0)]:
+			var y_neighbor = pos + y_offset
+			if y_neighbor in tiles:
+				to_update[y_neighbor] = true
+		# Below-tile's cardinal neighbors also need updating (culling changes
+		# propagate horizontally at the layer below the edit).
+		if pos.y > 0:
+			var below_pos = pos + Vector3i(0, -1, 0)
+			if below_pos in tiles:
+				for cardinal_offset in [
+					Vector3i(1, 0, 0), Vector3i(-1, 0, 0),
+					Vector3i(0, 0, 1), Vector3i(0, 0, -1)
+				]:
+					var affected_pos = below_pos + cardinal_offset
+					if affected_pos in tiles:
+						to_update[affected_pos] = true
 
 	for pos in to_update.keys():
 		if pos in tiles:
@@ -842,8 +905,11 @@ func _flush_without_threading():
 
 	dirty_tiles.clear()
 
-	# Rebuild the top plane mesh after all tiles are updated
-	tile_map.rebuild_top_plane_mesh()
+	# Route through _finalise_flush so flush_completed_callback always fires.
+	# This is critical on load: the callback applies rotations + palette materials
+	# and then rebuilds the top plane. Calling rebuild_top_plane_mesh() directly
+	# here would skip all of that.
+	_finalise_flush(true)
 
 # ============================================================================
 # NEIGHBOR QUERIES

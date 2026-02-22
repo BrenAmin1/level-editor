@@ -2,9 +2,18 @@ class_name MeshGenerator extends RefCounted
 
 # Surface type enum for proper material assignment
 enum SurfaceType {
-	TOP = 0,      # Top face (grass)
-	SIDES = 1,    # Side faces (dirt)
-	BOTTOM = 2    # Bottom face (dirt)
+	TOP = 0,
+	SIDES = 1,
+	BOTTOM = 2
+}
+
+# Surface role — stored as the mesh surface's custom data index so
+# apply_palette_material_to_mesh can identify the TOP surface without
+# assuming index 0 (which breaks when TOP is culled from the mesh).
+enum SurfaceRole {
+	TOP = 0,
+	SIDES = 1,
+	BOTTOM = 2
 }
 
 # Mesh array components enum
@@ -132,7 +141,7 @@ func _generate_flat_top_plane(tile_type: int) -> ArrayMesh:
 
 	var mesh = ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
-	# Use the same top surface material as the base mesh
+	mesh.surface_set_name(0, str(SurfaceRole.TOP))
 	var material = base_mesh.surface_get_material(SurfaceType.TOP)
 	if material:
 		mesh.surface_set_material(0, material)
@@ -197,6 +206,7 @@ func _generate_procedural_stairs_culled(rotation_degrees: float, num_steps: int,
 
 	var result = ArrayMesh.new()
 	result.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, out_arrays)
+	result.surface_set_name(0, str(SurfaceRole.TOP))
 	return result
 
 
