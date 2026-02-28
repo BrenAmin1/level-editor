@@ -282,18 +282,23 @@ func align_mesh_to_grid(tile_type: int) -> bool:
 	
 	var size = max_bounds - min_bounds
 
-	# Uniform scale preserves mesh proportions as designed in Blender
-	var max_dimension = max(size.x, max(size.y, size.z))
-	var scale_factor = grid_size / max_dimension if max_dimension > 0 else 1.0
+	# Per-axis scale ensures X and Z always span exactly grid_size,
+	# regardless of the mesh's proportions (e.g. a bulge that's taller than wide).
+	# Uniform scale caused X/Z to fall short of grid_size when Y was the largest
+	# dimension, leaving a gap between adjacent tiles in the exported mesh.
+	var scale_x = grid_size / size.x if size.x > 0 else 1.0
+	var scale_y = grid_size / size.y if size.y > 0 else 1.0
+	var scale_z = grid_size / size.z if size.z > 0 else 1.0
 
-	# Transform all surfaces — offset to origin, then scale to fit grid
+	# Transform all surfaces — offset to origin, then scale per-axis to fit grid
 	var new_mesh = ArrayMesh.new()
 
 	for surface_idx in range(mesh.get_surface_count()):
 		var arrays = mesh.surface_get_arrays(surface_idx)
 		var vertices = arrays[Mesh.ARRAY_VERTEX].duplicate()
 		for i in range(vertices.size()):
-			vertices[i] = (vertices[i] - min_bounds) * scale_factor
+			var v = vertices[i] - min_bounds
+			vertices[i] = Vector3(v.x * scale_x, v.y * scale_y, v.z * scale_z)
 
 		var surface_array = []
 		surface_array.resize(Mesh.ARRAY_MAX)

@@ -6,17 +6,17 @@ func add_triangle_to_surface(triangles_by_surface: Dictionary, v0: Vector3, v1: 
 	# Use the ORIGINAL (unrotated) normals to determine surface type
 	var avg_normal = (original_normals[i0] + original_normals[i1] + original_normals[i2]).normalized()
 	
-	var SurfaceType = MeshGenerator.SurfaceType
+	var SurfaceRole = MeshGenerator.SurfaceRole
 	var MeshArrays = MeshGenerator.MeshArrays
 	
 	var target_surface: int
 	# Classify based on the original normal direction
 	if avg_normal.y > 0.8:
-		target_surface = SurfaceType.TOP
+		target_surface = SurfaceRole.TOP
 	elif avg_normal.y < -0.8:
-		target_surface = SurfaceType.BOTTOM
+		target_surface = SurfaceRole.BOTTOM
 	else:
-		target_surface = SurfaceType.SIDES
+		target_surface = SurfaceRole.SIDES
 	
 	var target = triangles_by_surface[target_surface]
 	var start_idx = target[MeshArrays.VERTICES].size()

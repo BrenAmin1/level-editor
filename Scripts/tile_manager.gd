@@ -1,9 +1,9 @@
 class_name TileManager extends RefCounted
 
 # References to parent TileMap3D data and components
-var tiles: Dictionary  # Reference to TileMap3D.tiles
-var tile_meshes: Dictionary  # Reference to TileMap3D.tile_meshes
-var custom_meshes: Dictionary  # Reference to TileMap3D.custom_meshes
+var tiles: Dictionary[Vector3i, int]
+var tile_meshes: Dictionary[Vector3i, MeshInstance3D]
+var custom_meshes: Dictionary[int, ArrayMesh]
 var grid_size: float  # Reference to TileMap3D.grid_size
 var parent_node: Node3D  # Reference to TileMap3D.parent_node
 var tile_map: TileMap3D  # Reference to parent for calling methods
@@ -15,19 +15,19 @@ var auto_tile_selection_enabled: bool = false  # DISABLED for manual placement o
 
 # Batch mode optimization
 var batch_mode: bool = false
-var dirty_tiles: Dictionary = {}  # Tiles that need mesh updates
+var dirty_tiles: Dictionary[Vector3i, bool] = {}  # Tiles that need mesh updates
 
 # TECHNIQUE 9: Threading
 var worker_thread: Thread = null
 var mesh_generation_queue: Array = []
-var generated_meshes: Dictionary = {}
+var generated_meshes: Dictionary[Vector3i, ArrayMesh] = {}
 var generation_mutex: Mutex = null
 var should_stop_thread: bool = false
 var is_flushing: bool = false  # Prevent overlapping flushes
 var flush_completed_callback: Callable  # Optional: called once when flush fully finishes
 
 # MESH CACHING: Reuse identical meshes
-var mesh_cache: Dictionary = {}
+var mesh_cache: Dictionary[String, ArrayMesh] = {}
 var cache_hits: int = 0
 var cache_misses: int = 0
 
@@ -35,8 +35,10 @@ var cache_misses: int = 0
 # SETUP
 # ============================================================================
 
-func setup(tilemap: TileMap3D, tiles_ref: Dictionary, tile_meshes_ref: Dictionary, 
-		   meshes_ref: Dictionary, grid_sz: float, parent: Node3D, generator: MeshGenerator):
+func setup(tilemap: TileMap3D, tiles_ref: Dictionary[Vector3i, int],
+		tile_meshes_ref: Dictionary[Vector3i, MeshInstance3D],
+		meshes_ref: Dictionary[int, ArrayMesh], grid_sz: float,
+		parent: Node3D, generator: MeshGenerator):
 	tile_map = tilemap
 	tiles = tiles_ref
 	tile_meshes = tile_meshes_ref
@@ -92,7 +94,7 @@ func flush_batch_updates():
 	print("Dirty tiles: ", dirty_tiles.size())
 
 	# Collect all tiles that need updates (dirty + their neighbors)
-	var tiles_to_update = {}
+	var tiles_to_update: Dictionary[Vector3i, bool] = {}
 	for pos in dirty_tiles.keys():
 		tiles_to_update[pos] = true
 		for offset in [
@@ -243,20 +245,8 @@ func _finalise_flush(completed_successfully: bool):
 
 
 
-func _prepare_mesh_generation_batch(tiles_to_update: Dictionary) -> Array:
+func _prepare_mesh_generation_batch(tiles_to_update: Dictionary[Vector3i, bool]) -> Array:
 	var mesh_gen_queue = []
-	
-	print("Capturing tile data with neighbors...")
-	print("DEBUG: tiles_to_update size: ", tiles_to_update.size())
-	print("DEBUG: Total tiles in scene: ", tiles.size())
-	
-	# Count tiles at each Y level for debugging
-	var tiles_by_y = {}
-	for tile_pos in tiles.keys():
-		if tile_pos.y not in tiles_by_y:
-			tiles_by_y[tile_pos.y] = 0
-		tiles_by_y[tile_pos.y] += 1
-	print("DEBUG: Tiles by Y-level: ", tiles_by_y)
 	
 	for pos in tiles_to_update.keys():
 		if pos not in tiles:
@@ -268,10 +258,6 @@ func _prepare_mesh_generation_batch(tiles_to_update: Dictionary) -> Array:
 		
 		# CRITICAL: Also capture if this is a fully enclosed tile
 		var is_fully_enclosed = _check_if_fully_enclosed(pos, neighbors)
-		
-		# DEBUG: Print enclosed status for tiles at y=0
-		if pos.y == 0 and is_fully_enclosed:
-			print("DEBUG: Tile at ", pos, " is FULLY ENCLOSED!")
 		
 		mesh_gen_queue.append({
 			"pos": pos,
@@ -426,8 +412,7 @@ func _apply_mesh_to_scene(pos: Vector3i, mesh: ArrayMesh):
 	var world_pos = grid_to_world(pos)
 	
 	# Stairs bake rotation into vertices — don't also rotate the node
-	var TILE_TYPE_STAIRS = 5
-	var node_rotation = 0.0 if tiles[pos] == TILE_TYPE_STAIRS else rotation
+	var node_rotation = 0.0 if tiles[pos] == MeshGenerator.TILE_TYPE_STAIRS else rotation
 	
 	if pos in tile_meshes:
 		var mi = tile_meshes[pos]
@@ -441,6 +426,12 @@ func _apply_mesh_to_scene(pos: Vector3i, mesh: ArrayMesh):
 		mi.rotation_degrees.y = node_rotation
 		if node_rotation != 0.0:
 			_apply_rotation_center_offset(mi)
+		# Force Godot to re-register this node as a shadow caster.
+		# When mi.mesh is replaced on an existing node the renderer can miss the
+		# update and leave neighbours in y=0 permanently bright. Toggling
+		# visibility flushes the shadow state in one render cycle.
+		mi.visible = false
+		mi.visible = true
 	else:
 		# Create new mesh instance
 		var mesh_instance = MeshInstance3D.new()
@@ -464,32 +455,15 @@ func _apply_mesh_to_scene(pos: Vector3i, mesh: ArrayMesh):
 		parent_node.add_child(mesh_instance)
 		tile_meshes[pos] = mesh_instance
 	
-	# Apply palette material to the TOP surface only, identified by role.
-	var _fdbg_mi2 = tile_meshes.get(pos)
-	var _fdbg_mesh2 = _fdbg_mi2.mesh if _fdbg_mi2 else null
-	var _fdbg_surf_count2 = _fdbg_mesh2.get_surface_count() if _fdbg_mesh2 else 0
-	var _fdbg_names2 = []
-	for _i2 in range(_fdbg_surf_count2):
-		_fdbg_names2.append(_fdbg_mesh2.surface_get_name(_i2))
-	print("[FLUSH_DBG] pos=", pos, " surfs=", _fdbg_surf_count2, " names=", _fdbg_names2,
-		" in_tile_materials=", pos in tile_map.tile_materials)
+	# Apply palette materials to ALL surfaces (TOP, SIDES, BOTTOM) by role name.
 	if pos in tile_map.tile_materials:
 		var material_index = tile_map.tile_materials[pos]
 		if tile_map.material_palette_ref and tile_map.material_palette_ref.has_method("get_material_for_surface"):
 			if pos in tile_meshes:
-				var top_mat = tile_map.material_palette_ref.get_material_for_surface(material_index, 0)
-				var _fdbg_top_role2 = str(MeshGenerator.SurfaceRole.TOP)
-				var _fdbg_found2 = false
-				if _fdbg_mesh2:
-					for _si2 in range(_fdbg_surf_count2):
-						if _fdbg_mesh2.surface_get_name(_si2) == _fdbg_top_role2:
-							_fdbg_found2 = true
-							break
-				print("[FLUSH_DBG]   -> mat_idx=", material_index, " top_mat=", top_mat,
-					" found_TOP=", _fdbg_found2)
-				TileMap3D.apply_palette_material_to_mesh(tile_meshes[pos], top_mat)
-	else:
-		print("[FLUSH_DBG]   -> NOT in tile_materials")
+				var top_mat   = tile_map.material_palette_ref.get_material_for_surface(material_index, 0)
+				var sides_mat = tile_map.material_palette_ref.get_material_for_surface(material_index, 1)
+				var bot_mat   = tile_map.material_palette_ref.get_material_for_surface(material_index, 2)
+				TileMap3D.apply_palette_materials_to_mesh(tile_meshes[pos], [top_mat, sides_mat, bot_mat])
 
 
 func mark_dirty(pos: Vector3i):
@@ -529,8 +503,7 @@ func place_tile(pos: Vector3i, tile_type: int):
 	tiles[pos] = tile_type
 	
 	# Store step count for stairs, and set default facing direction
-	var TILE_TYPE_STAIRS = 5
-	if tile_type == TILE_TYPE_STAIRS:
+	if tile_type == MeshGenerator.TILE_TYPE_STAIRS:
 		if tile_map.parent_node and tile_map.parent_node.current_stair_steps:
 			tile_map.tile_step_counts[pos] = tile_map.parent_node.current_stair_steps
 		# Only set default rotation if no rotation is already assigned
@@ -546,7 +519,7 @@ func place_tile(pos: Vector3i, tile_type: int):
 	# Normal mode: update immediately with smart neighbor updating.
 	# Pre-fetch neighbors for all positions we'll touch so get_neighbors()
 	# is called at most once per unique position rather than once per update call.
-	var neighbor_cache: Dictionary = {}
+	var neighbor_cache: Dictionary[Vector3i, Dictionary] = {}
 
 	var _get_neighbors_cached = func(p: Vector3i) -> Dictionary:
 		if p not in neighbor_cache:
@@ -688,29 +661,24 @@ func _immediate_update_tile_mesh_with_neighbors(pos: Vector3i, neighbors: Dictio
 	
 	# Get step count if this is stairs
 	var step_count = 4  # Default
-	var TILE_TYPE_STAIRS = 5
-	if tile_type == TILE_TYPE_STAIRS and pos in tile_map.tile_step_counts:
+	if tile_type == MeshGenerator.TILE_TYPE_STAIRS and pos in tile_map.tile_step_counts:
 		step_count = tile_map.tile_step_counts[pos]
 	
 	# Use custom mesh if available, otherwise generate default.
 	var mesh: ArrayMesh
-	if tile_type in custom_meshes or tile_type == TILE_TYPE_STAIRS:
+	if tile_type in custom_meshes or tile_type == MeshGenerator.TILE_TYPE_STAIRS:
 		var is_fully_enclosed = _check_if_fully_enclosed(pos, neighbors)
-		var n = neighbors[MeshGenerator.NeighborDir.NORTH] != -1
-		var s2 = neighbors[MeshGenerator.NeighborDir.SOUTH] != -1
-		var e = neighbors[MeshGenerator.NeighborDir.EAST] != -1
-		var w = neighbors[MeshGenerator.NeighborDir.WEST] != -1
-		var no_exposed_corner = not (not n and not w) and not (not n and not e) and \
-								not (not s2 and not w) and not (not s2 and not e)
-		var cull_top = neighbors[MeshGenerator.NeighborDir.UP] == -1 and tile_type != TILE_TYPE_STAIRS and no_exposed_corner
-		mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation, is_fully_enclosed, step_count, cull_top)
+		# cull_top is an export-only optimization (suppresses the top face when
+		# a baked top-plane quad covers it). At runtime the top-plane quad floats
+		# above the tile mesh and both coexist fine, so always pass false here.
+		mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation, is_fully_enclosed, step_count, false)
 	else:
 		mesh = mesh_generator.generate_tile_mesh(tile_type, neighbors)
 	
 	# Position at corner of grid cell
 	var world_pos = grid_to_world(pos)
 	
-	var node_rotation = 0.0 if tile_type == TILE_TYPE_STAIRS else rotation
+	var node_rotation = 0.0 if tile_type == MeshGenerator.TILE_TYPE_STAIRS else rotation
 	
 	if pos in tile_meshes:
 		var mi = tile_meshes[pos]
@@ -724,6 +692,12 @@ func _immediate_update_tile_mesh_with_neighbors(pos: Vector3i, neighbors: Dictio
 		mi.rotation_degrees.y = node_rotation
 		if node_rotation != 0.0:
 			_apply_rotation_center_offset(mi)
+		# Force Godot to re-register this node as a shadow caster.
+		# When mi.mesh is replaced on an existing node the renderer can miss the
+		# update and leave neighbours in y=0 permanently bright. Toggling
+		# visibility flushes the shadow state in one render cycle.
+		mi.visible = false
+		mi.visible = true
 	else:
 		var mesh_instance = MeshInstance3D.new()
 		mesh_instance.mesh = mesh
@@ -747,38 +721,15 @@ func _immediate_update_tile_mesh_with_neighbors(pos: Vector3i, neighbors: Dictio
 		tile_meshes[pos] = mesh_instance
 		parent_node.add_child(mesh_instance)
 	
-	# DEBUG — log surface layout and material application for every neighbor update
-	var _dbg_mi = tile_meshes.get(pos)
-	var _dbg_mesh = _dbg_mi.mesh if _dbg_mi else null
-	var _dbg_surf_count = _dbg_mesh.get_surface_count() if _dbg_mesh else 0
-	var _dbg_names = []
-	for _i in range(_dbg_surf_count):
-		_dbg_names.append(_dbg_mesh.surface_get_name(_i))
-	print("[NEIGHBOR_DBG] pos=", pos, " tile_type=", tile_type,
-		" surfs=", _dbg_surf_count, " names=", _dbg_names,
-		" in_tile_materials=", pos in tile_map.tile_materials,
-		" mat_idx=", tile_map.tile_materials.get(pos, -1))
-
-	# Apply palette material to the TOP surface only, identified by role.
+	# Apply palette materials to ALL surfaces (TOP, SIDES, BOTTOM) by role name.
 	if pos in tile_map.tile_materials:
 		var material_index = tile_map.tile_materials[pos]
 		if tile_map.material_palette_ref and tile_map.material_palette_ref.has_method("get_material_for_surface"):
 			if pos in tile_meshes:
-				var top_mat = tile_map.material_palette_ref.get_material_for_surface(material_index, 0)
-				var _dbg_top_role = str(MeshGenerator.SurfaceRole.TOP)
-				var _dbg_found_top = false
-				var _dbg_applied_idx = -1
-				if _dbg_mesh:
-					for _si in range(_dbg_surf_count):
-						if _dbg_mesh.surface_get_name(_si) == _dbg_top_role:
-							_dbg_found_top = true
-							_dbg_applied_idx = _si
-							break
-				print("[NEIGHBOR_DBG]   -> top_mat=", top_mat, " top_role='", _dbg_top_role,
-					"' found_TOP=", _dbg_found_top, " would_apply_at=", _dbg_applied_idx)
-				TileMap3D.apply_palette_material_to_mesh(tile_meshes[pos], top_mat)
-	else:
-		print("[NEIGHBOR_DBG]   -> NOT in tile_materials, skipping")
+				var top_mat   = tile_map.material_palette_ref.get_material_for_surface(material_index, 0)
+				var sides_mat = tile_map.material_palette_ref.get_material_for_surface(material_index, 1)
+				var bot_mat   = tile_map.material_palette_ref.get_material_for_surface(material_index, 2)
+				TileMap3D.apply_palette_materials_to_mesh(tile_meshes[pos], [top_mat, sides_mat, bot_mat])
 
 # ============================================================================
 # Regenerate tile with rotation
@@ -799,14 +750,8 @@ func regenerate_tile_with_rotation(pos: Vector3i, rotation_degrees: float):
 	
 	var mesh: ArrayMesh
 	if tile_type in custom_meshes:
-		var n2 = neighbors[MeshGenerator.NeighborDir.NORTH] != -1
-		var s3 = neighbors[MeshGenerator.NeighborDir.SOUTH] != -1
-		var e2 = neighbors[MeshGenerator.NeighborDir.EAST] != -1
-		var w2 = neighbors[MeshGenerator.NeighborDir.WEST] != -1
-		var no_exposed_corner2 = not (not n2 and not w2) and not (not n2 and not e2) and \
-								 not (not s3 and not w2) and not (not s3 and not e2)
-		var cull_top = neighbors[MeshGenerator.NeighborDir.UP] == -1 and tile_type != MeshGenerator.TILE_TYPE_STAIRS and no_exposed_corner2
-		mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation_degrees, is_fully_enclosed, 4, cull_top)
+		# cull_top is export-only — always false at runtime (see _immediate_update_tile_mesh_with_neighbors)
+		mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation_degrees, is_fully_enclosed, 4, false)
 	else:
 		mesh = mesh_generator.generate_tile_mesh(tile_type, neighbors)
 	
@@ -814,8 +759,7 @@ func regenerate_tile_with_rotation(pos: Vector3i, rotation_degrees: float):
 	var world_pos = grid_to_world(pos)
 	
 	# Stairs bake rotation into vertices — don't also rotate the node
-	var TILE_TYPE_STAIRS = 5
-	var node_rotation = 0.0 if tile_type == TILE_TYPE_STAIRS else rotation_degrees
+	var node_rotation = 0.0 if tile_type == MeshGenerator.TILE_TYPE_STAIRS else rotation_degrees
 	
 	# Update existing mesh instance or create new one
 	if pos in tile_meshes:
@@ -867,7 +811,7 @@ func _apply_rotation_center_offset(mesh_instance: MeshInstance3D):
 func _flush_without_threading():
 	"""Fast path for small updates (edit mode)"""
 	# Expand dirty set to include neighbors, matching the threaded flush path.
-	var to_update: Dictionary = {}
+	var to_update: Dictionary[Vector3i, bool] = {}
 	for pos in dirty_tiles.keys():
 		to_update[pos] = true
 		for offset in [
@@ -915,8 +859,8 @@ func _flush_without_threading():
 # NEIGHBOR QUERIES
 # ============================================================================
 
-func get_neighbors(pos: Vector3i) -> Dictionary:
-	var neighbors : Dictionary = {}
+func get_neighbors(pos: Vector3i) -> Dictionary[MeshGenerator.NeighborDir, int]:
+	var neighbors: Dictionary[MeshGenerator.NeighborDir, int] = {}
 	# Cardinal neighbors
 	neighbors[MeshGenerator.NeighborDir.NORTH] = tiles.get(pos + Vector3i(0, 0, -1), -1)
 	neighbors[MeshGenerator.NeighborDir.SOUTH] = tiles.get(pos + Vector3i(0, 0, 1), -1)

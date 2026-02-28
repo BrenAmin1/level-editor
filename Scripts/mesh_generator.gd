@@ -1,15 +1,8 @@
 class_name MeshGenerator extends RefCounted
 
-# Surface type enum for proper material assignment
-enum SurfaceType {
-	TOP = 0,
-	SIDES = 1,
-	BOTTOM = 2
-}
-
-# Surface role — stored as the mesh surface's custom data index so
-# apply_palette_material_to_mesh can identify the TOP surface without
-# assuming index 0 (which breaks when TOP is culled from the mesh).
+# Surface role — identifies each surface by function.
+# Stored as the surface name so apply_palette_material_to_mesh can find
+# the TOP surface without assuming index 0 (which shifts when TOP is culled).
 enum SurfaceRole {
 	TOP = 0,
 	SIDES = 1,
@@ -42,8 +35,8 @@ enum NeighborDir {
 const TILE_TYPE_STAIRS = 5  # New tile type for procedural stairs
 
 # References to parent TileMap3D data
-var custom_meshes: Dictionary
-var tiles: Dictionary
+var custom_meshes: Dictionary[int, ArrayMesh]
+var tiles: Dictionary[Vector3i, int]
 var grid_size: float
 var tile_map: TileMap3D
 
@@ -55,7 +48,8 @@ var rotation_handler: RotationHandler
 var mesh_builder: MeshBuilder
 
 
-func setup(tilemap: TileMap3D, meshes_ref: Dictionary, tiles_ref: Dictionary, grid_sz: float):
+func setup(tilemap: TileMap3D, meshes_ref: Dictionary[int, ArrayMesh],
+		tiles_ref: Dictionary[Vector3i, int], grid_sz: float):
 	tile_map = tilemap
 	custom_meshes = meshes_ref
 	tiles = tiles_ref
@@ -77,7 +71,7 @@ func setup(tilemap: TileMap3D, meshes_ref: Dictionary, tiles_ref: Dictionary, gr
 	mesh_builder.setup(tile_map)
 
 
-func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Dictionary, rotation_degrees: float = 0.0, is_fully_enclosed: bool = false, step_count: int = 4, cull_top: bool = false) -> ArrayMesh:
+func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Dictionary[MeshGenerator.NeighborDir, int], rotation_degrees: float = 0.0, is_fully_enclosed: bool = false, step_count: int = 4, cull_top: bool = false) -> ArrayMesh:
 	# CHECK IF STAIRS - Generate geometry procedurally, then cull side/back faces
 	if tile_type == TILE_TYPE_STAIRS:
 		return _generate_procedural_stairs_culled(rotation_degrees, step_count, neighbors)
@@ -107,48 +101,7 @@ func generate_custom_tile_mesh(pos: Vector3i, tile_type: int, neighbors: Diction
 
 
 # Generate procedural stairs based on rotation and step count, with neighbor culling
-func _generate_flat_top_plane(tile_type: int) -> ArrayMesh:
-	# Get the top Y of the custom mesh so the plane sits at the right height
-	var base_mesh = custom_meshes[tile_type]
-	var top_y = 0.0
-	for surface_idx in range(base_mesh.get_surface_count()):
-		var vertx = base_mesh.surface_get_arrays(surface_idx)[Mesh.ARRAY_VERTEX]
-		for v in vertx:
-			top_y = max(top_y, v.y)
-
-	var s = grid_size
-	var y_offset = 0.001
-	var verts = PackedVector3Array([
-		Vector3(0, top_y + y_offset, 0),
-		Vector3(s, top_y + y_offset, 0),
-		Vector3(s, top_y + y_offset, s),
-		Vector3(0, top_y + y_offset, s)
-	])
-	var normals = PackedVector3Array([
-		Vector3.UP, Vector3.UP, Vector3.UP, Vector3.UP
-	])
-	var uvs = PackedVector2Array([
-		Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)
-	])
-	var indices = PackedInt32Array([0, 1, 2, 0, 2, 3])
-
-	var surface_array = []
-	surface_array.resize(Mesh.ARRAY_MAX)
-	surface_array[Mesh.ARRAY_VERTEX] = verts
-	surface_array[Mesh.ARRAY_NORMAL] = normals
-	surface_array[Mesh.ARRAY_TEX_UV] = uvs
-	surface_array[Mesh.ARRAY_INDEX] = indices
-
-	var mesh = ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_array)
-	mesh.surface_set_name(0, str(SurfaceRole.TOP))
-	var material = base_mesh.surface_get_material(SurfaceType.TOP)
-	if material:
-		mesh.surface_set_material(0, material)
-	return mesh
-
-
-func _generate_procedural_stairs_culled(rotation_degrees: float, num_steps: int, neighbors: Dictionary) -> ArrayMesh:
+func _generate_procedural_stairs_culled(rotation_degrees: float, num_steps: int, neighbors: Dictionary[MeshGenerator.NeighborDir, int]) -> ArrayMesh:
 	# Get the raw stair mesh (all faces present)
 	var raw_mesh = _generate_procedural_stairs(rotation_degrees, num_steps)
 	if raw_mesh.get_surface_count() == 0:
@@ -215,7 +168,7 @@ func _generate_procedural_stairs(rotation_degrees: float, num_steps: int = 4) ->
 	return ProceduralStairsGenerator.generate_stairs_mesh(num_steps, grid_size, rotation_degrees)
 
 
-func _rotate_neighbors(neighbors: Dictionary, rotation_degrees: float) -> Dictionary:
+func _rotate_neighbors(neighbors: Dictionary[MeshGenerator.NeighborDir, int], rotation_degrees: float) -> Dictionary[MeshGenerator.NeighborDir, int]:
 	"""Rotate neighbor dictionary to match tile rotation"""
 	if rotation_degrees == 0.0:
 		return neighbors
@@ -275,7 +228,7 @@ func _rotate_neighbors(neighbors: Dictionary, rotation_degrees: float) -> Dictio
 
 func _initialize_surface_arrays() -> Dictionary:
 	var triangles_by_surface = {}
-	for surf_type in SurfaceType.values():
+	for surf_type in SurfaceRole.values():
 		triangles_by_surface[surf_type] = {
 			MeshArrays.VERTICES: PackedVector3Array(),
 			MeshArrays.NORMALS: PackedVector3Array(),
@@ -285,7 +238,7 @@ func _initialize_surface_arrays() -> Dictionary:
 	return triangles_by_surface
 
 func _process_mesh_surface(base_mesh: ArrayMesh, surface_idx: int, pos: Vector3i, 
-							neighbors: Dictionary, triangles_by_surface: Dictionary,
+							neighbors: Dictionary[MeshGenerator.NeighborDir, int], triangles_by_surface: Dictionary,
 							exposed_corners: Array, disable_all_culling: bool, is_fully_enclosed: bool = false, cull_top: bool = false):
 	var arrays = base_mesh.surface_get_arrays(surface_idx)
 	var vertices = arrays[Mesh.ARRAY_VERTEX]
@@ -336,9 +289,9 @@ func _process_mesh_surface(base_mesh: ArrayMesh, surface_idx: int, pos: Vector3i
 		# Add to surface
 		surface_classifier.add_triangle_to_surface(triangles_by_surface, v0, v1, v2, uvs, i0, i1, i2, normals, original_normals)
 
-func generate_tile_mesh(tile_type: int, neighbors: Dictionary) -> ArrayMesh:
+func generate_tile_mesh(tile_type: int, neighbors: Dictionary[MeshGenerator.NeighborDir, int], cull_top: bool = false) -> ArrayMesh:
 	# CHECK IF STAIRS - Handle procedurally with default rotation (South-facing)
 	if tile_type == TILE_TYPE_STAIRS:
 		return ProceduralStairsGenerator.generate_stairs_mesh(4, grid_size, 180)
 	
-	return mesh_builder.generate_simple_tile_mesh(tile_type, neighbors, grid_size)
+	return mesh_builder.generate_simple_tile_mesh(tile_type, neighbors, grid_size, cull_top)

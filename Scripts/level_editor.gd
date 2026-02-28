@@ -440,137 +440,80 @@ func list_saved_levels():
 @onready var load_dialog: FileDialog = $UI/Load
 
 func _on_export_confirmed(is_chunked: bool, path: String):
-	"""Handle export confirmation — kicks off background thread"""
+	"""Handle export confirmation — kicks off background thread."""
 	if _export_thread and _export_thread.is_alive():
 		print("Export already in progress, please wait.")
 		return
 
-	var ext = path.get_extension().to_lower()
+	var ext := path.get_extension().to_lower()
 	print("\n=== EXPORTING LEVEL ===")
 	print("Format: ", "Chunked" if is_chunked else "Single")
-	print("Type: .", ext)
 	print("Path: ", path)
 
 	_show_export_overlay("Exporting… please wait")
 
+	# Snapshot top-plane quad data on the main thread before handing off to worker.
+	# Worker threads must never access scene nodes directly.
+	var top_plane_snapshot := tilemap.capture_top_plane_snapshot()
+
+	# Set the progress callback on the exporter before starting the thread.
+	# Use a lambda that call_deferred's onto self so UI touches always happen
+	# on the main thread even though the callback fires from the worker.
+	tilemap.glb_exporter.progress_callback = func(done: int, total: int) -> void:
+		call_deferred("_update_export_progress", done, total)
+
 	_export_thread = Thread.new()
 	if is_chunked:
-		_export_thread.start(_thread_export_chunked.bind(path))
-	elif ext == "glb" or ext == "gltf":
-		_export_thread.start(_thread_export_gltf.bind(path))
+		var save_name := path.get_basename().get_file()
+		if save_name.is_empty():
+			save_name = "level_chunks"
+		_export_thread.start(_thread_export_chunked.bind(save_name, top_plane_snapshot))
 	else:
-		_export_thread.start(_thread_export_single.bind(path))
+		# Ensure .glb extension regardless of what the dialog produced.
+		if not path.ends_with(".glb") and not path.ends_with(".gltf"):
+			path += ".glb"
+		_export_thread.start(_thread_export_single.bind(path, top_plane_snapshot))
 
 
 # ── Worker thread functions ──────────────────────────────────────────────────
-# These run on the background thread. Only pure data work — no scene API calls.
 
-func _thread_export_single(filepath: String) -> void:
-	if not filepath.ends_with(".tres"):
-		filepath += ".tres"
-	tilemap.mesh_optimizer.progress_callback = _update_export_progress
-	var mesh = tilemap.mesh_optimizer.build_export_mesh(true)
-	tilemap.mesh_optimizer.progress_callback = Callable()
+func _thread_export_single(filepath: String, top_plane_snapshot: Array) -> void:
+	var mesh := tilemap.glb_exporter.build_export_mesh(top_plane_snapshot)
+	tilemap.glb_exporter.progress_callback = Callable()
 	call_deferred("_finish_export_single", mesh, filepath)
 
 
-func _thread_export_gltf(filepath: String) -> void:
-	if not filepath.ends_with(".gltf") and not filepath.ends_with(".glb"):
-		filepath += ".glb"
-	tilemap.mesh_optimizer.progress_callback = _update_export_progress
-	var mesh = tilemap.mesh_optimizer.build_export_mesh(true)
-	tilemap.mesh_optimizer.progress_callback = Callable()
-	call_deferred("_finish_export_gltf", mesh, filepath)
-
-
-func _thread_export_chunked(filepath: String) -> void:
-	var save_name = filepath.get_basename().get_file()
-	if save_name == "":
-		save_name = "level_chunks"
-	var ext = filepath.get_extension().to_lower()
-	if ext == "":
-		ext = "tres"
-	# Only build meshes on the worker thread — file I/O (especially GLTFDocument)
-	# must happen on the main thread to avoid scene-tree threading errors.
-	tilemap.mesh_optimizer.progress_callback = _update_export_progress
-	var chunk_data = tilemap.mesh_optimizer.build_chunk_meshes(save_name, Vector3i(32, 32, 32), true, ext)
-	tilemap.mesh_optimizer.progress_callback = Callable()
+func _thread_export_chunked(save_name: String, top_plane_snapshot: Array) -> void:
+	var chunk_data := tilemap.glb_exporter.build_chunk_meshes(save_name, top_plane_snapshot)
+	tilemap.glb_exporter.progress_callback = Callable()
 	call_deferred("_finish_export_chunked", chunk_data)
 
 
 # ── Main-thread finish functions ─────────────────────────────────────────────
-# Called via call_deferred once the worker is done.
 
 func _finish_export_single(mesh: ArrayMesh, filepath: String) -> void:
 	_export_thread.wait_to_finish()
-
-	var success = ResourceSaver.save(mesh, filepath)
-	if success == OK:
-		var real_path = ProjectSettings.globalize_path(filepath)
-		print("✓ Single mesh exported!")
-		print("Saved to: ", real_path)
+	var ok := tilemap.glb_exporter.save_single(mesh, filepath)
+	if ok:
+		var real_path := ProjectSettings.globalize_path(filepath)
+		print("✓ GLB exported: ", real_path)
 		_show_export_overlay("✓ Export complete!\n" + real_path, true)
 	else:
-		push_error("Failed to save mesh: " + str(success))
+		push_error("GLB export failed — see above for details.")
 		_hide_export_overlay()
-
-	print("======================\n")
-
-
-func _finish_export_gltf(mesh: ArrayMesh, filepath: String) -> void:
-	_export_thread.wait_to_finish()
-
-	var mesh_instance = MeshInstance3D.new()
-	mesh_instance.name = "ExportedLevel"
-	mesh_instance.mesh = mesh
-
-	var export_root = Node3D.new()
-	export_root.name = "Scene"
-	export_root.add_child(mesh_instance)
-	mesh_instance.owner = export_root
-
-	var gltf_doc = GLTFDocument.new()
-	var gltf_state = GLTFState.new()
-
-	var append_err = gltf_doc.append_from_scene(export_root, gltf_state)
-	export_root.free()
-
-	if append_err != OK:
-		push_error("glTF export: append_from_scene failed (error %d)" % append_err)
-		_hide_export_overlay()
-		return
-
-	var dir = filepath.get_base_dir()
-	if dir != "" and dir != "res://" and dir != "user://":
-		DirAccess.make_dir_recursive_absolute(dir)
-
-	var write_err = gltf_doc.write_to_filesystem(gltf_state, filepath)
-	if write_err == OK:
-		var real_path = ProjectSettings.globalize_path(filepath)
-		print("✓ glTF export complete: ", real_path)
-		_show_export_overlay("✓ Export complete!\n" + real_path, true)
-	else:
-		push_error("glTF export: write_to_filesystem failed (error %d)" % write_err)
-		_hide_export_overlay()
-
 	print("======================\n")
 
 
 func _finish_export_chunked(chunk_data: Dictionary) -> void:
 	_export_thread.wait_to_finish()
-
 	if chunk_data.is_empty():
 		push_error("Chunked export: mesh build returned no data")
 		_hide_export_overlay()
 		return
-
-	# File I/O happens here on the main thread — safe for GLTFDocument and ResourceSaver.
 	_show_export_overlay("Saving chunks…")
-	tilemap.mesh_optimizer._save_chunk_data(chunk_data)
-
-	var real_path = ProjectSettings.globalize_path(chunk_data["export_dir"])
-	print("✓ Chunked meshes exported! (.", chunk_data["file_ext"], ")")
-	print("Saved to: ", real_path)
+	tilemap.glb_exporter.save_chunks(chunk_data)
+	var real_path := ProjectSettings.globalize_path(chunk_data["export_dir"])
+	print("✓ Chunked GLB export complete: ", real_path)
 	_show_export_overlay("✓ Export complete!\n" + real_path, true)
 	print("======================\n")
 

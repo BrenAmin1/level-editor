@@ -203,20 +203,27 @@ func save_palette(filepath: String) -> bool:
 		"version": 1,
 		"materials": []
 	}
-	
+
 	for material_entry in materials:
-		palette_data["materials"].append(material_entry["data"])
-	
+		# Normalize all texture paths to res:// before saving so the palette
+		# is portable across machines and doesn't embed absolute OS paths.
+		var data: Dictionary = material_entry["data"].duplicate(true)
+		for key in ["top_texture", "top_normal", "side_texture", "side_normal",
+				"bottom_texture", "bottom_normal"]:
+			if data.has(key):
+				data[key] = _normalize_path(data[key])
+		palette_data["materials"].append(data)
+
 	var json_string = JSON.stringify(palette_data, "\t")
 	var file = FileAccess.open(filepath, FileAccess.WRITE)
-	
+
 	if file == null:
 		push_error("Failed to open file for writing: " + filepath)
 		return false
-	
+
 	file.store_string(json_string)
 	file.close()
-	
+
 	return true
 
 
@@ -244,11 +251,18 @@ func load_palette(filepath: String) -> bool:
 		return false
 	
 	_clear_all_materials()
-	
+
 	for material_data in palette_data["materials"]:
 		if material_data is Dictionary:
-			_on_material_created(material_data)
-	
+			# Normalize paths on load so materials loaded from old palettes
+			# with absolute OS paths are remapped to res:// where possible.
+			var normalized: Dictionary = material_data.duplicate(true)
+			for key in ["top_texture", "top_normal", "side_texture", "side_normal",
+					"bottom_texture", "bottom_normal"]:
+				if normalized.has(key):
+					normalized[key] = _normalize_path(normalized[key])
+			_on_material_created(normalized)
+
 	return true
 
 
@@ -267,6 +281,28 @@ func _clear_all_materials() -> void:
 # MATERIAL CREATION AND MANAGEMENT
 # ============================================================================
 
+func _normalize_path(path: String) -> String:
+	"""Convert an absolute OS path to a res:// path if the file exists inside
+	the project directory. Returns the original path unchanged if it is already
+	a res:// or user:// path, or if no matching project file can be found."""
+	if path == "" or path.begins_with("res://") or path.begins_with("user://"):
+		return path
+	# Try to find the file by its filename inside res://
+	var filename := path.get_file()
+	var res_path := "res://Images/" + filename
+	if ResourceLoader.exists(res_path):
+		return res_path
+	# Broader search — walk common image directories
+	for dir_path in ["res://Images", "res://images", "res://Textures", "res://textures", "res://"]:
+		var candidate: String = dir_path + "/" + filename
+		if ResourceLoader.exists(candidate):
+			return candidate
+	# Can't remap — return empty string so the material uses its colour fallback
+	# rather than an unresolvable absolute path.
+	push_warning("material_palette: cannot remap path to res://: " + path)
+	return ""
+
+
 func _create_godot_material(material_dict: Dictionary) -> StandardMaterial3D:
 	# Convenience wrapper - returns the top-surface material.
 	# Used for display (material cards, selection, etc.)
@@ -279,6 +315,11 @@ func _create_godot_material_for_surface(material_dict: Dictionary, surface_idx: 
 	m_material.uv1_triplanar = true
 	m_material.uv1_world_triplanar = true
 	m_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+
+	# Set resource_name so GLTFDocument exports a meaningful material name
+	# instead of null. Format: "MaterialName_top" / "_sides" / "_bottom".
+	var surface_suffix: String = ["_top", "_sides", "_bottom"][surface_idx] if surface_idx < 3 else ("_surf%d" % surface_idx)
+	m_material.resource_name = material_dict.get("name", "Material") + surface_suffix
 
 	# Pick texture/normal keys based on which surface we are building for.
 	var texture_key: String
@@ -308,15 +349,11 @@ func _create_godot_material_for_surface(material_dict: Dictionary, surface_idx: 
 		if texture:
 			m_material.albedo_texture = texture
 
-	# Load normal map, falling back to any available normal.
+	# Load normal map for this surface only — no cross-surface fallback.
+	# A surface with an empty normal key intentionally has no normal map;
+	# falling back to another surface's normal would apply the wrong effect
+	# (e.g. dirt_n.png appearing on a Grass top that should be flat).
 	var normal_path = material_dict.get(normal_key, "")
-	if normal_path == "" or not FileAccess.file_exists(normal_path):
-		for fallback_key in ["top_normal", "side_normal", "bottom_normal"]:
-			var fp = material_dict.get(fallback_key, "")
-			if fp != "" and FileAccess.file_exists(fp):
-				normal_path = fp
-				break
-
 	if normal_path != "" and FileAccess.file_exists(normal_path):
 		var normal_map = load(normal_path) as Texture2D
 		if normal_map:
@@ -434,7 +471,7 @@ func _add_default_materials() -> void:
 		"side_texture": "res://Images/dirt.png",
 		"side_normal": "",
 		"bottom_texture": "res://Images/dirt.png",
-		"bottom_normal": "res://Images/dirt_n.png"
+		"bottom_normal": ""
 	}
 	
 	var default_dirt_data = {

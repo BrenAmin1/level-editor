@@ -128,16 +128,17 @@ static func load_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 				tilemap.tile_manager.update_tile_mesh(pos)
 			print("  ✓ Rotations applied")
 
-		# Step 2: re-apply palette material to the TOP surface of every painted tile.
-		# Uses TileMap3D.apply_palette_material_to_mesh() which finds the TOP surface
-		# by name — safe even when the top is culled and surface 0 is actually SIDES.
+		# Step 2: re-apply palette materials to ALL surfaces (TOP, SIDES, BOTTOM) of
+		# every painted tile. Name-based lookup is safe regardless of surface index.
 		if not tilemap.tile_materials.is_empty() and tilemap.material_palette_ref:
 			print("  Re-applying materials to ", tilemap.tile_materials.size(), " tiles...")
 			for pos in tilemap.tile_materials:
 				var material_index: int = tilemap.tile_materials[pos]
 				if pos in tilemap.tile_meshes:
-					var top_mat = tilemap.material_palette_ref.get_material_for_surface(material_index, 0)
-					TileMap3D.apply_palette_material_to_mesh(tilemap.tile_meshes[pos], top_mat)
+					var top_mat   = tilemap.material_palette_ref.get_material_for_surface(material_index, 0)
+					var sides_mat = tilemap.material_palette_ref.get_material_for_surface(material_index, 1)
+					var bot_mat   = tilemap.material_palette_ref.get_material_for_surface(material_index, 2)
+					TileMap3D.apply_palette_materials_to_mesh(tilemap.tile_meshes[pos], [top_mat, sides_mat, bot_mat])
 			print("  ✓ Materials re-applied")
 
 		# Step 3: rebuild top plane now that all meshes and materials are final
@@ -176,62 +177,30 @@ static func load_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 # SERIALIZATION HELPERS
 # ============================================================================
 
+static func _serialize_vec3i_dict(dict: Dictionary, value_key: String) -> Array:
+	# Serialize any Vector3i-keyed dictionary to [{x,y,z,value_key: value}, ...].
+	var arr = []
+	for pos in dict.keys():
+		var entry = {"x": pos.x, "y": pos.y, "z": pos.z}
+		entry[value_key] = dict[pos]
+		arr.append(entry)
+	return arr
+
+
 static func _serialize_tiles(tiles: Dictionary) -> Array:
-	var tile_array = []
-	
-	for pos in tiles.keys():
-		var tile_type = tiles[pos]
-		tile_array.append({
-			"x": pos.x,
-			"y": pos.y,
-			"z": pos.z,
-			"type": tile_type
-		})
-	
-	return tile_array
+	return _serialize_vec3i_dict(tiles, "type")
 
 
 static func _serialize_tile_materials(tile_materials: Dictionary) -> Array:
-	"""Serialize tile materials dictionary to array"""
-	var material_array = []
-	
-	for pos in tile_materials.keys():
-		var material_index = tile_materials[pos]
-		material_array.append({
-			"x": pos.x,
-			"y": pos.y,
-			"z": pos.z,
-			"material_index": material_index
-		})
-	
-	return material_array
+	return _serialize_vec3i_dict(tile_materials, "material_index")
 
 
 static func _serialize_step_counts(tile_step_counts: Dictionary) -> Array:
-	"""Serialize tile step counts dictionary to array"""
-	var step_counts_array = []
-	
-	for pos in tile_step_counts.keys():
-		var step_count = tile_step_counts[pos]
-		step_counts_array.append({
-			"x": pos.x,
-			"y": pos.y,
-			"z": pos.z,
-			"steps": step_count
-		})
-	
-	return step_counts_array
+	return _serialize_vec3i_dict(tile_step_counts, "steps")
 
 
 static func _serialize_rotations(tile_rotations: Dictionary) -> Array:
-	"""Serialize tile rotations dictionary to array"""
-	var arr = []
-	for pos in tile_rotations.keys():
-		arr.append({
-			"x": pos.x, "y": pos.y, "z": pos.z,
-			"rotation": tile_rotations[pos]
-		})
-	return arr
+	return _serialize_vec3i_dict(tile_rotations, "rotation")
 
 
 static func _serialize_offsets(offsets: Dictionary) -> Dictionary:
@@ -268,24 +237,23 @@ static func _serialize_materials_palette(palette) -> Array:
 # DESERIALIZATION HELPERS
 # ============================================================================
 
+static func _deserialize_vec3i_dict(arr: Array, value_key: String) -> Dictionary:
+	# Deserialize [{x,y,z,value_key: value}, ...] back to a Vector3i-keyed dictionary.
+	var result: Dictionary = {}
+	for entry in arr:
+		if not entry is Dictionary:
+			continue
+		if not (entry.has("x") and entry.has("y") and entry.has("z") and entry.has(value_key)):
+			continue
+		result[Vector3i(entry["x"], entry["y"], entry["z"])] = entry[value_key]
+	return result
+
+
 static func _deserialize_tiles(tile_array: Array, tilemap: TileMap3D) -> int:
-	var count = 0
-	
-	for tile_data in tile_array:
-		if not tile_data is Dictionary:
-			continue
-		
-		if not (tile_data.has("x") and tile_data.has("y") and 
-				tile_data.has("z") and tile_data.has("type")):
-			continue
-		
-		var pos = Vector3i(tile_data["x"], tile_data["y"], tile_data["z"])
-		var tile_type = tile_data["type"]
-		
-		tilemap.place_tile(pos, tile_type)
-		count += 1
-	
-	return count
+	var tile_dict = _deserialize_vec3i_dict(tile_array, "type")
+	for pos in tile_dict:
+		tilemap.place_tile(pos, tile_dict[pos])
+	return tile_dict.size()
 
 
 static func _deserialize_offsets(offset_data: Dictionary, y_level_manager: YLevelManager):
@@ -298,44 +266,21 @@ static func _deserialize_offsets(offset_data: Dictionary, y_level_manager: YLeve
 
 
 static func _deserialize_tile_materials(material_array: Array, tilemap: TileMap3D):
-	"""Deserialize tile materials from array"""
-	for material_data in material_array:
-		if not material_data is Dictionary:
-			continue
-		
-		if not (material_data.has("x") and material_data.has("y") and 
-				material_data.has("z") and material_data.has("material_index")):
-			continue
-		
-		var pos = Vector3i(material_data["x"], material_data["y"], material_data["z"])
-		var material_index = material_data["material_index"]
-		
-		tilemap.tile_materials[pos] = material_index
+	var d = _deserialize_vec3i_dict(material_array, "material_index")
+	for pos in d:
+		tilemap.tile_materials[pos] = d[pos]
 
 
 static func _deserialize_step_counts(step_counts_array: Array, tilemap: TileMap3D):
-	"""Deserialize tile step counts"""
-	for step_data in step_counts_array:
-		if not step_data is Dictionary:
-			continue
-		
-		if not (step_data.has("x") and step_data.has("y") and 
-				step_data.has("z") and step_data.has("steps")):
-			continue
-		
-		var pos = Vector3i(step_data["x"], step_data["y"], step_data["z"])
-		tilemap.tile_step_counts[pos] = step_data["steps"]
+	var d = _deserialize_vec3i_dict(step_counts_array, "steps")
+	for pos in d:
+		tilemap.tile_step_counts[pos] = d[pos]
 
 
 static func _deserialize_rotations(rotations_array: Array, tilemap: TileMap3D):
-	"""Deserialize tile rotations"""
-	for entry in rotations_array:
-		if not entry is Dictionary:
-			continue
-		if not (entry.has("x") and entry.has("y") and entry.has("z") and entry.has("rotation")):
-			continue
-		var pos = Vector3i(entry["x"], entry["y"], entry["z"])
-		tilemap.tile_rotations[pos] = float(entry["rotation"])
+	var d = _deserialize_vec3i_dict(rotations_array, "rotation")
+	for pos in d:
+		tilemap.tile_rotations[pos] = float(d[pos])
 
 
 static func _deserialize_materials_palette(materials_array: Array, palette):

@@ -1,18 +1,18 @@
 class_name CullingManager extends RefCounted
 
 var tile_map: TileMap3D
-var tiles: Dictionary
+var tiles: Dictionary[Vector3i, int]
 var grid_size: float
 var batch_mode_skip_culling: bool = false
-var corner_keeps: Dictionary = {}  # Track which corners are kept: {pos_str: {corner_desc: true}}
-var positions_processed: Dictionary = {}  # Track all positions that went through culling
+var corner_keeps: Dictionary[String, Dictionary] = {}
+var positions_processed: Dictionary[String, bool] = {}
 
-func setup(tilemap: TileMap3D, tiles_ref: Dictionary, grid_sz: float):
+func setup(tilemap: TileMap3D, tiles_ref: Dictionary[Vector3i, int], grid_sz: float):
 	tile_map = tilemap
 	tiles = tiles_ref
 	grid_size = grid_sz
 
-func find_exposed_corners(neighbors: Dictionary) -> Array:
+func find_exposed_corners(neighbors: Dictionary[MeshGenerator.NeighborDir, int]) -> Array:
 	var exposed_corners = []
 	var NeighborDir = MeshGenerator.NeighborDir
 	#print("Finding corners - DIAG_NW: ", neighbors.get(NeighborDir.DIAGONAL_NW, -1))
@@ -36,7 +36,7 @@ func find_exposed_corners(neighbors: Dictionary) -> Array:
 	return exposed_corners
 
 
-func should_cull_stair_face(face_normal: Vector3, neighbors: Dictionary, rotation_degrees: float) -> bool:
+func should_cull_stair_face(face_normal: Vector3, neighbors: Dictionary[MeshGenerator.NeighborDir, int], rotation_degrees: float) -> bool:
 	if face_normal.y < -0.7:
 		return true  # Bottom face — always cull
 
@@ -98,7 +98,7 @@ func _rotate_normal_to_local(world_normal: Vector3, rotation_degrees: float) -> 
 	)
 
 
-func should_cull_triangle(pos: Vector3i, neighbors: Dictionary, face_center: Vector3, 
+func should_cull_triangle(pos: Vector3i, neighbors: Dictionary[MeshGenerator.NeighborDir, int], face_center: Vector3, 
 						  face_normal: Vector3, exposed_corners: Array, _disable_all_culling: bool, is_fully_enclosed: bool = false) -> bool:
 	if batch_mode_skip_culling:
 		return false
@@ -114,10 +114,9 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary, face_center: Vec
 	var DEBUG_INSIDE_TILES = false  # Turn off verbose debug
 	
 	# Check if this cube has a cube on top
-	var TILE_TYPE_STAIRS = 5
 	# Stairs don't cause the block below to bulge — treat them as no block above
 	# so the bulge side faces get culled correctly.
-	var has_cube_above = neighbors[NeighborDir.UP] != -1 and neighbors[NeighborDir.UP] != TILE_TYPE_STAIRS
+	var has_cube_above = neighbors[NeighborDir.UP] != -1 and neighbors[NeighborDir.UP] != MeshGenerator.TILE_TYPE_STAIRS
 	
 	# Use the PRE-CAPTURED is_fully_enclosed status
 	# (No longer checking tiles dictionary here - it's done before threading)
@@ -170,7 +169,7 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary, face_center: Vec
 			return false  # Keep the ENTIRE face
 		
 		# STAIRS CHECK: If west neighbor is stairs, never cull this face
-		if neighbors[NeighborDir.WEST] == TILE_TYPE_STAIRS:
+		if neighbors[NeighborDir.WEST] == MeshGenerator.TILE_TYPE_STAIRS:
 			return false
 		
 		# Otherwise, apply normal face culling
@@ -198,7 +197,7 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary, face_center: Vec
 			return false  # Keep the ENTIRE face
 		
 		# STAIRS CHECK: If east neighbor is stairs, never cull this face
-		if neighbors[NeighborDir.EAST] == TILE_TYPE_STAIRS:
+		if neighbors[NeighborDir.EAST] == MeshGenerator.TILE_TYPE_STAIRS:
 			return false
 		
 		# Otherwise, apply normal face culling
@@ -226,7 +225,7 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary, face_center: Vec
 			return false  # Keep the ENTIRE face
 		
 		# STAIRS CHECK: If north neighbor is stairs, never cull this face
-		if neighbors[NeighborDir.NORTH] == TILE_TYPE_STAIRS:
+		if neighbors[NeighborDir.NORTH] == MeshGenerator.TILE_TYPE_STAIRS:
 			return false
 		
 		# Otherwise, apply normal face culling
@@ -254,7 +253,7 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary, face_center: Vec
 			return false  # Keep the ENTIRE face
 		
 		# STAIRS CHECK: If south neighbor is stairs, never cull this face
-		if neighbors[NeighborDir.SOUTH] == TILE_TYPE_STAIRS:
+		if neighbors[NeighborDir.SOUTH] == MeshGenerator.TILE_TYPE_STAIRS:
 			return false
 		
 		# Otherwise, apply normal face culling
@@ -276,7 +275,7 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary, face_center: Vec
 		if neighbors[NeighborDir.UP] != -1:
 			# If a stair is above, cull the bulge top face entirely — the stair base
 			# sits at the bulge height and will z-fight with it otherwise.
-			if neighbors[NeighborDir.UP] == TILE_TYPE_STAIRS:
+			if neighbors[NeighborDir.UP] == MeshGenerator.TILE_TYPE_STAIRS:
 				return true
 			# For any other tile above, only cull below the bulge area.
 			# The bulge top stays visible so it connects with the block above.
