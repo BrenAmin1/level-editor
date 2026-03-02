@@ -289,9 +289,9 @@ func _process_mesh_surface(base_mesh: ArrayMesh, surface_idx: int, pos: Vector3i
 		# Add to surface
 		surface_classifier.add_triangle_to_surface(triangles_by_surface, v0, v1, v2, uvs, i0, i1, i2, normals, original_normals)
 
-func generate_tile_mesh(tile_type: int, neighbors: Dictionary[MeshGenerator.NeighborDir, int], cull_top: bool = false) -> ArrayMesh:
+func generate_tile_mesh(tile_type: int, neighbors: Dictionary[MeshGenerator.NeighborDir, int], cull_top: bool = false, _is_fully_enclosed: bool = false, pos: Vector3i = Vector3i.ZERO) -> ArrayMesh:
 	# CHECK IF STAIRS - Handle procedurally with default rotation (South-facing)
 	if tile_type == TILE_TYPE_STAIRS:
 		return ProceduralStairsGenerator.generate_stairs_mesh(4, grid_size, 180)
 	
-	return mesh_builder.generate_simple_tile_mesh(tile_type, neighbors, grid_size, cull_top)
+	return mesh_builder.generate_simple_tile_mesh(tile_type, neighbors, grid_size, cull_top, pos)

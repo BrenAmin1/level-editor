@@ -202,12 +202,16 @@ func generate_optimized_level_mesh_multi_material() -> ArrayMesh:
 func _tile_mesh_for_pos(pos: Vector3i, tile_type: int) -> ArrayMesh:
 	var neighbors: Dictionary = tile_map.get_neighbors(pos)
 	var cull_top: bool = pos in _top_plane_cull
-	if tile_type in custom_meshes or tile_type == MeshGenerator.TILE_TYPE_STAIRS:
+	# Match the runtime path: compute is_fully_enclosed so the export mesh
+	# culls interior faces identically to what the runtime tile_manager does.
+	var is_fully_enclosed: bool = tile_map.tile_manager.check_if_fully_enclosed(pos, neighbors)
+	var has_tile_above = neighbors[MeshGenerator.NeighborDir.UP] != -1
+	if (tile_type in custom_meshes or tile_type == MeshGenerator.TILE_TYPE_STAIRS) and not has_tile_above:
 		var rotation: float = tile_map.tile_rotations.get(pos, 0.0)
 		return mesh_generator.generate_custom_tile_mesh(
-				pos, tile_type, neighbors, rotation, false, 4, cull_top)
+				pos, tile_type, neighbors, rotation, is_fully_enclosed, 4, cull_top)
 	else:
-		return mesh_generator.generate_tile_mesh(tile_type, neighbors, cull_top)
+		return mesh_generator.generate_tile_mesh(tile_type, neighbors, cull_top, is_fully_enclosed, pos)
 
 
 func _group_by_type() -> Dictionary[int, Array]:

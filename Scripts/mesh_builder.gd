@@ -44,7 +44,7 @@ func build_final_mesh(triangles_by_surface: Dictionary, tile_type: int, base_mes
 
 	return final_mesh
 
-func generate_simple_tile_mesh(tile_type: int, neighbors: Dictionary[MeshGenerator.NeighborDir, int], grid_size: float, cull_top: bool = false) -> ArrayMesh:
+func generate_simple_tile_mesh(tile_type: int, neighbors: Dictionary[MeshGenerator.NeighborDir, int], grid_size: float, cull_top: bool = false, pos: Vector3i = Vector3i.ZERO) -> ArrayMesh:
 	var s: float = grid_size
 	var NeighborDir := MeshGenerator.NeighborDir
 	var SurfaceRole := MeshGenerator.SurfaceRole
@@ -59,21 +59,91 @@ func generate_simple_tile_mesh(tile_type: int, neighbors: Dictionary[MeshGenerat
 	var bot_v    := PackedVector3Array(); var bot_n    := PackedVector3Array()
 	var bot_uv   := PackedVector2Array(); var bot_i    := PackedInt32Array()
 
-	# TOP
-	if neighbors[NeighborDir.UP] == -1 and not cull_top:
+	var has_n := neighbors[NeighborDir.NORTH] != -1
+	var has_s := neighbors[NeighborDir.SOUTH] != -1
+	var has_e := neighbors[NeighborDir.EAST]  != -1
+	var has_w := neighbors[NeighborDir.WEST]  != -1
+
+	# Helper: is this neighbor type a bulge (custom mesh with no tile above it)?
+	var _is_bulge = func(neighbor_type: int, neighbor_pos: Vector3i) -> bool:
+		if neighbor_type == -1:
+			return false
+		var is_custom: bool = (neighbor_type in tile_map.custom_meshes) or \
+							  (neighbor_type == MeshGenerator.TILE_TYPE_STAIRS)
+		if not is_custom:
+			return false
+		return (neighbor_pos + Vector3i(0,1,0)) not in tile_map.tiles
+
+	# Helper: should a simple tile's side face toward a bulge neighbor be shown?
+	# Rule: show if the bulge has <= 1 neighbors in the two perpendicular directions
+	# (left and right relative to the face). A bulge flanked on both sides is enclosed
+	# and the face behind it is not visible; a bulge with one or no flank neighbors
+	# leaves the face exposed.
+	var _bulge_side_visible = func(bulge_pos: Vector3i, perp_a: Vector3i, perp_b: Vector3i) -> bool:
+		var count: int = 0
+		if (bulge_pos + perp_a) in tile_map.tiles: count += 1
+		if (bulge_pos + perp_b) in tile_map.tiles: count += 1
+		return count <= 1
+
+	# Perpendicular offsets for each face direction
+	var n_perps := [Vector3i(1,0,0),  Vector3i(-1,0,0)]
+	var s_perps := [Vector3i(1,0,0),  Vector3i(-1,0,0)]
+	var e_perps := [Vector3i(0,0,-1), Vector3i(0,0,1)]
+	var w_perps := [Vector3i(0,0,-1), Vector3i(0,0,1)]
+
+	# Neighbor positions
+	var n_pos := pos + Vector3i(0,0,-1)
+	var s_pos := pos + Vector3i(0,0,1)
+	var e_pos := pos + Vector3i(1,0,0)
+	var w_pos := pos + Vector3i(-1,0,0)
+	var up_pos := pos + Vector3i(0,1,0)
+
+	# TOP — show when UP is absent, OR UP is a bulge where:
+	#   1. The bulge above has at least one non-bulge cardinal (not fully enclosed above), AND
+	#   2. This simple tile has at least one open cardinal (absent or bulge neighbor),
+	#      giving a viewing angle into the strip between the top and the bulge above.
+	var up_type: int = neighbors[NeighborDir.UP]
+	var show_top: bool = false
+	if up_type == -1:
+		show_top = true
+	elif _is_bulge.call(up_type, up_pos):
+		# Condition 1: bulge above has at least one non-bulge cardinal
+		var bulge_exposed: bool = false
+		var bu := up_pos
+		for bc in [bu + Vector3i(0,0,-1), bu + Vector3i(0,0,1), bu + Vector3i(1,0,0), bu + Vector3i(-1,0,0)]:
+			var bc_is_bulge: bool = (bc in tile_map.tiles) and ((bc + Vector3i(0,1,0)) not in tile_map.tiles)
+			if not bc_is_bulge:
+				bulge_exposed = true
+				break
+		# Condition 2: there exists a direction where BOTH the simple tile's cardinal
+		# is open (absent or bulge) AND the bulge above's same-direction cardinal is
+		# non-bulge. The viewing angle must align on the same side.
+		if bulge_exposed:
+			for dir_offset in [Vector3i(0,0,-1), Vector3i(0,0,1), Vector3i(1,0,0), Vector3i(-1,0,0)]:
+				var tile_cc: Vector3i = pos + dir_offset
+				var tile_cc_is_flat: bool = (tile_cc in tile_map.tiles) and ((tile_cc + Vector3i(0,1,0)) in tile_map.tiles)
+				if tile_cc_is_flat:
+					continue  # This side of the simple tile is sealed
+				var bulge_cc: Vector3i = bu + dir_offset
+				var bulge_cc_is_bulge: bool = (bulge_cc in tile_map.tiles) and ((bulge_cc + Vector3i(0,1,0)) not in tile_map.tiles)
+				if not bulge_cc_is_bulge:
+					show_top = true
+					break
+	if show_top and not cull_top:
 		_add_quad(top_v, top_i, top_n, top_uv,
 			Vector3(0,s,0), Vector3(s,s,0), Vector3(s,s,s), Vector3(0,s,s), Vector3(0,1,0))
-	# SIDES
-	if neighbors[NeighborDir.NORTH] == -1:
+
+	# SIDES — show when neighbor absent, OR neighbor is a bulge with <=1 perpendicular neighbors
+	if not has_n or (_is_bulge.call(neighbors[NeighborDir.NORTH], n_pos) and _bulge_side_visible.call(n_pos, n_perps[0], n_perps[1])):
 		_add_quad(sides_v, sides_i, sides_n, sides_uv,
 			Vector3(0,0,0), Vector3(s,0,0), Vector3(s,s,0), Vector3(0,s,0), Vector3(0,0,-1))
-	if neighbors[NeighborDir.SOUTH] == -1:
+	if not has_s or (_is_bulge.call(neighbors[NeighborDir.SOUTH], s_pos) and _bulge_side_visible.call(s_pos, s_perps[0], s_perps[1])):
 		_add_quad(sides_v, sides_i, sides_n, sides_uv,
 			Vector3(s,0,s), Vector3(0,0,s), Vector3(0,s,s), Vector3(s,s,s), Vector3(0,0,1))
-	if neighbors[NeighborDir.EAST] == -1:
+	if not has_e or (_is_bulge.call(neighbors[NeighborDir.EAST], e_pos) and _bulge_side_visible.call(e_pos, e_perps[0], e_perps[1])):
 		_add_quad(sides_v, sides_i, sides_n, sides_uv,
 			Vector3(s,0,0), Vector3(s,0,s), Vector3(s,s,s), Vector3(s,s,0), Vector3(1,0,0))
-	if neighbors[NeighborDir.WEST] == -1:
+	if not has_w or (_is_bulge.call(neighbors[NeighborDir.WEST], w_pos) and _bulge_side_visible.call(w_pos, w_perps[0], w_perps[1])):
 		_add_quad(sides_v, sides_i, sides_n, sides_uv,
 			Vector3(0,0,s), Vector3(0,0,0), Vector3(0,s,0), Vector3(0,s,s), Vector3(-1,0,0))
 	# BOTTOM
@@ -101,14 +171,20 @@ func generate_simple_tile_mesh(tile_type: int, neighbors: Dictionary[MeshGenerat
 		sa[Mesh.ARRAY_TEX_UV] = rd[3]
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, sa)
 		var surf_idx: int = mesh.get_surface_count() - 1
-		mesh.surface_set_name(surf_idx, str(rd[4] as int))
-		# Apply default material per role for in-editor display.
-		var mat := StandardMaterial3D.new()
-		if tile_type == 0:
-			mat.albedo_color = Color(0.7, 0.7, 0.7)
-		elif tile_type == 1:
-			mat.albedo_color = Color(0.8, 0.5, 0.3)
-		mesh.surface_set_material(surf_idx, mat)
+		var role: int = rd[4]
+		mesh.surface_set_name(surf_idx, str(role))
+		# Read material from the custom mesh's corresponding surface.
+		# custom_materials holds white placeholders — the real textures live on
+		# custom_meshes surfaces. flip_mesh_normals and align_mesh_to_grid both
+		# rebuild the mesh preserving material and surface ORDER but stripping names,
+		# so we match by index (0=Top, 1=Sides, 2=Bottom) not by name.
+		var mat: Material = null
+		if tile_type in tile_map.custom_meshes:
+			var src: ArrayMesh = tile_map.custom_meshes[tile_type]
+			if role < src.get_surface_count():
+				mat = src.surface_get_material(role)
+		if mat:
+			mesh.surface_set_material(surf_idx, mat)
 
 	return mesh
 

@@ -6,15 +6,21 @@ class_name CameraController extends Camera3D
 var camera_rotation : Vector2 = Vector2.ZERO  # x = pitch, y = yaw
 var mouse_sensitivity : float = 0.003
 var movement_speed : float = 5.0
+var is_loading: bool = false  # Set by level_editor during level load to block movement
+
 
 func _ready():
 	camera.position = Vector3(0,5,0)
+
 
 func _process(delta):
 	handle_movement(delta)
 	handle_rotation()
 
+
 func handle_movement(delta):
+	if is_loading:
+		return
 	var input = Vector3.ZERO
 	
 	if Input.is_key_pressed(KEY_W): input.z -= 1
@@ -28,10 +34,12 @@ func handle_movement(delta):
 	var direction = (global_transform.basis * input).normalized()
 	global_translate(direction * movement_speed * delta)
 
+
 func handle_rotation():
 	# Apply rotation to camera
 	rotation.y = camera_rotation.y
 	rotation.x = camera_rotation.x
+
 
 func handle_mouse_motion(event: InputEventMouseMotion):
 	if not Engine.is_editor_hint():
@@ -40,8 +48,10 @@ func handle_mouse_motion(event: InputEventMouseMotion):
 			camera_rotation.x -= event.relative.y * mouse_sensitivity
 			camera_rotation.x = clamp(camera_rotation.x, -PI/2, PI/2)
 
+
 func handle_mouse_wheel(delta: float):
 	fov = clamp(fov + delta, 1.0, 179.0)
+
 
 func reset_fov():
 	fov = 75.0

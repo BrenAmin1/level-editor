@@ -9,6 +9,7 @@ var selection_manager: SelectionManager
 var y_level_manager: YLevelManager
 
 # Input state
+var is_loading: bool = false  # Block all input while level is loading
 var mouse_pressed: bool = false
 var current_mouse_button: InputEventMouseButton
 var is_ui_hovered: bool = false
@@ -140,6 +141,8 @@ func toggle_paint_mode():
 # ============================================================================
 
 func process_input(event: InputEvent, mode: int, tile_type: int, y_level: int):
+	if is_loading:
+		return null
 	current_mode = mode
 	current_tile_type = tile_type
 	current_y_level = y_level
@@ -260,6 +263,8 @@ func handle_mouse_wheel(delta: float):
 	camera.handle_mouse_wheel(delta)
 
 func handle_continuous_input(_delta: float):
+	if is_loading:
+		return
 	# Block input if:
 	# 1. Mouse is over UI (material palette, spinboxes, etc.)
 	# 2. Window doesn't have focus

@@ -12,6 +12,19 @@ func setup(tilemap: TileMap3D, tiles_ref: Dictionary[Vector3i, int], grid_sz: fl
 	tiles = tiles_ref
 	grid_size = grid_sz
 
+# Returns true if the tile at `pos` is rendered as a bulge (custom inset mesh).
+# A tile renders as bulge only when it has a custom mesh type AND no tile above.
+# If it has a tile above, it renders as a flat box regardless of type.
+func _is_bulge_at(pos: Vector3i) -> bool:
+	if pos not in tiles:
+		return false
+	var tile_type: int = tiles[pos]
+	var type_is_custom = (tile_type in tile_map.custom_meshes) or \
+						  (tile_type == MeshGenerator.TILE_TYPE_STAIRS)
+	if not type_is_custom:
+		return false
+	return (pos + Vector3i(0, 1, 0)) not in tiles
+
 func find_exposed_corners(neighbors: Dictionary[MeshGenerator.NeighborDir, int]) -> Array:
 	var exposed_corners = []
 	var NeighborDir = MeshGenerator.NeighborDir
@@ -121,8 +134,8 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary[MeshGenerator.Nei
 	# Use the PRE-CAPTURED is_fully_enclosed status
 	# (No longer checking tiles dictionary here - it's done before threading)
 	
-	# If this is a fully enclosed inside tile, aggressively cull everything
-	# (Even if next to stairs - we can't see inside anyway)
+	# If this is a fully enclosed inside tile, aggressively cull everything —
+	# UNLESS it's at an exposed corner, where the diagonal gap makes faces visible.
 	if is_fully_enclosed:
 		if DEBUG_INSIDE_TILES:
 			var face_type = "UNKNOWN"
@@ -140,9 +153,11 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary[MeshGenerator.Nei
 				face_type = "BOTTOM"
 			print("  [CULLING] ", face_type, " face at ", pos, " (inside tile)")
 		
-		# Cull all side faces
+		# Cull side faces only if this face isn't at an exposed corner
 		if abs(face_normal.x) > 0.7 or abs(face_normal.z) > 0.7:
-			return true
+			if exposed_corners.is_empty():
+				return true
+			# Fall through to the per-direction corner checks below
 		# Cull top faces
 		if face_normal.y > 0.7:
 			return true
@@ -159,8 +174,8 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary[MeshGenerator.Nei
 		var is_part_of_nw_corner = NeighborDir.DIAGONAL_NW in exposed_corners
 		var is_part_of_sw_corner = NeighborDir.DIAGONAL_SW in exposed_corners
 		
-		# If this face is part of an exposed corner, DON'T cull ANY of it
-		if is_part_of_nw_corner or is_part_of_sw_corner:
+		# Exposed corner — keep the face, unless fully enclosed
+		if (is_part_of_nw_corner or is_part_of_sw_corner):
 			if DEBUG_CULLING:
 				if is_part_of_nw_corner:
 					_track_corner_keep(pos, "WEST at NW")
@@ -176,7 +191,7 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary[MeshGenerator.Nei
 		if neighbors[NeighborDir.WEST] != -1:
 			var neighbor_pos = pos + Vector3i(-1, 0, 0)
 			if neighbor_pos.y == pos.y:
-				if not _should_render_side_face(face_center, has_cube_above):
+				if not _should_render_side_face(face_center, has_cube_above, pos, pos + Vector3i(-1, 0, 0), neighbors[NeighborDir.WEST]):
 					return true
 			elif not _should_render_vertical_face(pos, neighbor_pos):
 				return true
@@ -187,8 +202,8 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary[MeshGenerator.Nei
 		var is_part_of_ne_corner = NeighborDir.DIAGONAL_NE in exposed_corners
 		var is_part_of_se_corner = NeighborDir.DIAGONAL_SE in exposed_corners
 		
-		# If this face is part of an exposed corner, DON'T cull ANY of it
-		if is_part_of_ne_corner or is_part_of_se_corner:
+		# Exposed corner — keep the face only if there's no east neighbor blocking it
+		if (is_part_of_ne_corner or is_part_of_se_corner):
 			if DEBUG_CULLING:
 				if is_part_of_ne_corner:
 					_track_corner_keep(pos, "EAST at NE")
@@ -204,7 +219,7 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary[MeshGenerator.Nei
 		if neighbors[NeighborDir.EAST] != -1:
 			var neighbor_pos = pos + Vector3i(1, 0, 0)
 			if neighbor_pos.y == pos.y:
-				if not _should_render_side_face(face_center, has_cube_above):
+				if not _should_render_side_face(face_center, has_cube_above, pos, pos + Vector3i(1, 0, 0), neighbors[NeighborDir.EAST]):
 					return true
 			elif not _should_render_vertical_face(pos, neighbor_pos):
 				return true
@@ -215,8 +230,8 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary[MeshGenerator.Nei
 		var is_part_of_nw_corner = NeighborDir.DIAGONAL_NW in exposed_corners
 		var is_part_of_ne_corner = NeighborDir.DIAGONAL_NE in exposed_corners
 		
-		# If this face is part of an exposed corner, DON'T cull ANY of it
-		if is_part_of_nw_corner or is_part_of_ne_corner:
+		# Exposed corner — keep the face, unless fully enclosed
+		if (is_part_of_nw_corner or is_part_of_ne_corner):
 			if DEBUG_CULLING:
 				if is_part_of_nw_corner:
 					_track_corner_keep(pos, "NORTH at NW")
@@ -232,7 +247,7 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary[MeshGenerator.Nei
 		if neighbors[NeighborDir.NORTH] != -1:
 			var neighbor_pos = pos + Vector3i(0, 0, -1)
 			if neighbor_pos.y == pos.y:
-				if not _should_render_side_face(face_center, has_cube_above):
+				if not _should_render_side_face(face_center, has_cube_above, pos, pos + Vector3i(0, 0, -1), neighbors[NeighborDir.NORTH]):
 					return true
 			elif not _should_render_vertical_face(pos, neighbor_pos):
 				return true
@@ -243,8 +258,8 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary[MeshGenerator.Nei
 		var is_part_of_sw_corner = NeighborDir.DIAGONAL_SW in exposed_corners
 		var is_part_of_se_corner = NeighborDir.DIAGONAL_SE in exposed_corners
 		
-		# If this face is part of an exposed corner, DON'T cull ANY of it
-		if is_part_of_sw_corner or is_part_of_se_corner:
+		# Exposed corner — keep the face, unless fully enclosed
+		if (is_part_of_sw_corner or is_part_of_se_corner):
 			if DEBUG_CULLING:
 				if is_part_of_sw_corner:
 					_track_corner_keep(pos, "SOUTH at SW")
@@ -260,7 +275,7 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary[MeshGenerator.Nei
 		if neighbors[NeighborDir.SOUTH] != -1:
 			var neighbor_pos = pos + Vector3i(0, 0, 1)
 			if neighbor_pos.y == pos.y:
-				if not _should_render_side_face(face_center, has_cube_above):
+				if not _should_render_side_face(face_center, has_cube_above, pos, pos + Vector3i(0, 0, 1), neighbors[NeighborDir.SOUTH]):
 					return true
 			elif not _should_render_vertical_face(pos, neighbor_pos):
 				return true
@@ -273,12 +288,16 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary[MeshGenerator.Nei
 	# Top face (normal pointing in +Y direction)
 	if face_normal.y > 0.7:
 		if neighbors[NeighborDir.UP] != -1:
-			# If a stair is above, cull the bulge top face entirely — the stair base
-			# sits at the bulge height and will z-fight with it otherwise.
+			# Stairs above always fully cover the top.
 			if neighbors[NeighborDir.UP] == MeshGenerator.TILE_TYPE_STAIRS:
 				return true
-			# For any other tile above, only cull below the bulge area.
-			# The bulge top stays visible so it connects with the block above.
+			# Fully enclosed tiles have their top completely covered — cull entirely.
+			if is_fully_enclosed:
+				return true
+			# Otherwise the tile above covers the center but the inset corners/edges
+			# of the bulge mesh are still exposed (the custom mesh doesn't reach the
+			# full ±0.5 grid boundary). Only cull the non-bulge portion; keep the
+			# bulge top so those exposed corners remain visible.
 			if not _face_is_in_bulge(face_center):
 				return true
 	
@@ -287,30 +306,21 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary[MeshGenerator.Nei
 func _should_render_vertical_face(current_pos: Vector3i, neighbor_pos: Vector3i) -> bool:
 	if neighbor_pos not in tiles:
 		return true
+	# Tiles at different Y levels are never flush — always keep the face.
+	if current_pos.y != neighbor_pos.y:
+		return true
 	var current_offset = tile_map.get_offset_for_y(current_pos.y)
 	var neighbor_offset = tile_map.get_offset_for_y(neighbor_pos.y)
 	return not current_offset.is_equal_approx(neighbor_offset)
 
-func _should_render_side_face(face_center: Vector3, has_cube_above: bool) -> bool:
-	"""
-	Determine if a side face should be rendered based on its height and whether the cube has another on top.
-	
-	Cubes with cubes on top have a bulge that extends above standard height.
-	Cubes without cubes on top are normal height.
-	
-	A same-level neighbor can block:
-	- For normal cubes: faces up to the standard grid height
-	- For tall cubes (with cube above): only faces below the bulge area
-	"""
-	var blocking_height = grid_size * 0.5  # Halfway up the grid (0.5 for grid_size = 1.0)
-	
-	if has_cube_above:
-		# This cube is taller (has bulge), so only faces above blocking_height should render
-		return face_center.y > blocking_height
-	else:
-		# This cube is normal height, so all faces at normal height should be culled
-		# Only render faces that extend above normal blocking (but this shouldn't happen for normal cubes)
-		return false
+func _should_render_side_face(_face_center: Vector3, _has_cube_above: bool, _current_pos: Vector3i, _neighbor_pos: Vector3i, _neighbor_tile_type: int) -> bool:
+	# This function is only called from generate_custom_tile_mesh (bulge tiles).
+	# A bulge tile's side face is always hidden when a same-level neighbor exists:
+	#   bulge + bulge -> both inset equally, sealed
+	#   bulge + flat  -> flat's flush face covers the bulge's inset face from outside
+	# So always cull. The flat tile's generate_simple_tile_mesh handles its own
+	# side face toward the bulge separately (keeping it to show the gap).
+	return false
 
 func _face_is_in_bulge(face_center: Vector3) -> bool:
 	"""

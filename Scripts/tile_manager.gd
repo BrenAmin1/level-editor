@@ -25,6 +25,7 @@ var generation_mutex: Mutex = null
 var should_stop_thread: bool = false
 var is_flushing: bool = false  # Prevent overlapping flushes
 var flush_completed_callback: Callable  # Optional: called once when flush fully finishes
+var flush_progress_callback: Callable   # Optional: called each frame with (done, total)
 
 # MESH CACHING: Reuse identical meshes
 var mesh_cache: Dictionary[String, ArrayMesh] = {}
@@ -107,17 +108,16 @@ func flush_batch_updates():
 			var neighbor_pos = pos + offset
 			if neighbor_pos in tiles:
 				tiles_to_update[neighbor_pos] = true
-		if pos.y > 0:
-			var below_pos = pos + Vector3i(0, -1, 0)
-			if below_pos in tiles:
-				tiles_to_update[below_pos] = true
-				for cardinal_offset in [
-					Vector3i(1, 0, 0), Vector3i(-1, 0, 0),
-					Vector3i(0, 0, 1), Vector3i(0, 0, -1)
-				]:
-					var affected_pos = below_pos + cardinal_offset
-					if affected_pos in tiles:
-						tiles_to_update[affected_pos] = true
+		var below_pos = pos + Vector3i(0, -1, 0)
+		if below_pos in tiles:
+			tiles_to_update[below_pos] = true
+			for cardinal_offset in [
+				Vector3i(1, 0, 0), Vector3i(-1, 0, 0),
+				Vector3i(0, 0, 1), Vector3i(0, 0, -1)
+			]:
+				var affected_pos = below_pos + cardinal_offset
+				if affected_pos in tiles:
+					tiles_to_update[affected_pos] = true
 
 	_flush_positions_size = tiles_to_update.size()
 	print("Total tiles to update (including neighbors): ", _flush_positions_size)
@@ -198,6 +198,8 @@ func tick():
 			_apply_mesh_to_scene(pos, mesh)
 			_flush_applied_count += 1
 			processed_this_frame += 1
+			if flush_progress_callback.is_valid():
+				flush_progress_callback.call(_flush_applied_count, _flush_positions_size)
 
 	# Progress logging
 	if _flush_positions_size > 100 and (_flush_applied_count - _flush_last_progress_print >= 500 or _flush_applied_count == _flush_positions_size):
@@ -229,6 +231,7 @@ func _finalise_flush(completed_successfully: bool):
 		print("⚠ Flush interrupted")
 
 	dirty_tiles.clear()
+	flush_progress_callback = Callable()
 	print("=== BATCH FLUSH END ===\n")
 	is_flushing = false
 
@@ -257,7 +260,7 @@ func _prepare_mesh_generation_batch(tiles_to_update: Dictionary[Vector3i, bool])
 		var neighbors = get_neighbors(pos)  # Capture neighbors NOW while all tiles exist
 		
 		# CRITICAL: Also capture if this is a fully enclosed tile
-		var is_fully_enclosed = _check_if_fully_enclosed(pos, neighbors)
+		var is_fully_enclosed = check_if_fully_enclosed(pos, neighbors)
 		
 		mesh_gen_queue.append({
 			"pos": pos,
@@ -271,7 +274,7 @@ func _prepare_mesh_generation_batch(tiles_to_update: Dictionary[Vector3i, bool])
 
 
 # Check if a tile is fully enclosed (has tile above and all neighbors have tiles above)
-func _check_if_fully_enclosed(pos: Vector3i, neighbors: Dictionary) -> bool:
+func check_if_fully_enclosed(pos: Vector3i, neighbors: Dictionary) -> bool:
 	var NeighborDir = MeshGenerator.NeighborDir
 	
 	# Must have a tile above
@@ -347,7 +350,7 @@ func _generate_meshes_threaded():
 		var is_fully_enclosed = tile_data["is_fully_enclosed"]  # Pre-captured enclosed status
 		
 		# MESH CACHING: Create cache key
-		var cache_key = _create_cache_key(tile_type, neighbors, rotation, is_fully_enclosed)
+		var cache_key = _create_cache_key(tile_type, neighbors, rotation, is_fully_enclosed, pos)
 		
 		var mesh: ArrayMesh
 		
@@ -359,10 +362,12 @@ func _generate_meshes_threaded():
 			generation_mutex.unlock()
 		else:
 			# Generate mesh on background thread
-			if tile_type in custom_meshes:
-				mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation, is_fully_enclosed)
+			var has_tile_above = neighbors[MeshGenerator.NeighborDir.UP] != -1
+			var step_count_batch = tile_map.tile_step_counts.get(pos, 4)
+			if (tile_type in custom_meshes or tile_type == MeshGenerator.TILE_TYPE_STAIRS) and not has_tile_above:
+				mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation, is_fully_enclosed, step_count_batch)
 			else:
-				mesh = mesh_generator.generate_tile_mesh(tile_type, neighbors)
+				mesh = mesh_generator.generate_tile_mesh(tile_type, neighbors, false, is_fully_enclosed, pos)
 			
 			# Cache the generated mesh
 			mesh_cache[cache_key] = mesh
@@ -378,23 +383,70 @@ func _generate_meshes_threaded():
 
 
 # MESH CACHING: Create unique cache key for mesh variations
-func _create_cache_key(tile_type: int, neighbors: Dictionary, rotation: float, is_fully_enclosed: bool = false) -> String:
-	# Hash: tile_type + 6 cardinal neighbors + 4 diagonal neighbors + rotation + is_fully_enclosed
+func _create_cache_key(tile_type: int, neighbors: Dictionary, rotation: float, is_fully_enclosed: bool = false, pos: Vector3i = Vector3i.ZERO) -> String:
+	# Hash: tile_type + encoded neighbors + rotation + is_fully_enclosed.
+	# Neighbor encoding: -1 = absent, (-100 - type) = flat-box, (type*10 + perp_count) = bulge.
+	# Bulge neighbors encode their perpendicular neighbor count (0-2) because mesh_builder
+	# uses that count to decide whether to show the simple tile's face toward the bulge.
 	var rounded_rotation = round(rotation / 15.0) * 15.0
-	var n = neighbors
 	var enclosed_flag = 1 if is_fully_enclosed else 0
-	return "%d_%d%d%d%d%d%d_%d%d%d%d_%.0f_%d" % [
+
+	# Cardinal dirs with their perpendicular offsets (for bulge side-visibility encoding)
+	var dir_offsets: Array = [
+		[MeshGenerator.NeighborDir.NORTH, Vector3i(0, 0, -1), [Vector3i(1,0,0),  Vector3i(-1,0,0)]],
+		[MeshGenerator.NeighborDir.SOUTH, Vector3i(0, 0,  1), [Vector3i(1,0,0),  Vector3i(-1,0,0)]],
+		[MeshGenerator.NeighborDir.EAST,  Vector3i(1, 0,  0), [Vector3i(0,0,-1), Vector3i(0,0,1)]],
+		[MeshGenerator.NeighborDir.WEST,  Vector3i(-1, 0, 0), [Vector3i(0,0,-1), Vector3i(0,0,1)]],
+		[MeshGenerator.NeighborDir.UP,    Vector3i(0, 1,  0), []],
+		[MeshGenerator.NeighborDir.DOWN,  Vector3i(0, -1, 0), []],
+	]
+	var encoded: Array = []
+	for pair in dir_offsets:
+		var t: int = neighbors.get(pair[0], -1)
+		if t == -1:
+			encoded.append(-1)
+		else:
+			var neighbor_world: Vector3i = pos + pair[1]
+			var neighbor_has_above: bool = (neighbor_world + Vector3i(0, 1, 0)) in tiles
+			if neighbor_has_above:
+				encoded.append(-100 - t)  # flat-box neighbor
+			else:
+				# Bulge neighbor — encode perpendicular neighbor count (0, 1, or 2)
+				# since mesh_builder shows/culls the face based on this count.
+				var perps: Array = pair[2]
+				var perp_count: int = 0
+				for pv in perps:
+					if (neighbor_world + pv) in tiles:
+						perp_count += 1
+				# For UP bulge, encode a 4-bit aligned-open mask: for each cardinal direction,
+				# 1 if the simple tile is open that side AND the bulge above is non-bulge that
+				# side. Matches mesh_builder aligned-viewing-angle condition for top face.
+				if pair[0] == MeshGenerator.NeighborDir.UP:
+					var aligned_mask: int = 0
+					var top_dirs: Array[Vector3i] = [Vector3i(0,0,-1), Vector3i(0,0,1), Vector3i(1,0,0), Vector3i(-1,0,0)]
+					for di in range(4):
+						var dv: Vector3i = top_dirs[di]
+						var tc: Vector3i = pos + dv
+						var tc_is_flat: bool = (tc in tiles) and ((tc + Vector3i(0,1,0)) in tiles)
+						if tc_is_flat:
+							continue
+						var bc: Vector3i = neighbor_world + dv
+						var bc_is_bulge: bool = (bc in tiles) and ((bc + Vector3i(0,1,0)) not in tiles)
+						if not bc_is_bulge:
+							aligned_mask |= (1 << di)
+					# Encode as type*100 + aligned_mask (0-15)
+					encoded.append(t * 100 + aligned_mask)
+				else:
+					# Encode as type*10 + perp_count (0-2)
+					encoded.append(t * 10 + perp_count)
+
+	return "%d_%d_%d_%d_%d_%d_%d_%d%d%d%d_%.0f_%d" % [
 		tile_type,
-		n[MeshGenerator.NeighborDir.NORTH],
-		n[MeshGenerator.NeighborDir.SOUTH],
-		n[MeshGenerator.NeighborDir.EAST],
-		n[MeshGenerator.NeighborDir.WEST],
-		n[MeshGenerator.NeighborDir.UP],
-		n[MeshGenerator.NeighborDir.DOWN],
-		n.get(MeshGenerator.NeighborDir.DIAGONAL_NW, -1),
-		n.get(MeshGenerator.NeighborDir.DIAGONAL_NE, -1),
-		n.get(MeshGenerator.NeighborDir.DIAGONAL_SW, -1),
-		n.get(MeshGenerator.NeighborDir.DIAGONAL_SE, -1),
+		encoded[0], encoded[1], encoded[2], encoded[3], encoded[4], encoded[5],
+		neighbors.get(MeshGenerator.NeighborDir.DIAGONAL_NW, -1),
+		neighbors.get(MeshGenerator.NeighborDir.DIAGONAL_NE, -1),
+		neighbors.get(MeshGenerator.NeighborDir.DIAGONAL_SW, -1),
+		neighbors.get(MeshGenerator.NeighborDir.DIAGONAL_SE, -1),
 		rounded_rotation,
 		enclosed_flag
 	]
@@ -422,6 +474,14 @@ func _apply_mesh_to_scene(pos: Vector3i, mesh: ArrayMesh):
 		# the wrong surface of the newly-assigned mesh.
 		for _si in range(mesh.get_surface_count()):
 			mi.set_surface_override_material(_si, null)
+		# For tiles without a palette entry, restore the mesh's own built-in
+		# surface materials — nulling overrides above would otherwise leave them
+		# untextured since nothing re-applies materials for unpainted tiles.
+		if pos not in tile_map.tile_materials:
+			for _si in range(mesh.get_surface_count()):
+				var mat = mesh.surface_get_material(_si)
+				if mat:
+					mi.set_surface_override_material(_si, mat)
 		mi.position = world_pos
 		mi.rotation_degrees.y = node_rotation
 		if node_rotation != 0.0:
@@ -557,17 +617,18 @@ func place_tile(pos: Vector3i, tile_type: int):
 
 	# SPECIAL: If placing on top of another tile, update the tile below and its
 	# cardinal neighbors (affects bulge culling / fully-enclosed detection).
-	if pos.y > 0:
-		var below_pos = pos + Vector3i(0, -1, 0)
-		if below_pos in tiles:
-			_update_tile_mesh_with_neighbors(below_pos, _get_neighbors_cached.call(below_pos))
-			for cardinal_offset in [
-				Vector3i(1, 0, 0), Vector3i(-1, 0, 0),
-				Vector3i(0, 0, 1), Vector3i(0, 0, -1)
-			]:
-				var affected_pos = below_pos + cardinal_offset
-				if affected_pos in tiles:
-					_update_tile_mesh_with_neighbors(affected_pos, _get_neighbors_cached.call(affected_pos))
+	# NOTE: guard was previously `pos.y > 0`, which skipped this for y=0 tiles
+	# placed above y=-1 underground tiles. Removed so negative-Y levels work too.
+	var below_pos = pos + Vector3i(0, -1, 0)
+	if below_pos in tiles:
+		_update_tile_mesh_with_neighbors(below_pos, _get_neighbors_cached.call(below_pos))
+		for cardinal_offset in [
+			Vector3i(1, 0, 0), Vector3i(-1, 0, 0),
+			Vector3i(0, 0, 1), Vector3i(0, 0, -1)
+		]:
+			var affected_pos = below_pos + cardinal_offset
+			if affected_pos in tiles:
+				_update_tile_mesh_with_neighbors(affected_pos, _get_neighbors_cached.call(affected_pos))
 
 
 func remove_tile(pos: Vector3i):
@@ -665,15 +726,18 @@ func _immediate_update_tile_mesh_with_neighbors(pos: Vector3i, neighbors: Dictio
 		step_count = tile_map.tile_step_counts[pos]
 	
 	# Use custom mesh if available, otherwise generate default.
+	# Exception: if a tile has a tile above it, always use the simple flat-box
+	# mesh — the bulge geometry is irrelevant and causes visual artefacts.
 	var mesh: ArrayMesh
-	if tile_type in custom_meshes or tile_type == MeshGenerator.TILE_TYPE_STAIRS:
-		var is_fully_enclosed = _check_if_fully_enclosed(pos, neighbors)
+	var is_fully_enclosed = check_if_fully_enclosed(pos, neighbors)
+	var has_tile_above = neighbors[MeshGenerator.NeighborDir.UP] != -1
+	if (tile_type in custom_meshes or tile_type == MeshGenerator.TILE_TYPE_STAIRS) and not has_tile_above:
 		# cull_top is an export-only optimization (suppresses the top face when
 		# a baked top-plane quad covers it). At runtime the top-plane quad floats
 		# above the tile mesh and both coexist fine, so always pass false here.
 		mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation, is_fully_enclosed, step_count, false)
 	else:
-		mesh = mesh_generator.generate_tile_mesh(tile_type, neighbors)
+		mesh = mesh_generator.generate_tile_mesh(tile_type, neighbors, false, is_fully_enclosed, pos)
 	
 	# Position at corner of grid cell
 	var world_pos = grid_to_world(pos)
@@ -688,6 +752,14 @@ func _immediate_update_tile_mesh_with_neighbors(pos: Vector3i, neighbors: Dictio
 		# the wrong surface of the newly-assigned mesh.
 		for _si in range(mesh.get_surface_count()):
 			mi.set_surface_override_material(_si, null)
+		# For tiles without a palette entry, restore the mesh's own built-in
+		# surface materials — nulling overrides above would otherwise leave them
+		# untextured since nothing re-applies materials for unpainted tiles.
+		if pos not in tile_map.tile_materials:
+			for _si in range(mesh.get_surface_count()):
+				var mat = mesh.surface_get_material(_si)
+				if mat:
+					mi.set_surface_override_material(_si, mat)
 		mi.position = world_pos
 		mi.rotation_degrees.y = node_rotation
 		if node_rotation != 0.0:
@@ -720,6 +792,13 @@ func _immediate_update_tile_mesh_with_neighbors(pos: Vector3i, neighbors: Dictio
 		
 		tile_meshes[pos] = mesh_instance
 		parent_node.add_child(mesh_instance)
+		# For unpainted tiles, restore the mesh's built-in surface materials as
+		# overrides — palette application below only runs for painted tiles.
+		if pos not in tile_map.tile_materials:
+			for _si in range(mesh.get_surface_count()):
+				var mat = mesh.surface_get_material(_si)
+				if mat:
+					mesh_instance.set_surface_override_material(_si, mat)
 	
 	# Apply palette materials to ALL surfaces (TOP, SIDES, BOTTOM) by role name.
 	if pos in tile_map.tile_materials:
@@ -746,14 +825,15 @@ func regenerate_tile_with_rotation(pos: Vector3i, rotation_degrees: float):
 	# Generate new mesh WITH ROTATION
 	var tile_type = tiles[pos]
 	var neighbors = get_neighbors(pos)
-	var is_fully_enclosed = _check_if_fully_enclosed(pos, neighbors)
+	var is_fully_enclosed = check_if_fully_enclosed(pos, neighbors)
 	
 	var mesh: ArrayMesh
-	if tile_type in custom_meshes:
+	var has_tile_above = neighbors[MeshGenerator.NeighborDir.UP] != -1
+	if (tile_type in custom_meshes) and not has_tile_above:
 		# cull_top is export-only — always false at runtime (see _immediate_update_tile_mesh_with_neighbors)
 		mesh = mesh_generator.generate_custom_tile_mesh(pos, tile_type, neighbors, rotation_degrees, is_fully_enclosed, 4, false)
 	else:
-		mesh = mesh_generator.generate_tile_mesh(tile_type, neighbors)
+		mesh = mesh_generator.generate_tile_mesh(tile_type, neighbors, false, is_fully_enclosed, pos)
 	
 	# Position at corner of grid cell
 	var world_pos = grid_to_world(pos)
@@ -832,16 +912,15 @@ func _flush_without_threading():
 				to_update[y_neighbor] = true
 		# Below-tile's cardinal neighbors also need updating (culling changes
 		# propagate horizontally at the layer below the edit).
-		if pos.y > 0:
-			var below_pos = pos + Vector3i(0, -1, 0)
-			if below_pos in tiles:
-				for cardinal_offset in [
-					Vector3i(1, 0, 0), Vector3i(-1, 0, 0),
-					Vector3i(0, 0, 1), Vector3i(0, 0, -1)
-				]:
-					var affected_pos = below_pos + cardinal_offset
-					if affected_pos in tiles:
-						to_update[affected_pos] = true
+		var below_pos = pos + Vector3i(0, -1, 0)
+		if below_pos in tiles:
+			for cardinal_offset in [
+				Vector3i(1, 0, 0), Vector3i(-1, 0, 0),
+				Vector3i(0, 0, 1), Vector3i(0, 0, -1)
+			]:
+				var affected_pos = below_pos + cardinal_offset
+				if affected_pos in tiles:
+					to_update[affected_pos] = true
 
 	for pos in to_update.keys():
 		if pos in tiles:

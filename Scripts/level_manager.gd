@@ -50,7 +50,7 @@ static func save_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 # LOAD LEVEL DATA
 # ============================================================================
 
-static func load_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filepath: String, material_palette = null) -> bool:
+static func load_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filepath: String, material_palette = null, progress_callback: Callable = Callable()) -> bool:
 	var file = FileAccess.open(filepath, FileAccess.READ)
 	
 	if file == null:
@@ -120,15 +120,9 @@ static func load_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 	#    tile shows the correct material on all surfaces.
 	#
 	# 3. Top plane — rebuilt last, after meshes and materials are both final.
+	tilemap.tile_manager.flush_progress_callback = progress_callback
 	tilemap.tile_manager.flush_completed_callback = func():
-		# Step 1: re-generate meshes for rotated tiles
-		if not tilemap.tile_rotations.is_empty():
-			print("  Applying rotations to ", tilemap.tile_rotations.size(), " tiles...")
-			for pos in tilemap.tile_rotations:
-				tilemap.tile_manager.update_tile_mesh(pos)
-			print("  ✓ Rotations applied")
-
-		# Step 2: re-apply palette materials to ALL surfaces (TOP, SIDES, BOTTOM) of
+		# Step 1: re-apply palette materials to ALL surfaces (TOP, SIDES, BOTTOM) of
 		# every painted tile. Name-based lookup is safe regardless of surface index.
 		if not tilemap.tile_materials.is_empty() and tilemap.material_palette_ref:
 			print("  Re-applying materials to ", tilemap.tile_materials.size(), " tiles...")
@@ -141,13 +135,52 @@ static func load_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 					TileMap3D.apply_palette_materials_to_mesh(tilemap.tile_meshes[pos], [top_mat, sides_mat, bot_mat])
 			print("  ✓ Materials re-applied")
 
-		# Step 3: rebuild top plane now that all meshes and materials are final
+		# Step 2: rebuild top plane with initial meshes
 		tilemap.rebuild_top_plane_mesh()
 
-		# Re-enable caching now that the flush is fully done. Moving this into the
-		# callback prevents a race where the flag was reset on the main thread
-		# before the worker thread had a chance to read it.
 		tilemap.tile_manager.disable_caching_this_flush = false
+
+		# Step 3: targeted second pass — only regenerate tiles whose culling
+		# depends on the full tile set being known:
+		#   - Tiles with a tile above (simple/flat-box) — their top and side
+		#     visibility depends on whether cardinal neighbors are bulge tiles
+		#   - Their cardinal neighbors — bulge tiles whose side faces toward a
+		#     simple tile need correct _should_render_side_face evaluation
+		#   - Rotated tiles — need tile_rotations which is fully loaded now
+		var second_pass: Dictionary[Vector3i, bool] = {}
+		for pos in tilemap.tiles:
+			var needs_second_pass = false
+			if (pos + Vector3i(0, 1, 0)) in tilemap.tiles:
+				needs_second_pass = true  # Simple/flat-box tile
+			if pos in tilemap.tile_rotations:
+				needs_second_pass = true  # Rotated tile
+			if needs_second_pass:
+				second_pass[pos] = true
+				for offset in [Vector3i(1,0,0), Vector3i(-1,0,0), Vector3i(0,0,1), Vector3i(0,0,-1)]:
+					var n: Vector3i = pos + offset
+					if n in tilemap.tiles:
+						second_pass[n] = true
+
+		if not second_pass.is_empty():
+			print("  Queuing targeted re-cull pass (", second_pass.size(), " tiles, async)...")
+			tilemap.tile_manager.flush_completed_callback = func():
+				print("  ✓ Targeted re-cull pass done")
+				# Re-apply materials to ALL painted tiles — the flush expanded
+				# to include neighbors beyond second_pass, so we must cover all.
+				if not tilemap.tile_materials.is_empty() and tilemap.material_palette_ref:
+					for pos in tilemap.tile_materials:
+						if pos in tilemap.tile_meshes:
+							var material_index: int = tilemap.tile_materials[pos]
+							var top_mat   = tilemap.material_palette_ref.get_material_for_surface(material_index, 0)
+							var sides_mat = tilemap.material_palette_ref.get_material_for_surface(material_index, 1)
+							var bot_mat   = tilemap.material_palette_ref.get_material_for_surface(material_index, 2)
+							TileMap3D.apply_palette_materials_to_mesh(tilemap.tile_meshes[pos], [top_mat, sides_mat, bot_mat])
+				tilemap.rebuild_top_plane_mesh()
+			tilemap.tile_manager.clear_mesh_cache()
+			tilemap.set_batch_mode(true)
+			for pos in second_pass:
+				tilemap.tile_manager.mark_dirty(pos)
+			tilemap.set_batch_mode(false)
 
 	# CRITICAL: Ensure culling is ENABLED for the flush
 	# Disable caching for this flush to ensure accurate corner evaluation.

@@ -165,7 +165,11 @@ func _on_material_selected(material_index: int):
 func _process(_delta):
 	selection_manager.process_queue()
 	tilemap.tick()
-	
+
+	# Finish loading once all flushes are complete
+	if input_handler and input_handler.is_loading and not tilemap.tile_manager.is_flushing:
+		_end_loading()
+
 	# FIXED: Don't update cursor when popup is open
 	if camera and cursor_visualizer and not is_popup_open:
 		_update_cursor()
@@ -401,22 +405,23 @@ func load_last_level():
 	var last_level = levels[-1]
 	var filepath = "user://saved_levels/" + last_level
 	
-	if LevelSaveLoad.load_level(tilemap, y_level_manager, filepath, material_palette):
+	_begin_loading()
+	if LevelSaveLoad.load_level(tilemap, y_level_manager, filepath, material_palette, _make_load_progress_callback()):
 		print("\n=== LEVEL LOADED ===")
 		print("Loaded from: ", filepath)
 		print("====================\n")
-		
-		# Update grid visualizer to current y level
 		y_level_manager.change_y_level(current_y_level)
+	else:
+		_end_loading()
 
 
 func load_level_by_name(filename: String):
 	var filepath = "user://saved_levels/" + filename
-	if LevelSaveLoad.load_level(tilemap, y_level_manager, filepath, material_palette):
+	_begin_loading()
+	if LevelSaveLoad.load_level(tilemap, y_level_manager, filepath, material_palette, _make_load_progress_callback()):
 		print("\n=== LEVEL LOADED ===")
 		print("Loaded from: ", filepath)
 		print("====================\n")
-		
 		# Update grid visualizer to current y level
 		y_level_manager.change_y_level(current_y_level)
 
@@ -444,8 +449,7 @@ func _on_export_confirmed(is_chunked: bool, path: String):
 	if _export_thread and _export_thread.is_alive():
 		print("Export already in progress, please wait.")
 		return
-
-	var ext := path.get_extension().to_lower()
+	
 	print("\n=== EXPORTING LEVEL ===")
 	print("Format: ", "Chunked" if is_chunked else "Single")
 	print("Path: ", path)
@@ -598,6 +602,43 @@ func _hide_export_overlay() -> void:
 		_export_overlay.visible = false
 
 
+# ── Loading helpers ──────────────────────────────────────────────────────────
+
+func _begin_loading() -> void:
+	"""Block input and show the loading overlay. Polling in _process will
+	call _end_loading once tile_manager.is_flushing goes false."""
+	if input_handler:
+		input_handler.is_loading = true
+	if camera:
+		camera.set_process(false)
+	_show_export_overlay("Loading level…")
+
+func _end_loading() -> void:
+	"""Unblock input and hide the loading overlay."""
+	if input_handler:
+		input_handler.is_loading = false
+	if camera:
+		camera.set_process(true)
+	_hide_export_overlay()
+
+func _make_load_progress_callback() -> Callable:
+	"""Return a progress callback that updates the export overlay bar."""
+	return func(done: int, total: int) -> void:
+		call_deferred("_update_load_progress", done, total)
+
+func _update_load_progress(done: int, total: int) -> void:
+	"""Called on main thread each frame during the loading flush."""
+	if not _export_bar_fill or not _export_pct_label:
+		return
+	var pct := float(done) / float(total) if total > 0 else 0.0
+	_export_bar_fill.size.x = _export_bar.size.x * pct
+	_export_pct_label.text = "%d%%" % int(pct * 100)
+	if _export_label:
+		_export_label.text = "Loading level…"
+
+# _end_loading is driven by _process polling tile_manager.is_flushing
+
+
 func _on_save_confirmed(path: String):
 	"""Handle save confirmation from save dialog"""
 	if LevelSaveLoad.save_level(tilemap, y_level_manager, path, material_palette):
@@ -610,20 +651,19 @@ func _on_save_confirmed(path: String):
 
 func _on_load_confirmed(path: String):
 	"""Handle load confirmation from load dialog"""
-	if LevelSaveLoad.load_level(tilemap, y_level_manager, path, material_palette):
+	_begin_loading()
+	if LevelSaveLoad.load_level(tilemap, y_level_manager, path, material_palette, _make_load_progress_callback()):
 		current_save_file = path  # Remember this file for quick save
 		print("\n=== LEVEL LOADED ===")
 		var real_path = ProjectSettings.globalize_path(path)
 		print("Loaded from: ", real_path)
 		print("====================\n")
-		
 		# Clear undo/redo history — loaded state is the new baseline
 		if undo_redo:
 			undo_redo.clear()
-		
-		# Update grid visualizer to current y level
 		y_level_manager.change_y_level(current_y_level)
 	else:
+		_end_loading()
 		push_error("Failed to load level from: " + path)
 		print("ERROR: Load failed!")
 
