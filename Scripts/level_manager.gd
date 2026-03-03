@@ -50,31 +50,35 @@ static func save_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 # LOAD LEVEL DATA
 # ============================================================================
 
-static func load_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filepath: String, material_palette = null, progress_callback: Callable = Callable()) -> bool:
-	var file = FileAccess.open(filepath, FileAccess.READ)
-	
-	if file == null:
-		push_error("Failed to open file for reading: " + filepath)
-		return false
-	
-	var json_string = file.get_as_text()
-	file.close()
-	
-	var json = JSON.new()
-	var parse_result = json.parse(json_string)
-	
-	if parse_result != OK:
-		push_error("Failed to parse JSON: " + json.get_error_message())
-		return false
-	
-	var save_data = json.data
-	
-	# Validate save data
+static func load_level_from_data(tilemap: TileMap3D, y_level_manager: YLevelManager, filepath: String, save_data: Dictionary, material_palette = null, progress_callback: Callable = Callable()) -> bool:
+	"""Load a level from pre-parsed save data. Called by level_editor after
+	JSON parsing has already been done on a deferred frame."""
 	if not _validate_save_data(save_data):
 		push_error("Invalid save data format")
 		return false
-	
-	# Clear existing level
+	return _load_level_from_save_data(tilemap, y_level_manager, filepath, save_data, material_palette, progress_callback)
+
+
+static func load_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filepath: String, material_palette = null, progress_callback: Callable = Callable()) -> bool:
+	"""Load a level from a filepath. Reads and parses JSON then delegates."""
+	var file = FileAccess.open(filepath, FileAccess.READ)
+	if file == null:
+		push_error("Failed to open file for reading: " + filepath)
+		return false
+	var json_string = file.get_as_text()
+	file.close()
+	var json = JSON.new()
+	if json.parse(json_string) != OK:
+		push_error("Failed to parse JSON: " + json.get_error_message())
+		return false
+	if not _validate_save_data(json.data):
+		push_error("Invalid save data format")
+		return false
+	return _load_level_from_save_data(tilemap, y_level_manager, filepath, json.data, material_palette, progress_callback)
+
+
+static func _load_level_from_save_data(tilemap: TileMap3D, y_level_manager: YLevelManager, filepath: String, save_data: Dictionary, material_palette = null, progress_callback: Callable = Callable()) -> bool:
+	tilemap.tile_manager.cleanup()
 	_clear_level(tilemap, y_level_manager)
 	
 	# Load grid size (optional - warn if different)
@@ -120,7 +124,12 @@ static func load_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 	#    tile shows the correct material on all surfaces.
 	#
 	# 3. Top plane — rebuilt last, after meshes and materials are both final.
-	tilemap.tile_manager.flush_progress_callback = progress_callback
+	# Flush 1 reports 0->50%, flush 2 reports 50->100%.
+	var first_flush_callback: Callable = Callable()
+	if progress_callback.is_valid():
+		first_flush_callback = func(done: int, total: int) -> void:
+			progress_callback.call(done, total * 2)
+	tilemap.tile_manager.flush_progress_callback = first_flush_callback
 	tilemap.tile_manager.flush_completed_callback = func():
 		# Step 1: re-apply palette materials to ALL surfaces (TOP, SIDES, BOTTOM) of
 		# every painted tile. Name-based lookup is safe regardless of surface index.
@@ -163,6 +172,11 @@ static func load_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 
 		if not second_pass.is_empty():
 			print("  Queuing targeted re-cull pass (", second_pass.size(), " tiles, async)...")
+			var second_flush_callback: Callable = Callable()
+			if progress_callback.is_valid():
+				second_flush_callback = func(done: int, total: int) -> void:
+					progress_callback.call(total + done, total * 2)
+			tilemap.tile_manager.flush_progress_callback = second_flush_callback
 			tilemap.tile_manager.flush_completed_callback = func():
 				print("  ✓ Targeted re-cull pass done")
 				# Re-apply materials to ALL painted tiles — the flush expanded
@@ -436,12 +450,13 @@ static func _validate_save_data(data) -> bool:
 # ============================================================================
 
 static func _clear_level(tilemap: TileMap3D, y_level_manager: YLevelManager):
-	# Clear all tiles
+	tilemap._bulk_clearing = true
 	var tiles_to_remove = tilemap.tiles.keys()
 	for pos in tiles_to_remove:
 		tilemap.remove_tile(pos)
-	
-	# Clear all Y-level offsets
+	tilemap._bulk_clearing = false
+	tilemap.tile_materials.clear()
+	tilemap.rebuild_top_plane_mesh()
 	var levels_to_clear = y_level_manager.y_level_offsets.keys()
 	for level in levels_to_clear:
 		y_level_manager.clear_offset(level)

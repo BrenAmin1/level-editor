@@ -45,6 +45,7 @@ var _top_plane_nodes: Dictionary[Vector3i, MeshInstance3D] = {}
 var _top_plane_container: Node3D = null
 
 var _top_plane_dirty: bool = false
+var _bulk_clearing: bool = false
 var _top_plane_dirty_positions: Dictionary[Vector3i, bool] = {}
 
 # Top-plane geometry constants.
@@ -452,11 +453,9 @@ func remove_tile(pos: Vector3i):
 	if pos not in tiles:
 		return
 	tile_manager.remove_tile(pos)
-	# Stash the material index so that a subsequent place_tile at the same
-	# position (e.g. the editor's erase-then-repaint pattern) can restore it.
-	# We keep the entry in tile_materials rather than erasing it; the tile is
-	# gone from `tiles` so the stashed value is inert until the tile is re-placed.
-	# Do NOT erase tile_materials[pos] here.
+	tile_materials.erase(pos)
+	if _bulk_clearing:
+		return
 	_mark_top_plane_dirty_around(pos)
 	var below = pos + Vector3i(0, -1, 0)
 	if below in tiles:

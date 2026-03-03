@@ -341,7 +341,11 @@ func _cleanup_worker_thread():
 func _generate_meshes_threaded():
 	while not mesh_generation_queue.is_empty() and not should_stop_thread:
 		var tile_data = mesh_generation_queue.pop_front()
-		
+		# Re-check after pop — cleanup() may set this while we are mid-loop.
+		# Without this the worker finishes the entire queue before noticing
+		# the flag, blocking wait_to_finish() for many seconds.
+		if should_stop_thread:
+			break
 		# Unpack pre-captured data
 		var pos = tile_data["pos"]
 		var tile_type = tile_data["tile_type"]
@@ -559,7 +563,6 @@ func grid_to_world(pos: Vector3i) -> Vector3:
 # ============================================================================
 
 func place_tile(pos: Vector3i, tile_type: int):
-	print("place_tile called at ", pos)
 	tiles[pos] = tile_type
 	
 	# Store step count for stairs, and set default facing direction
@@ -970,22 +973,37 @@ func print_corner_debug():
 # ============================================================================
 
 func cleanup() -> void:
-	# Signal stop immediately — tick() checks this flag and calls _finalise_flush()
-	# which stops the worker thread without blocking the main thread on await.
+	# 1. Signal stop — worker checks after every pop and exits immediately.
 	should_stop_thread = true
 
-	# Drain the queue under the mutex to avoid a race with the worker thread.
+	# 2. Clear the queue so the worker has nothing left after its current item.
 	if generation_mutex == null:
 		generation_mutex = Mutex.new()
 	generation_mutex.lock()
 	mesh_generation_queue.clear()
 	generation_mutex.unlock()
 
-	# Wait for worker thread — queue is empty so it exits almost immediately.
-	if worker_thread and worker_thread.is_started():
-		worker_thread.wait_to_finish()
-	worker_thread = null
+	# 3. Wait for the worker to exit. Because it checks should_stop_thread after
+	#    every pop it exits after at most one more mesh, not the full queue.
+	if worker_thread != null:
+		if worker_thread.is_alive():
+			worker_thread.wait_to_finish()
+		worker_thread = null
 
-	# Force-finalise the flush if one was in progress. No await, no blocking.
+	# 4. Drain any meshes the worker finished just before we stopped it.
+	#    tick() must never apply these to nodes that are about to be freed.
+	generation_mutex.lock()
+	generated_meshes.clear()
+	generation_mutex.unlock()
+
+	# 5. Reset flush state directly — do NOT call _finalise_flush() here.
+	#    _finalise_flush fires flush_completed_callback which would kick off
+	#    the second-pass flush and start a new worker thread, corrupting state
+	#    for the incoming load.
 	if is_flushing:
-		_finalise_flush(false)
+		flush_completed_callback = Callable()
+		flush_progress_callback = Callable()
+		dirty_tiles.clear()
+		is_flushing = false
+		if mesh_generator and mesh_generator.culling_manager:
+			mesh_generator.culling_manager.batch_mode_skip_culling = false

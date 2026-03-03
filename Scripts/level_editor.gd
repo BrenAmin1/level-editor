@@ -170,8 +170,9 @@ func _process(_delta):
 	if input_handler and input_handler.is_loading and not tilemap.tile_manager.is_flushing:
 		_end_loading()
 
-	# FIXED: Don't update cursor when popup is open
-	if camera and cursor_visualizer and not is_popup_open:
+	# Don't update cursor when popup is open or level is loading
+	var is_loading = input_handler and input_handler.is_loading
+	if camera and cursor_visualizer and not is_popup_open and not is_loading:
 		_update_cursor()
 		input_handler.handle_continuous_input(_delta)
 
@@ -418,12 +419,7 @@ func load_last_level():
 func load_level_by_name(filename: String):
 	var filepath = "user://saved_levels/" + filename
 	_begin_loading()
-	if LevelSaveLoad.load_level(tilemap, y_level_manager, filepath, material_palette, _make_load_progress_callback()):
-		print("\n=== LEVEL LOADED ===")
-		print("Loaded from: ", filepath)
-		print("====================\n")
-		# Update grid visualizer to current y level
-		y_level_manager.change_y_level(current_y_level)
+	call_deferred("_do_load_read", filepath)
 
 
 func list_saved_levels():
@@ -652,13 +648,33 @@ func _on_save_confirmed(path: String):
 func _on_load_confirmed(path: String):
 	"""Handle load confirmation from load dialog"""
 	_begin_loading()
-	if LevelSaveLoad.load_level(tilemap, y_level_manager, path, material_palette, _make_load_progress_callback()):
-		current_save_file = path  # Remember this file for quick save
+	# Defer so the loading overlay renders before we block the main thread.
+	call_deferred("_do_load_read", path)
+
+func _do_load_read(path: String):
+	# Read and parse JSON first (fast I/O), then defer the heavy CPU work.
+	var file = FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		_end_loading()
+		push_error("Failed to open file: " + path)
+		return
+	var json_string = file.get_as_text()
+	file.close()
+	var json = JSON.new()
+	if json.parse(json_string) != OK:
+		_end_loading()
+		push_error("Failed to parse JSON: " + json.get_error_message())
+		return
+	# Defer again — JSON parse may have taken a frame, give UI another chance.
+	call_deferred("_do_load_apply", path, json.data)
+
+func _do_load_apply(path: String, save_data: Dictionary):
+	if LevelSaveLoad.load_level_from_data(tilemap, y_level_manager, path, save_data, material_palette, _make_load_progress_callback()):
+		current_save_file = path
 		print("\n=== LEVEL LOADED ===")
 		var real_path = ProjectSettings.globalize_path(path)
 		print("Loaded from: ", real_path)
 		print("====================\n")
-		# Clear undo/redo history — loaded state is the new baseline
 		if undo_redo:
 			undo_redo.clear()
 		y_level_manager.change_y_level(current_y_level)
