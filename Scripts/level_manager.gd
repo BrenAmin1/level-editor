@@ -451,9 +451,12 @@ static func _validate_save_data(data) -> bool:
 
 static func _clear_level(tilemap: TileMap3D, y_level_manager: YLevelManager):
 	tilemap._bulk_clearing = true
+	tilemap.tile_manager.batch_mode = true  # suppress immediate neighbor rebuilds
 	var tiles_to_remove = tilemap.tiles.keys()
 	for pos in tiles_to_remove:
 		tilemap.remove_tile(pos)
+	tilemap.tile_manager.batch_mode = false
+	tilemap.tile_manager.dirty_tiles.clear()  # discard, we're replacing everything
 	tilemap._bulk_clearing = false
 	tilemap.tile_materials.clear()
 	tilemap.rebuild_top_plane_mesh()

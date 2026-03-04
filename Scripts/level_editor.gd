@@ -609,6 +609,7 @@ func _begin_loading() -> void:
 		camera.set_process(false)
 	_show_export_overlay("Loading level…")
 
+
 func _end_loading() -> void:
 	"""Unblock input and hide the loading overlay."""
 	if input_handler:
@@ -617,10 +618,12 @@ func _end_loading() -> void:
 		camera.set_process(true)
 	_hide_export_overlay()
 
+
 func _make_load_progress_callback() -> Callable:
 	"""Return a progress callback that updates the export overlay bar."""
 	return func(done: int, total: int) -> void:
 		call_deferred("_update_load_progress", done, total)
+
 
 func _update_load_progress(done: int, total: int) -> void:
 	"""Called on main thread each frame during the loading flush."""
@@ -651,7 +654,15 @@ func _on_load_confirmed(path: String):
 	# Defer so the loading overlay renders before we block the main thread.
 	call_deferred("_do_load_read", path)
 
+
 func _do_load_read(path: String):
+	# If a flush (e.g. the re-cull pass from a previous load) is still running,
+	# wait for it to finish naturally rather than blocking the main thread via
+	# cleanup() -> wait_to_finish().
+	if tilemap.tile_manager.is_flushing:
+		call_deferred("_do_load_read", path)
+		return
+
 	# Read and parse JSON first (fast I/O), then defer the heavy CPU work.
 	var file = FileAccess.open(path, FileAccess.READ)
 	if file == null:
@@ -667,6 +678,7 @@ func _do_load_read(path: String):
 		return
 	# Defer again — JSON parse may have taken a frame, give UI another chance.
 	call_deferred("_do_load_apply", path, json.data)
+
 
 func _do_load_apply(path: String, save_data: Dictionary):
 	if LevelSaveLoad.load_level_from_data(tilemap, y_level_manager, path, save_data, material_palette, _make_load_progress_callback()):
