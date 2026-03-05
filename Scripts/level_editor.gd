@@ -6,8 +6,9 @@ extends Node3D
 @onready var camera: CameraController = $Camera3D
 @onready var grid_visualizer: GridVisualizer = $GridVisualizer
 @onready var cursor_visualizer: CursorVisualizer = $CursorVisualizer
-@onready var material_palette: FoldableContainer = $UI/MaterialPalette  # Note: Your typo "Pallete"
+@onready var material_palette: FoldableContainer = $UI/MaterialPalette
 @onready var right_side_menu: VBoxContainer = $UI/RightSideMenu
+@onready var block_menu: BlockMenu = $UI/BlockMenu
 
 var tilemap: TileMap3D
 var input_handler: InputHandler
@@ -26,10 +27,10 @@ var grid_size = 1.0
 var rotation_increment: float = 15.0  # degrees
 var current_save_file: String = ""  # Tracks the currently loaded/saved file
 var window_has_focus: bool = true
-var is_popup_open: bool = false  # NEW: Track if material popup is open
+var is_popup_open: bool = false  # Track if material popup is open
 var current_painting_material: StandardMaterial3D = null
 var current_painting_material_index: int = -1
-var current_stair_steps: int = 4  # NEW: Number of steps for procedural stairs (min 2, max 16)
+var current_stair_steps: int = 4  # Number of steps for procedural stairs (min 2, max 16)
 
 # ============================================================================
 # EXPORT THREADING
@@ -74,7 +75,7 @@ func _ready():
 	tilemap.set_offset_provider(Callable(self, "get_y_level_offset"))
 	tilemap.set_material_palette_reference(material_palette)
 	
-	# Load custom mesh
+	# Load custom meshes
 	tilemap.load_obj_for_tile_type(0, "res://cubes/cube_bulge.obj")
 	tilemap.set_custom_material(0, 0, GRASS)
 	tilemap.set_custom_material(0, 1, DIRT)
@@ -113,16 +114,20 @@ func _ready():
 	get_window().focus_entered.connect(_on_window_focus_entered)
 	get_window().focus_exited.connect(_on_window_focus_exited)
 	
-	# Connect material palette hover signal
+	# Connect material palette signals
 	if material_palette:
 		material_palette.ui_hover_changed.connect(_on_material_palette_hover_changed)
 		material_palette.popup_state_changed.connect(_on_popup_state_changed)
 		material_palette.material_selected.connect(_on_material_selected)
+
 	if right_side_menu:
 		var x_spin = right_side_menu.get_node("OffsetFold/PanelContainer/OffsetVContain/XSpin")
 		var z_spin = right_side_menu.get_node("OffsetFold/PanelContainer/OffsetVContain/ZSpin")
 		input_handler.register_focus_control(x_spin)
 		input_handler.register_focus_control(z_spin)
+
+	# Setup block menu
+	_setup_block_menu()
 	
 	print("Mode: EDIT (Press TAB to toggle)")
 	print("\nSave/Load Controls:")
@@ -138,6 +143,81 @@ func _ready():
 	print("  Ctrl+V - Paste at cursor")
 	print("\nPaint Controls:")
 	print("  P - Toggle paint mode (change materials without replacing tiles)")
+
+
+func _setup_block_menu() -> void:
+	if not block_menu:
+		return
+
+	# Stairs are procedural so we generate the mesh directly.
+	# OBJ types pass their path so BlockMenu loads + reclassifies them
+	# by normal direction, matching the material_maker_popup approach.
+	var stairs_mesh: ArrayMesh = ProceduralStairsGenerator.generate_stairs_mesh(4, grid_size, 0.0)
+
+	var tile_defs: Array = [
+		{
+			"type": 0,
+			"label": "Cube",
+			"mesh_path": "res://cubes/cube_bulge.obj",
+			"mesh": null
+		},
+		{
+			"type": 1,
+			"label": "Bevel",
+			"mesh_path": "res://cubes/half_bevel.obj",
+			"mesh": null
+		},
+		{
+			"type": MeshGenerator.TILE_TYPE_STAIRS,
+			"label": "Stairs",
+			"mesh_path": "",
+			"mesh": stairs_mesh,
+			"preview_rotation_y": 180.0
+		},
+	]
+
+	block_menu.setup(tile_defs)
+	block_menu.tile_type_selected.connect(_on_block_menu_tile_selected)
+	block_menu.ui_hover_changed.connect(_on_block_menu_hover_changed)
+
+	# Defer one frame so material_palette._ready() has finished adding its
+	# default materials before we try to read surface resources from it.
+	call_deferred("_refresh_block_menu_previews")
+
+
+# ============================================================================
+# BLOCK MENU CALLBACKS
+# ============================================================================
+
+func _on_block_menu_tile_selected(tile_type: int) -> void:
+	current_tile_type = tile_type
+	selection_manager.update_state(current_y_level, current_tile_type)
+
+
+func _on_block_menu_hover_changed(is_hovered: bool) -> void:
+	input_handler.set_ui_hovered(is_hovered)
+	if cursor_visualizer:
+		if is_hovered:
+			cursor_visualizer.hide()
+		else:
+			if not is_popup_open:
+				cursor_visualizer.show()
+
+
+func _refresh_block_menu_previews() -> void:
+	if not block_menu or not material_palette:
+		return
+
+	# Fall back to index 0 (first default material) if nothing explicitly selected yet
+	var index = current_painting_material_index if current_painting_material_index >= 0 else 0
+
+	var surface_materials: Array = [
+		material_palette.get_material_for_surface(index, 0),
+		material_palette.get_material_for_surface(index, 1),
+		material_palette.get_material_for_surface(index, 2),
+	]
+	block_menu.update_preview_materials(surface_materials)
+
 
 # ============================================================================
 # MATERIAL SELECTION
@@ -155,6 +235,9 @@ func _on_material_selected(material_index: int):
 		
 		# Pass material index to input handler
 		input_handler.set_painting_material(material_index)
+
+		# Update block menu previews to reflect the new material
+		_refresh_block_menu_previews()
 	else:
 		print("Warning: Material at index ", material_index, " is null")
 
@@ -198,7 +281,7 @@ func _input(event):
 	
 	var result = input_handler.process_input(event, current_mode, current_tile_type, current_y_level)
 	if event is InputEventKey and event.pressed:
-		if event.keycode == KEY_F5:  # Or any key you want
+		if event.keycode == KEY_F5:
 			debug_corner_culling()
 	if result:
 		if result.has("action") and result["action"] == "toggle_mode":
@@ -304,12 +387,10 @@ func _on_material_palette_hover_changed(is_hovered: bool):
 	"""Handle material palette hover state"""
 	input_handler.set_ui_hovered(is_hovered)
 	
-	# FIXED: Hide/show cursor when hovering over material palette
 	if cursor_visualizer:
 		if is_hovered:
 			cursor_visualizer.hide()
 		else:
-			# Only show if popup isn't open
 			if not is_popup_open:
 				cursor_visualizer.show()
 
@@ -319,22 +400,14 @@ func _on_popup_state_changed(is_open: bool):
 	is_popup_open = is_open
 	
 	if is_open:
-		# Disable camera processing when popup opens
 		camera.set_process(false)
-		
-		# FIXED: Hide cursor preview when popup opens
 		if cursor_visualizer:
 			cursor_visualizer.hide()
-		
 		print("Camera input disabled - popup opened")
 	else:
-		# Re-enable camera processing when popup closes
 		camera.set_process(true)
-		
-		# FIXED: Show cursor preview when popup closes
 		if cursor_visualizer:
 			cursor_visualizer.show()
-		
 		print("Camera input enabled - popup closed")
 
 
@@ -373,7 +446,6 @@ func quick_save_level():
 	"""Quick save - overwrites the current file, or opens save dialog if no file is loaded"""
 	
 	if current_save_file != "":
-		# Save to the currently loaded/saved file
 		var filepath = current_save_file
 		
 		if LevelSaveLoad.save_level(tilemap, y_level_manager, filepath, material_palette):
@@ -382,7 +454,6 @@ func quick_save_level():
 			print("Saved to: ", real_path)
 			print("==================\n")
 	else:
-		# No file loaded yet - open the save dialog instead
 		print("No file loaded - opening Save As dialog...")
 		show_save_dialog()
 
@@ -401,7 +472,6 @@ func load_last_level():
 		print("No saved levels found")
 		return
 	
-	# Sort by name (which includes timestamp) to get most recent
 	levels.sort()
 	var last_level = levels[-1]
 	var filepath = "user://saved_levels/" + last_level
@@ -452,13 +522,8 @@ func _on_export_confirmed(is_chunked: bool, path: String):
 
 	_show_export_overlay("Exporting… please wait")
 
-	# Snapshot top-plane quad data on the main thread before handing off to worker.
-	# Worker threads must never access scene nodes directly.
 	var top_plane_snapshot := tilemap.capture_top_plane_snapshot()
 
-	# Set the progress callback on the exporter before starting the thread.
-	# Use a lambda that call_deferred's onto self so UI touches always happen
-	# on the main thread even though the callback fires from the worker.
 	tilemap.glb_exporter.progress_callback = func(done: int, total: int) -> void:
 		call_deferred("_update_export_progress", done, total)
 
@@ -469,13 +534,10 @@ func _on_export_confirmed(is_chunked: bool, path: String):
 			save_name = "level_chunks"
 		_export_thread.start(_thread_export_chunked.bind(save_name, top_plane_snapshot))
 	else:
-		# Ensure .glb extension regardless of what the dialog produced.
 		if not path.ends_with(".glb") and not path.ends_with(".gltf"):
 			path += ".glb"
 		_export_thread.start(_thread_export_single.bind(path, top_plane_snapshot))
 
-
-# ── Worker thread functions ──────────────────────────────────────────────────
 
 func _thread_export_single(filepath: String, top_plane_snapshot: Array) -> void:
 	var mesh := tilemap.glb_exporter.build_export_mesh(top_plane_snapshot)
@@ -488,8 +550,6 @@ func _thread_export_chunked(save_name: String, top_plane_snapshot: Array) -> voi
 	tilemap.glb_exporter.progress_callback = Callable()
 	call_deferred("_finish_export_chunked", chunk_data)
 
-
-# ── Main-thread finish functions ─────────────────────────────────────────────
 
 func _finish_export_single(mesh: ArrayMesh, filepath: String) -> void:
 	_export_thread.wait_to_finish()
@@ -518,8 +578,6 @@ func _finish_export_chunked(chunk_data: Dictionary) -> void:
 	print("======================\n")
 
 
-# ── Overlay helpers ──────────────────────────────────────────────────────────
-
 func _update_export_progress(done: int, total: int) -> void:
 	"""Called on main thread via call_deferred during mesh build"""
 	if not _export_bar_fill or not _export_pct_label:
@@ -542,7 +600,6 @@ func _show_export_overlay(message: String, auto_hide: bool = false) -> void:
 		bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		_export_overlay.add_child(bg)
 
-		# Centre container
 		var vbox = VBoxContainer.new()
 		vbox.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 		vbox.custom_minimum_size = Vector2(500, 120)
@@ -558,13 +615,11 @@ func _show_export_overlay(message: String, auto_hide: bool = false) -> void:
 		_export_label.add_theme_font_size_override("font_size", 22)
 		vbox.add_child(_export_label)
 
-		# Progress bar track
 		_export_bar = ColorRect.new()
 		_export_bar.color = Color(0.2, 0.2, 0.2, 1.0)
 		_export_bar.custom_minimum_size = Vector2(500, 24)
 		vbox.add_child(_export_bar)
 
-		# Progress bar fill (child of track so it anchors correctly)
 		_export_bar_fill = ColorRect.new()
 		_export_bar_fill.color = Color(0.2, 0.8, 0.4, 1.0)
 		_export_bar_fill.size = Vector2(0, 24)
@@ -579,7 +634,6 @@ func _show_export_overlay(message: String, auto_hide: bool = false) -> void:
 
 		add_child(_export_overlay)
 
-	# Reset bar each time we show the overlay
 	if _export_bar_fill:
 		_export_bar_fill.size.x = 0
 	if _export_pct_label:
@@ -601,8 +655,7 @@ func _hide_export_overlay() -> void:
 # ── Loading helpers ──────────────────────────────────────────────────────────
 
 func _begin_loading() -> void:
-	"""Block input and show the loading overlay. Polling in _process will
-	call _end_loading once tile_manager.is_flushing goes false."""
+	"""Block input and show the loading overlay."""
 	if input_handler:
 		input_handler.is_loading = true
 	if camera:
@@ -635,13 +688,11 @@ func _update_load_progress(done: int, total: int) -> void:
 	if _export_label:
 		_export_label.text = "Loading level…"
 
-# _end_loading is driven by _process polling tile_manager.is_flushing
-
 
 func _on_save_confirmed(path: String):
 	"""Handle save confirmation from save dialog"""
 	if LevelSaveLoad.save_level(tilemap, y_level_manager, path, material_palette):
-		current_save_file = path  # Remember this file for quick save
+		current_save_file = path
 		print("\n=== LEVEL SAVED ===")
 		var real_path = ProjectSettings.globalize_path(path)
 		print("Saved to: ", real_path)
@@ -651,19 +702,14 @@ func _on_save_confirmed(path: String):
 func _on_load_confirmed(path: String):
 	"""Handle load confirmation from load dialog"""
 	_begin_loading()
-	# Defer so the loading overlay renders before we block the main thread.
 	call_deferred("_do_load_read", path)
 
 
 func _do_load_read(path: String):
-	# If a flush (e.g. the re-cull pass from a previous load) is still running,
-	# wait for it to finish naturally rather than blocking the main thread via
-	# cleanup() -> wait_to_finish().
 	if tilemap.tile_manager.is_flushing:
 		call_deferred("_do_load_read", path)
 		return
 
-	# Read and parse JSON first (fast I/O), then defer the heavy CPU work.
 	var file = FileAccess.open(path, FileAccess.READ)
 	if file == null:
 		_end_loading()
@@ -676,7 +722,6 @@ func _do_load_read(path: String):
 		_end_loading()
 		push_error("Failed to parse JSON: " + json.get_error_message())
 		return
-	# Defer again — JSON parse may have taken a frame, give UI another chance.
 	call_deferred("_do_load_apply", path, json.data)
 
 

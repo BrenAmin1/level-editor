@@ -109,18 +109,16 @@ layout_mode = 1
 anchor_top = 0.892
 offset_top = 38.98401
 focus_mode = 1
-folded = false
 
 [node name="BlockMenu" parent="UI" unique_id=1343238904 instance=ExtResource("7_5ogug")]
 layout_mode = 1
 anchors_preset = -1
-anchor_left = 1.0
-anchor_bottom = 0.892
-offset_left = -300.0
-offset_top = 221.0
-offset_bottom = -134.01599
-grow_horizontal = 0
-script = null
+anchor_left = 0.74300003
+anchor_top = 0.34300002
+anchor_bottom = 0.688
+offset_left = 0.063964844
+offset_top = -0.26402283
+offset_bottom = -0.8240051
 
 [node name="Controls" type="Label" parent="UI" unique_id=1335712705]
 layout_mode = 0
