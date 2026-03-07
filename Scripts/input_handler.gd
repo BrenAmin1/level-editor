@@ -232,10 +232,10 @@ func _handle_keyboard(event: InputEventKey) -> Dictionary:
 	elif Input.is_action_just_pressed("tile_type_3"):
 		result["tile_type"] = 5
 	elif Input.is_action_just_pressed("layer_up"):
-		result["y_level"] = current_y_level - 1
+		result["y_level"] = current_y_level + 1
 		y_level_manager.change_y_level(result["y_level"])
 	elif Input.is_action_just_pressed("layer_down"):
-		result["y_level"] = current_y_level + 1
+		result["y_level"] = current_y_level - 1
 		y_level_manager.change_y_level(result["y_level"])
 	elif Input.is_action_just_pressed("flip_tile"):
 		if current_mode == 1:

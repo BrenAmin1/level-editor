@@ -109,9 +109,6 @@ text = "Confirm"
 
 [node name="MaterialPalette" parent="UI" unique_id=49067143 instance=ExtResource("6_fhsmn")]
 layout_mode = 1
-anchors_preset = 12
-anchor_top = 1.0
-offset_top = -31.0
 focus_mode = 1
 
 [node name="BlockMenu" parent="UI" unique_id=1343238904 instance=ExtResource("7_5ogug")]
