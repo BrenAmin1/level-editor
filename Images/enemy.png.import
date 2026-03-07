@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bmvlx04wear6h"
-path="res://.godot/imported/tile_stairs.png-7d319c0f4fe9bfcc7d189d77723e4bbd.ctex"
+uid="uid://o74eaqh1h1nl"
+path="res://.godot/imported/enemy.png-047355ef1267a061e5500e242f997590.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://Icons/tile_stairs.png"
-dest_files=["res://.godot/imported/tile_stairs.png-7d319c0f4fe9bfcc7d189d77723e4bbd.ctex"]
+source_file="res://Images/enemy.png"
+dest_files=["res://.godot/imported/enemy.png-047355ef1267a061e5500e242f997590.ctex"]
 
 [params]
 

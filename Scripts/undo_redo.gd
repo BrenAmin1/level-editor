@@ -20,6 +20,8 @@ class_name UndoRedoManager extends RefCounted
 #   undo_redo.commit_action(before, undo_redo.snapshot_positions(positions))
 # ============================================================================
 
+signal action_recorded  # Emitted whenever a tile change is committed to history
+
 const MAX_HISTORY: int = 100
 
 var tilemap: TileMap3D
@@ -180,6 +182,7 @@ func _push_action(before: Array, after: Array) -> void:
 	_history.push_back({ "before": before, "after": after })
 	if _history.size() > MAX_HISTORY:
 		_history.pop_front()
+	action_recorded.emit()
 
 
 func _capture_tile(pos: Vector3i) -> Dictionary:

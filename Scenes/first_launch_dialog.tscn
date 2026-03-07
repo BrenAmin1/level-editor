@@ -1,0 +1,61 @@
+[gd_scene format=3 uid="uid://bqemtgy6epy6o"]
+
+[ext_resource type="Script" uid="uid://cpxbylmtcex7s" path="res://Scripts/first_launch_dialog.gd" id="1_dialog"]
+
+[node name="FirstLaunchDialog" type="Window" unique_id=2024698771]
+oversampling_override = 1.0
+title = "Welcome to Rain Level Editor"
+initial_position = 2
+size = Vector2i(520, 260)
+min_size = Vector2i(520, 260)
+script = ExtResource("1_dialog")
+
+[node name="MarginContainer" type="MarginContainer" parent="." unique_id=837759109]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_top = 20
+theme_override_constants/margin_right = 24
+theme_override_constants/margin_bottom = 20
+
+[node name="VBoxContainer" type="VBoxContainer" parent="MarginContainer" unique_id=21347823]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="HeadingLabel" type="Label" parent="MarginContainer/VBoxContainer" unique_id=56517074]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Choose your data folder"
+
+[node name="DescLabel" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1345724515]
+custom_minimum_size = Vector2(1, 0)
+layout_mode = 2
+text = "Rain Level Editor will store your levels, exports, textures, and palettes here. You can change this later in Settings."
+autowrap_mode = 3
+
+[node name="PathRow" type="HBoxContainer" parent="MarginContainer/VBoxContainer" unique_id=1473620238]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="PathLabel" type="Label" parent="MarginContainer/VBoxContainer/PathRow" unique_id=1860296365]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+clip_text = true
+
+[node name="BrowseButton" type="Button" parent="MarginContainer/VBoxContainer/PathRow" unique_id=474415945]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Browse…"
+
+[node name="Spacer" type="Control" parent="MarginContainer/VBoxContainer" unique_id=1869076457]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="ConfirmButton" type="Button" parent="MarginContainer/VBoxContainer" unique_id=1091310145]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Confirm"

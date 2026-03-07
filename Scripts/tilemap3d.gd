@@ -70,12 +70,12 @@ func _init(grid_sz: float = 1.0):
 	glb_exporter   = GlbExporter.new()
 	material_manager = MaterialManager.new()
 
-	print("TileMap3D: Components initialized")
+	Console.info("TileMap3D: Components initialized")
 
 
 func _setup_components():
 	if not parent_node:
-		push_error("Cannot setup components: parent_node is null")
+		Console.error("Cannot setup components: parent_node is null")
 		return
 
 	mesh_editor.setup(self, custom_meshes, tiles)
@@ -86,7 +86,7 @@ func _setup_components():
 	glb_exporter.setup(self, mesh_optimizer)
 	material_manager.setup(self, custom_meshes, custom_materials, tiles)
 
-	print("TileMap3D: Components setup complete")
+	Console.info("TileMap3D: Components setup complete")
 
 # ============================================================================
 # CONFIGURATION
@@ -529,6 +529,26 @@ func generate_optimized_level_mesh_multi_material() -> ArrayMesh:
 # ============================================================================
 # EXPORT (Delegate to GlbExporter)
 # ============================================================================
+
+func capture_neighbors_snapshot() -> Dictionary:
+	"""Capture neighbor data for every tile into a plain Dictionary.
+	Must be called on the main thread before starting an export worker thread.
+	Returns Dictionary mapping Vector3i pos -> neighbor Dictionary."""
+	var result: Dictionary = {}
+	for pos in tiles:
+		result[pos] = tile_manager.get_neighbors(pos)
+	return result
+
+
+func capture_enclosed_snapshot() -> Dictionary:
+	"""Capture fully-enclosed status for every tile into a plain Dictionary.
+	Must be called on the main thread before starting an export worker thread."""
+	var result: Dictionary[Vector3i, bool] = {}
+	for pos in tiles:
+		var neighbors = get_neighbors(pos)
+		result[pos] = tile_manager.check_if_fully_enclosed(pos, neighbors)
+	return result
+
 
 func capture_top_plane_snapshot() -> Array:
 	"""Capture top-plane quad data from the live scene nodes into a plain Array.

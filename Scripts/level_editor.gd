@@ -9,6 +9,9 @@ extends Node3D
 @onready var material_palette: FoldableContainer = $UI/MaterialPalette
 @onready var right_side_menu: VBoxContainer = $UI/RightSideMenu
 @onready var block_menu: BlockMenu = $UI/BlockMenu
+@onready var escape_menu: Control = $UI/EscapeMenu
+@onready var startup_picker: Control = $UI/StartupPicker
+@onready var console_panel: Control = $UI/ConsolePanel
 
 var tilemap: TileMap3D
 var input_handler: InputHandler
@@ -26,8 +29,12 @@ var current_y_level = 0
 var grid_size = 1.0
 var rotation_increment: float = 15.0  # degrees
 var current_save_file: String = ""  # Tracks the currently loaded/saved file
+var has_unsaved_changes: bool = false
+var _loading_from_startup_picker: bool = false
 var window_has_focus: bool = true
-var is_popup_open: bool = false  # Track if material popup is open
+var is_popup_open: bool = false  # True when any popup is open (derived from _popup_open_count)
+var _popup_open_count: int = 0    # Number of popups currently open
+var is_exporting: bool = false   # Block input while export is in progress
 var current_painting_material: StandardMaterial3D = null
 var current_painting_material_index: int = -1
 var current_stair_steps: int = 4  # Number of steps for procedural stairs (min 2, max 16)
@@ -57,17 +64,30 @@ const DIRT = preload("uid://bxl8k6n4i56yn")
 # INITIALIZATION
 # ============================================================================
 
-func _ready():
+const FirstLaunchDialog = preload("res://Scenes/first_launch_dialog.tscn")
+
+func _ready() -> void:
 	# Disable auto-quit so we can cleanly stop threads before the process exits.
 	get_tree().set_auto_accept_quit(false)
 
-	# Ensure save directory exists
+	# Show first-launch setup dialog if this is the user's first run.
+	if AppConfig.is_first_launch:
+		AppConfig.first_launch_detected.connect(_on_first_launch)
+
+	# Ensure save directory exists (no-op, AppConfig handles this)
 	LevelSaveLoad.ensure_save_directory()
 	
 	# Connect FileDialog signals
 	export_dialog.export_confirmed.connect(_on_export_confirmed)
 	save_dialog.save_confirmed.connect(_on_save_confirmed)
 	load_dialog.load_confirmed.connect(_on_load_confirmed)
+
+	# Set file dialog directories and filters from AppConfig.
+	# Done here in code rather than the scene so the directories are guaranteed
+	# to exist (AppConfig creates them on startup) before we set root_subfolder.
+	_setup_file_dialogs()
+	_show_startup_picker()
+	console_panel.setup(camera)
 	
 	# Initialize TileMap3D
 	tilemap = TileMap3D.new(grid_size)
@@ -108,6 +128,7 @@ func _ready():
 	# Initialize undo/redo and wire into components
 	undo_redo = UndoRedoManager.new()
 	undo_redo.setup(tilemap, material_palette)
+	undo_redo.action_recorded.connect(func() -> void: has_unsaved_changes = true)
 	input_handler.set_undo_redo(undo_redo)
 	selection_manager.set_undo_redo(undo_redo)
 	
@@ -128,6 +149,7 @@ func _ready():
 
 	# Setup block menu
 	_setup_block_menu()
+	_setup_escape_menu()
 	
 	print("Mode: EDIT (Press TAB to toggle)")
 	print("\nSave/Load Controls:")
@@ -143,6 +165,38 @@ func _ready():
 	print("  Ctrl+V - Paste at cursor")
 	print("\nPaint Controls:")
 	print("  P - Toggle paint mode (change materials without replacing tiles)")
+
+
+func _show_startup_picker() -> void:
+	"""Show startup picker unless we are resuming from first launch dialog."""
+	if AppConfig.is_first_launch:
+		# First launch dialog already shown — connect to show picker after it closes
+		var fld_node: Window = get_node_or_null("%FirstLaunchDialog")
+		if fld_node:
+			fld_node.setup_confirmed.connect(_show_startup_picker, CONNECT_ONE_SHOT)
+			return
+	startup_picker.visible = true
+	_on_popup_state_changed(true)
+	_setup_startup_picker()
+
+
+func _setup_startup_picker() -> void:
+	startup_picker.new_level_pressed.connect(func() -> void:
+		startup_picker.visible = false
+		_on_popup_state_changed(false)
+	)
+	startup_picker.open_pressed.connect(func() -> void:
+		# Keep startup_picker visible — dismissed in _on_load_confirmed once a file is picked.
+		_loading_from_startup_picker = true
+		show_load_dialog()
+	)
+	startup_picker.file_selected.connect(func(path: String) -> void:
+		startup_picker.visible = false
+		_on_popup_state_changed(false)
+		_begin_loading()
+		call_deferred("_do_load_read", path)
+	)
+	startup_picker.quit_pressed.connect(_shutdown)
 
 
 func _setup_block_menu() -> void:
@@ -250,25 +304,105 @@ func _process(_delta):
 	tilemap.tick()
 
 	# Finish loading once all flushes are complete
-	if input_handler and input_handler.is_loading and not tilemap.tile_manager.is_flushing:
+	if input_handler and input_handler.is_loading and not tilemap.tile_manager.is_flushing and not is_exporting:
 		_end_loading()
 
-	# Don't update cursor when popup is open or level is loading
+	# Don't update cursor when popup is open, level is loading, or console is open
 	var is_loading = input_handler and input_handler.is_loading
-	if camera and cursor_visualizer and not is_popup_open and not is_loading:
+	var console_visible: bool = console_panel and console_panel.visible
+	if camera:
+		camera.console_open = console_visible
+	if camera and cursor_visualizer and not is_popup_open and not is_loading and not is_exporting and not console_visible:
 		_update_cursor()
 		input_handler.handle_continuous_input(_delta)
 
 
+func _on_first_launch() -> void:
+	"""Show the first-launch data directory setup dialog, then startup picker."""
+	var dialog: Window = FirstLaunchDialog.instantiate()
+	add_child(dialog)
+	dialog.popup_centered()
+	_on_popup_state_changed(true)
+	dialog.setup_confirmed.connect(func() -> void:
+		_on_popup_state_changed(false)
+		startup_picker.visible = true
+		_on_popup_state_changed(true)
+		_setup_startup_picker()
+	)
+
+
+func _setup_escape_menu() -> void:
+	escape_menu.resume_pressed.connect(func() -> void:
+		_on_popup_state_changed(false)
+	)
+	escape_menu.save_pressed.connect(func() -> void:
+		_on_popup_state_changed(false)
+		show_save_dialog()
+	)
+	escape_menu.load_pressed.connect(func() -> void:
+		if has_unsaved_changes:
+			escape_menu.show_unsaved_warning("load")
+		else:
+			escape_menu.close()
+			_on_popup_state_changed(false)
+			show_load_dialog()
+	)
+	escape_menu.export_pressed.connect(func() -> void:
+		escape_menu.close()
+		_on_popup_state_changed(false)
+		show_export_dialog()
+	)
+	escape_menu.change_data_folder_pressed.connect(func() -> void:
+		escape_menu.close()
+		_on_popup_state_changed(false)
+		var dialog: Window = FirstLaunchDialog.instantiate()
+		add_child(dialog)
+		dialog.popup_centered()
+		_on_popup_state_changed(true)
+		dialog.setup_confirmed.connect(func() -> void:
+			_on_popup_state_changed(false)
+		)
+	)
+	escape_menu.keybinds_pressed.connect(func() -> void:
+		pass  # TODO: open keybinds panel
+	)
+	escape_menu.quit_confirmed.connect(func() -> void:
+		if has_unsaved_changes:
+			escape_menu.show_unsaved_warning("quit")
+		else:
+			_shutdown()
+	)
+	escape_menu.unsaved_confirmed_load.connect(func() -> void:
+		escape_menu.close()
+		_on_popup_state_changed(false)
+		show_load_dialog()
+	)
+	escape_menu.unsaved_confirmed_quit.connect(_shutdown)
+
+
+func _shutdown() -> void:
+	"""Graceful shutdown — joins threads then quits."""
+	print("[SHUTDOWN] _shutdown() called")
+	if _export_thread and _export_thread.is_alive():
+		print("[SHUTDOWN] Waiting for export thread to finish...")
+		_export_thread.wait_to_finish()
+		print("[SHUTDOWN] Export thread joined OK")
+	if tilemap:
+		print("[SHUTDOWN] Calling tilemap.cleanup()...")
+		tilemap.cleanup()
+		print("[SHUTDOWN] tilemap.cleanup() returned — calling get_tree().quit()")
+	get_tree().quit()
+
+
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST:
-		# Wait for any in-progress export before quitting
-		if _export_thread and _export_thread.is_alive():
-			print("Waiting for export thread to finish before quitting...")
-			_export_thread.wait_to_finish()
-		if tilemap:
-			tilemap.cleanup()
-		get_tree().quit()
+		print("[SHUTDOWN] WM_CLOSE_REQUEST received")
+		if has_unsaved_changes:
+			escape_menu.open()
+			_on_popup_state_changed(true)
+			escape_menu.show_unsaved_warning("quit")
+		else:
+			_shutdown()
 
 # ============================================================================
 # INPUT HANDLING
@@ -279,6 +413,14 @@ func _input(event):
 	if is_popup_open:
 		return
 	
+	# Open escape menu — closing is handled inside escape_menu._input
+	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+		if not escape_menu.visible:
+			escape_menu.open()
+			_on_popup_state_changed(true)
+			get_viewport().set_input_as_handled()
+			return
+
 	var result = input_handler.process_input(event, current_mode, current_tile_type, current_y_level)
 	if event is InputEventKey and event.pressed:
 		if event.keycode == KEY_F5:
@@ -311,7 +453,12 @@ func _input(event):
 	if Input.is_action_just_pressed("save_as"):  # Ctrl+Shift+S
 		show_save_dialog()
 	if Input.is_action_just_pressed("load"):  # Ctrl+L
-		show_load_dialog()
+		if has_unsaved_changes:
+			escape_menu.open()
+			_on_popup_state_changed(true)
+			escape_menu.show_unsaved_warning("load")
+		else:
+			show_load_dialog()
 	if Input.is_action_just_pressed("quick_save"):  # Ctrl+S
 		quick_save_level()
 
@@ -395,20 +542,20 @@ func _on_material_palette_hover_changed(is_hovered: bool):
 				cursor_visualizer.show()
 
 
-func _on_popup_state_changed(is_open: bool):
-	"""Handle popup state changes - disable camera input when popup is open"""
-	is_popup_open = is_open
-	
-	if is_open:
+func _on_popup_state_changed(is_open: bool) -> void:
+	"""Handle popup state changes - disable camera input when any popup is open."""
+	_popup_open_count += 1 if is_open else -1
+	_popup_open_count = maxi(_popup_open_count, 0)  # Guard against underflow
+	is_popup_open = _popup_open_count > 0
+
+	if is_popup_open:
 		camera.set_process(false)
 		if cursor_visualizer:
 			cursor_visualizer.hide()
-		print("Camera input disabled - popup opened")
 	else:
 		camera.set_process(true)
 		if cursor_visualizer:
 			cursor_visualizer.show()
-		print("Camera input enabled - popup closed")
 
 
 # ============================================================================
@@ -449,6 +596,7 @@ func quick_save_level():
 		var filepath = current_save_file
 		
 		if LevelSaveLoad.save_level(tilemap, y_level_manager, filepath, material_palette):
+			has_unsaved_changes = false
 			print("\n=== QUICK SAVE ===")
 			var real_path = ProjectSettings.globalize_path(filepath)
 			print("Saved to: ", real_path)
@@ -458,9 +606,11 @@ func quick_save_level():
 		show_save_dialog()
 
 
-func save_level_with_name(level_name: String):
-	var filepath = LevelSaveLoad.get_save_filepath(level_name)
+func save_level_with_name(level_name: String) -> void:
+	var filepath: String = LevelSaveLoad.get_save_filepath(level_name)
 	if LevelSaveLoad.save_level(tilemap, y_level_manager, filepath, material_palette):
+		current_save_file = filepath
+		has_unsaved_changes = false
 		print("\n=== LEVEL SAVED ===")
 		print("Saved to: ", filepath)
 		print("===================\n")
@@ -521,8 +671,13 @@ func _on_export_confirmed(is_chunked: bool, path: String):
 	print("Path: ", path)
 
 	_show_export_overlay("Exporting… please wait")
+	is_exporting = true
+	input_handler.is_loading = true
+	camera.set_process(false)
 
 	var top_plane_snapshot := tilemap.capture_top_plane_snapshot()
+	var enclosed_snapshot := tilemap.capture_enclosed_snapshot()
+	var neighbors_snapshot := tilemap.capture_neighbors_snapshot()
 
 	tilemap.glb_exporter.progress_callback = func(done: int, total: int) -> void:
 		call_deferred("_update_export_progress", done, total)
@@ -532,27 +687,30 @@ func _on_export_confirmed(is_chunked: bool, path: String):
 		var save_name := path.get_basename().get_file()
 		if save_name.is_empty():
 			save_name = "level_chunks"
-		_export_thread.start(_thread_export_chunked.bind(save_name, top_plane_snapshot))
+		_export_thread.start(_thread_export_chunked.bind(save_name, top_plane_snapshot, enclosed_snapshot, neighbors_snapshot))
 	else:
 		if not path.ends_with(".glb") and not path.ends_with(".gltf"):
 			path += ".glb"
-		_export_thread.start(_thread_export_single.bind(path, top_plane_snapshot))
+		_export_thread.start(_thread_export_single.bind(path, top_plane_snapshot, enclosed_snapshot, neighbors_snapshot))
 
 
-func _thread_export_single(filepath: String, top_plane_snapshot: Array) -> void:
-	var mesh := tilemap.glb_exporter.build_export_mesh(top_plane_snapshot)
+func _thread_export_single(filepath: String, top_plane_snapshot: Array, enclosed_snapshot: Dictionary = {}, neighbors_snapshot: Dictionary = {}) -> void:
+	var mesh := tilemap.glb_exporter.build_export_mesh(top_plane_snapshot, enclosed_snapshot, neighbors_snapshot)
 	tilemap.glb_exporter.progress_callback = Callable()
 	call_deferred("_finish_export_single", mesh, filepath)
 
 
-func _thread_export_chunked(save_name: String, top_plane_snapshot: Array) -> void:
-	var chunk_data := tilemap.glb_exporter.build_chunk_meshes(save_name, top_plane_snapshot)
+func _thread_export_chunked(save_name: String, top_plane_snapshot: Array, enclosed_snapshot: Dictionary = {}, neighbors_snapshot: Dictionary = {}) -> void:
+	var chunk_data := tilemap.glb_exporter.build_chunk_meshes(save_name, top_plane_snapshot, GlbExporter.CHUNK_SIZE, enclosed_snapshot, neighbors_snapshot)
 	tilemap.glb_exporter.progress_callback = Callable()
 	call_deferred("_finish_export_chunked", chunk_data)
 
 
 func _finish_export_single(mesh: ArrayMesh, filepath: String) -> void:
 	_export_thread.wait_to_finish()
+	is_exporting = false
+	input_handler.is_loading = false
+	camera.set_process(true)
 	var ok := tilemap.glb_exporter.save_single(mesh, filepath)
 	if ok:
 		var real_path := ProjectSettings.globalize_path(filepath)
@@ -566,6 +724,9 @@ func _finish_export_single(mesh: ArrayMesh, filepath: String) -> void:
 
 func _finish_export_chunked(chunk_data: Dictionary) -> void:
 	_export_thread.wait_to_finish()
+	is_exporting = false
+	input_handler.is_loading = false
+	camera.set_process(true)
 	if chunk_data.is_empty():
 		push_error("Chunked export: mesh build returned no data")
 		_hide_export_overlay()
@@ -693,6 +854,8 @@ func _on_save_confirmed(path: String):
 	"""Handle save confirmation from save dialog"""
 	if LevelSaveLoad.save_level(tilemap, y_level_manager, path, material_palette):
 		current_save_file = path
+		has_unsaved_changes = false
+		AppConfig.add_recent_file(ProjectSettings.globalize_path(path))
 		print("\n=== LEVEL SAVED ===")
 		var real_path = ProjectSettings.globalize_path(path)
 		print("Saved to: ", real_path)
@@ -701,6 +864,10 @@ func _on_save_confirmed(path: String):
 
 func _on_load_confirmed(path: String):
 	"""Handle load confirmation from load dialog"""
+	if _loading_from_startup_picker:
+		_loading_from_startup_picker = false
+		startup_picker.visible = false
+		_on_popup_state_changed(false)
 	_begin_loading()
 	call_deferred("_do_load_read", path)
 
@@ -728,6 +895,7 @@ func _do_load_read(path: String):
 func _do_load_apply(path: String, save_data: Dictionary):
 	if LevelSaveLoad.load_level_from_data(tilemap, y_level_manager, path, save_data, material_palette, _make_load_progress_callback()):
 		current_save_file = path
+		AppConfig.add_recent_file(ProjectSettings.globalize_path(path))
 		print("\n=== LEVEL LOADED ===")
 		var real_path = ProjectSettings.globalize_path(path)
 		print("Loaded from: ", real_path)
@@ -745,17 +913,31 @@ func _do_load_apply(path: String, save_data: Dictionary):
 # FUNCTIONS TO SHOW FILE DIALOGS (call these from UI buttons)
 # ============================================================================
 
-func show_export_dialog():
-	"""Show the export file dialog"""
+func _setup_file_dialogs() -> void:
+	"""Configure file dialog paths and filters from AppConfig."""
+	export_dialog.root_subfolder = AppConfig.exports_dir
+	export_dialog.filters = PackedStringArray(["*.glb ; GLB Files", "*.gltf ; GLTF Files"])
+
+	save_dialog.root_subfolder = AppConfig.saves_dir
+	save_dialog.filters = PackedStringArray(["*.level ; Level Files"])
+
+	load_dialog.root_subfolder = AppConfig.saves_dir
+	load_dialog.filters = PackedStringArray(["*.level ; Level Files"])
+
+
+func show_export_dialog() -> void:
+	"""Show the export file dialog. Forces a save first so the export matches the saved level."""
+	if has_unsaved_changes:
+		quick_save_level()
 	export_dialog.popup_centered_ratio(0.6)
 
 
-func show_save_dialog():
+func show_save_dialog() -> void:
 	"""Show the save file dialog"""
 	save_dialog.popup_centered_ratio(0.6)
 
 
-func show_load_dialog():
+func show_load_dialog() -> void:
 	"""Show the load file dialog"""
 	load_dialog.popup_centered_ratio(0.6)
 

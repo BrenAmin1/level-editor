@@ -1,0 +1,102 @@
+[gd_scene format=3 uid="uid://cmfjxsfpxsn1f"]
+
+[ext_resource type="Script" uid="uid://cdb31qa6c471t" path="res://Scripts/console_panel.gd" id="1_script"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_bg"]
+bg_color = Color(0.08, 0.08, 0.08, 0.95)
+border_width_bottom = 1
+border_color = Color(0.25, 0.25, 0.25, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_scroll"]
+bg_color = Color(0.08, 0.08, 0.08, 0)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_input"]
+content_margin_left = 8.0
+content_margin_top = 4.0
+content_margin_right = 8.0
+content_margin_bottom = 4.0
+bg_color = Color(0.12, 0.12, 0.12, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.3, 0.3, 0.3, 1)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_input_focus"]
+content_margin_left = 8.0
+content_margin_top = 4.0
+content_margin_right = 8.0
+content_margin_bottom = 4.0
+bg_color = Color(0.14, 0.14, 0.14, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.5, 0.5, 0.5, 1)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[node name="ConsolePanel" type="Control" unique_id=1641636620]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("1_script")
+
+[node name="Background" type="Panel" parent="." unique_id=2008682566]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_bg")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="." unique_id=487282990]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 0
+
+[node name="ScrollContainer" type="ScrollContainer" parent="VBoxContainer" unique_id=1975632626]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_styles/panel = SubResource("StyleBoxFlat_scroll")
+
+[node name="LogContainer" type="VBoxContainer" parent="VBoxContainer/ScrollContainer" unique_id=420317332]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 1
+
+[node name="InputRow" type="HBoxContainer" parent="VBoxContainer" unique_id=1430163358]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Prompt" type="Label" parent="VBoxContainer/InputRow" unique_id=987547857]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.5, 0.9, 0.5, 1)
+theme_override_font_sizes/font_size = 13
+text = ">"
+
+[node name="InputField" type="LineEdit" parent="VBoxContainer/InputRow" unique_id=1736688220]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 13
+theme_override_styles/normal = SubResource("StyleBoxFlat_input")
+theme_override_styles/focus = SubResource("StyleBoxFlat_input_focus")
+placeholder_text = "Type a command... (help for list)"

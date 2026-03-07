@@ -21,6 +21,16 @@ var mesh_generator: MeshGenerator
 # Set by GlbExporter before calling the generate_* functions.
 var _top_plane_cull: Dictionary[Vector3i, bool] = {}
 
+# Pre-captured fully-enclosed status per tile position.
+# Set by GlbExporter from a main-thread snapshot so the worker thread
+# never needs to call tile_manager.check_if_fully_enclosed() directly.
+var _enclosed_snapshot: Dictionary[Vector3i, bool] = {}
+
+# Pre-captured neighbor data per tile position.
+# Set by GlbExporter from a main-thread snapshot so the worker thread
+# never needs to call tile_map.get_neighbors() directly.
+var _neighbors_snapshot: Dictionary = {}
+
 # Optional progress callback — signature: func(done: int, total: int).
 var progress_callback: Callable
 
@@ -40,6 +50,12 @@ func setup(tilemap: TileMap3D, tiles_ref: Dictionary[Vector3i, int],
 
 func set_top_plane_cull_positions(positions: Dictionary[Vector3i, bool]) -> void:
 	_top_plane_cull = positions
+
+func set_enclosed_snapshot(snapshot: Dictionary) -> void:
+	_enclosed_snapshot = snapshot
+
+func set_neighbors_snapshot(snapshot: Dictionary) -> void:
+	_neighbors_snapshot = snapshot
 
 
 # ============================================================================
@@ -148,6 +164,16 @@ func generate_optimized_level_mesh_multi_material() -> ArrayMesh:
 		# MeshBuilder skips surfaces with no geometry, so SIDES may be at
 		# index 0 when TOP is culled. We look up each surface by its role
 		# name (set via surface_set_name) to get the correct geometry.
+		# Build role->surface_index map once per tile mesh (avoids O(surfaces)
+		# name scan for every role on every tile).
+		var role_index_cache: Dictionary[Vector3i, Dictionary] = {}
+		for pos in positions:
+			var tm: ArrayMesh = mesh_cache[pos]
+			var rmap: Dictionary = {}
+			for si in range(tm.get_surface_count()):
+				rmap[tm.surface_get_name(si)] = si
+			role_index_cache[pos] = rmap
+
 		for surf_role in range(3):  # 0=TOP, 1=SIDES, 2=BOTTOM
 			var role_name: String = str(surf_role)
 			var all_verts   := PackedVector3Array()
@@ -158,12 +184,7 @@ func generate_optimized_level_mesh_multi_material() -> ArrayMesh:
 
 			for pos in positions:
 				var tm: ArrayMesh = mesh_cache[pos]
-				# Find the surface with this role name rather than assuming index.
-				var found_idx: int = -1
-				for si in range(tm.get_surface_count()):
-					if tm.surface_get_name(si) == role_name:
-						found_idx = si
-						break
+				var found_idx: int = role_index_cache[pos].get(role_name, -1)
 				if found_idx == -1:
 					continue
 				v_offset = append_mesh_surface_to_arrays(
@@ -200,11 +221,15 @@ func generate_optimized_level_mesh_multi_material() -> ArrayMesh:
 # ============================================================================
 
 func _tile_mesh_for_pos(pos: Vector3i, tile_type: int) -> ArrayMesh:
-	var neighbors: Dictionary = tile_map.get_neighbors(pos)
+	# Use pre-captured snapshot — never call tile_map.get_neighbors() from the worker thread.
+	var neighbors: Dictionary = _neighbors_snapshot.get(pos, {})
+	if neighbors.is_empty():
+		neighbors = tile_map.get_neighbors(pos)  # Fallback for non-export calls
 	var cull_top: bool = pos in _top_plane_cull
 	# Match the runtime path: compute is_fully_enclosed so the export mesh
 	# culls interior faces identically to what the runtime tile_manager does.
-	var is_fully_enclosed: bool = tile_map.tile_manager.check_if_fully_enclosed(pos, neighbors)
+	# Use pre-captured snapshot — never call tile_manager from the worker thread.
+	var is_fully_enclosed: bool = _enclosed_snapshot.get(pos, false)
 	var has_tile_above = neighbors[MeshGenerator.NeighborDir.UP] != -1
 	if (tile_type in custom_meshes or tile_type == MeshGenerator.TILE_TYPE_STAIRS) and not has_tile_above:
 		var rotation: float = tile_map.tile_rotations.get(pos, 0.0)
@@ -275,13 +300,22 @@ func _resolve_material(tile_type: int, palette_index: int, surf_idx: int) -> Mat
 
 func commit_surface_with_tangents(target_mesh: ArrayMesh, sa: Array) -> void:
 	"""Add a surface via SurfaceTool so tangents are auto-generated.
-	sa must have VERTEX / NORMAL / TEX_UV / INDEX populated."""
-	var tmp := ArrayMesh.new()
-	tmp.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, sa)
+	sa must have VERTEX / NORMAL / TEX_UV / INDEX populated.
+	Feeds SurfaceTool directly to avoid allocating a throwaway ArrayMesh."""
 	var st := SurfaceTool.new()
-	st.create_from(tmp, 0)
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var verts:   PackedVector3Array = sa[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = sa[Mesh.ARRAY_NORMAL]
+	var uvs:     PackedVector2Array = sa[Mesh.ARRAY_TEX_UV]
+	var indices: PackedInt32Array   = sa[Mesh.ARRAY_INDEX]
+	for i in range(verts.size()):
+		if normals.size() > i: st.set_normal(normals[i])
+		if uvs.size()    > i: st.set_uv(uvs[i])
+		st.add_vertex(verts[i])
+	for idx in indices:
+		st.add_index(idx)
 	st.generate_tangents()
-	target_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, st.commit_to_arrays())
+	st.commit(target_mesh)
 
 
 func append_mesh_surface_to_arrays(
@@ -347,7 +381,7 @@ func _weld_surface_arrays(
 	var has_colors   := in_colors.size()   == in_verts.size()
 
 	# Map snap_key -> canonical output index (also used as per-old-vertex remap).
-	var key_to_idx: Dictionary[String, int] = {}
+	var key_to_idx: Dictionary[Vector3i, int] = {}
 	# Per-old-vertex remap: old_vertex_index -> canonical output index.
 	var vertex_remap := PackedInt32Array()
 	vertex_remap.resize(in_verts.size())
@@ -390,5 +424,5 @@ func _remove_degenerate_triangles(indices: PackedInt32Array) -> PackedInt32Array
 	return clean
 
 
-func _snap_key(v: Vector3) -> String:
-	return "%d,%d,%d" % [roundi(v.x / WELD_EPSILON), roundi(v.y / WELD_EPSILON), roundi(v.z / WELD_EPSILON)]
+func _snap_key(v: Vector3) -> Vector3i:
+	return Vector3i(roundi(v.x / WELD_EPSILON), roundi(v.y / WELD_EPSILON), roundi(v.z / WELD_EPSILON))

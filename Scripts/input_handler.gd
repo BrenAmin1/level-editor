@@ -9,7 +9,8 @@ var selection_manager: SelectionManager
 var y_level_manager: YLevelManager
 
 # Input state
-var is_loading: bool = false  # Block all input while level is loading
+var is_loading: bool = false
+var console_open: bool = false  # Block all input while level is loading
 var mouse_pressed: bool = false
 var current_mouse_button: InputEventMouseButton
 var is_ui_hovered: bool = false
@@ -143,6 +144,8 @@ func toggle_paint_mode():
 func process_input(event: InputEvent, mode: int, tile_type: int, y_level: int):
 	if is_loading:
 		return null
+	if console_open:
+		return null
 	current_mode = mode
 	current_tile_type = tile_type
 	current_y_level = y_level
@@ -187,76 +190,66 @@ func _handle_mouse_motion(event: InputEventMouseMotion):
 	camera.handle_mouse_motion(event)
 
 func _handle_keyboard(event: InputEventKey) -> Dictionary:
-	var result = {}
-	
-	# Save/Load shortcuts (highest priority - check first)
-	if event.ctrl_pressed:
-		if event.keycode == KEY_S and not event.shift_pressed:
-			return result
-		elif event.keycode == KEY_S and event.shift_pressed:
-			return result
-		elif event.keycode == KEY_L:
-			return result
-		# Undo / Redo
-		elif event.keycode == KEY_Z and not event.shift_pressed:
-			if undo_redo:
-				undo_redo.undo()
-			return result
-		elif event.keycode == KEY_Z and event.shift_pressed:
-			if undo_redo:
-				undo_redo.redo()
-			return result
-		elif event.keycode == KEY_Y:
-			if undo_redo:
-				undo_redo.redo()
-			return result
-		# Copy / Paste (SELECT mode only)
-		elif event.keycode == KEY_C:
-			if current_mode == 1 and selection_manager:
-				selection_manager.copy_selection()
-			return result
-		elif event.keycode == KEY_V:
-			if selection_manager and not selection_manager.clipboard.is_empty():
-				_paste_at_cursor()
-			return result
-	
+	var result: Dictionary = {}
+
+	# Undo / Redo
+	if Input.is_action_just_pressed("undo"):
+		if undo_redo:
+			undo_redo.undo()
+		return result
+	if Input.is_action_just_pressed("redo"):
+		if undo_redo:
+			undo_redo.redo()
+		return result
+
+	# Copy / Paste (SELECT mode only)
+	if Input.is_action_just_pressed("copy_selection"):
+		if current_mode == 1 and selection_manager:
+			selection_manager.copy_selection()
+		return result
+	if Input.is_action_just_pressed("paste_selection"):
+		if selection_manager and not selection_manager.clipboard.is_empty():
+			_paste_at_cursor()
+		return result
+
+	# Save/Load — handled in level_editor, just consume here
+	if Input.is_action_just_pressed("quick_save") or 	   Input.is_action_just_pressed("save_as") or 	   Input.is_action_just_pressed("load"):
+		return result
+
 	# Regular editor controls
-	match event.keycode:
-		KEY_P:
-			toggle_paint_mode()
-		KEY_TAB:
-			result["action"] = "toggle_mode"
-		KEY_ENTER:
-			editor.get_viewport().debug_draw = Viewport.DEBUG_DRAW_WIREFRAME
-		KEY_BACKSPACE:
-			editor.get_viewport().debug_draw = Viewport.DEBUG_DRAW_DISABLED
-		KEY_1:
-			result["tile_type"] = 0
-			print("Selected: Custom mesh 1")
-		KEY_2:
-			result["tile_type"] = 1
-			print("Selected: Custom mesh 2")
-		KEY_3:
-			result["tile_type"] = 5
-		KEY_BRACKETRIGHT, KEY_MINUS:
-			result["y_level"] = current_y_level - 1
-			y_level_manager.change_y_level(result["y_level"])
-		KEY_BRACKETLEFT, KEY_EQUAL:
-			result["y_level"] = current_y_level + 1
-			y_level_manager.change_y_level(result["y_level"])
-		KEY_F:
-			if current_mode == 1:  # SELECT mode
-				selection_manager.mass_place_tiles(current_material_index)
-		KEY_DELETE, KEY_X:
-			if current_mode == 1:  # SELECT mode
-				selection_manager.mass_delete_tiles()
-		KEY_R:
-			if current_mode == 1:  # SELECT mode
-				if event.shift_pressed:
-					editor.rotate_selection_ccw()
-				else:
-					editor.rotate_selection_cw()
-	
+	if Input.is_action_just_pressed("toggle_paint"):
+		toggle_paint_mode()
+	elif Input.is_action_just_pressed("toggle_mode"):
+		result["action"] = "toggle_mode"
+	elif Input.is_action_just_pressed("toggle_wireframe"):
+		editor.get_viewport().debug_draw = Viewport.DEBUG_DRAW_WIREFRAME
+	elif Input.is_action_just_pressed("reset_view"):
+		editor.get_viewport().debug_draw = Viewport.DEBUG_DRAW_DISABLED
+	elif Input.is_action_just_pressed("tile_type_1"):
+		result["tile_type"] = 0
+	elif Input.is_action_just_pressed("tile_type_2"):
+		result["tile_type"] = 1
+	elif Input.is_action_just_pressed("tile_type_3"):
+		result["tile_type"] = 5
+	elif Input.is_action_just_pressed("layer_up"):
+		result["y_level"] = current_y_level - 1
+		y_level_manager.change_y_level(result["y_level"])
+	elif Input.is_action_just_pressed("layer_down"):
+		result["y_level"] = current_y_level + 1
+		y_level_manager.change_y_level(result["y_level"])
+	elif Input.is_action_just_pressed("flip_tile"):
+		if current_mode == 1:
+			selection_manager.mass_place_tiles(current_material_index)
+	elif Input.is_action_just_pressed("delete_tile"):
+		if current_mode == 1:
+			selection_manager.mass_delete_tiles()
+	elif Input.is_action_just_pressed("rotate_tile"):
+		if current_mode == 1:
+			if event.shift_pressed:
+				editor.rotate_selection_ccw()
+			else:
+				editor.rotate_selection_cw()
+
 	return result
 
 func handle_mouse_wheel(delta: float):

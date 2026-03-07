@@ -21,7 +21,7 @@ const MATERIAL_CARD_SCENE = preload("res://Scenes/material_card.tscn")
 var save_palette_dialog: FileDialog
 var load_palette_dialog: FileDialog
 
-func _ready():
+func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	
 	add_material_button.pressed.connect(_on_add_material_pressed)
@@ -48,8 +48,8 @@ func _ready():
 	_add_default_materials()
 
 
-func _process(_delta):
-	var mouse_over = _is_mouse_over_ui()
+func _process(_delta: float) -> void:
+	var mouse_over: bool = _is_mouse_over_ui()
 	
 	if mouse_over != is_mouse_inside:
 		is_mouse_inside = mouse_over
@@ -60,8 +60,8 @@ func _is_mouse_over_ui() -> bool:
 	if not visible:
 		return false
 	
-	var rect = get_global_rect()
-	var mouse_pos = get_global_mouse_position()
+	var rect: Rect2 = get_global_rect()
+	var mouse_pos: Vector2 = get_global_mouse_position()
 	return rect.has_point(mouse_pos)
 
 
@@ -69,36 +69,31 @@ func _is_mouse_over_ui() -> bool:
 # PALETTE FILE DIALOGS SETUP
 # ============================================================================
 
-func _setup_palette_dialogs():
+func _setup_palette_dialogs() -> void:
 	_ensure_palette_directory()
 	
 	save_palette_dialog = FileDialog.new()
 	add_child(save_palette_dialog)
 	save_palette_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
 	save_palette_dialog.access = FileDialog.ACCESS_FILESYSTEM
-	save_palette_dialog.filters = PackedStringArray(["*.palette.json ; Material Palette"])
+	save_palette_dialog.filters = PackedStringArray(["*.palette ; Material Palette"])
 	save_palette_dialog.file_selected.connect(_on_palette_save_confirmed)
-	save_palette_dialog.current_dir = ProjectSettings.globalize_path("user://saved_palettes/")
+	save_palette_dialog.current_dir = AppConfig.palettes_dir
 	save_palette_dialog.use_native_dialog = true
 	
 	load_palette_dialog = FileDialog.new()
 	add_child(load_palette_dialog)
 	load_palette_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
 	load_palette_dialog.access = FileDialog.ACCESS_FILESYSTEM
-	load_palette_dialog.filters = PackedStringArray(["*.palette.json ; Material Palette"])
+	load_palette_dialog.filters = PackedStringArray(["*.palette ; Material Palette"])
 	load_palette_dialog.file_selected.connect(_on_palette_load_confirmed)
-	load_palette_dialog.current_dir = ProjectSettings.globalize_path("user://saved_palettes/")
+	load_palette_dialog.current_dir = AppConfig.palettes_dir
 	load_palette_dialog.use_native_dialog = true
 
 
-func _ensure_palette_directory():
-	var dir = DirAccess.open("user://")
-	if dir and not dir.dir_exists("saved_palettes"):
-		var err = dir.make_dir("saved_palettes")
-		if err == OK:
-			print("Created saved_palettes directory")
-		else:
-			push_error("Failed to create saved_palettes directory: ", err)
+func _ensure_palette_directory() -> void:
+	# Directory creation is handled by AppConfig._ensure_directories() on startup.
+	pass
 
 
 # ============================================================================
@@ -133,9 +128,9 @@ func _on_load_palette_pressed() -> void:
 func _on_material_created(material_dict: Dictionary) -> void:
 	print("Material created: ", material_dict.name)
 	
-	var surface_resources = _create_surface_resources(material_dict)
+	var surface_resources: Array[StandardMaterial3D] = _create_surface_resources(material_dict)
 
-	var material_entry = {
+	var material_entry: Dictionary = {
 		"data": material_dict,
 		"resource": surface_resources[0],       # TOP  - used for card display / legacy callers
 		"surface_resources": surface_resources  # [top, sides, bottom]
@@ -151,7 +146,7 @@ func _on_material_edited(index: int, material_dict: Dictionary) -> void:
 		print("Material edited at index ", index, ": ", material_dict.name)
 		
 		# Create updated Godot material resources (one per surface)
-		var surface_resources = _create_surface_resources(material_dict)
+		var surface_resources: Array[StandardMaterial3D] = _create_surface_resources(material_dict)
 
 		# Update the materials array
 		materials[index] = {
@@ -161,7 +156,7 @@ func _on_material_edited(index: int, material_dict: Dictionary) -> void:
 		}
 		
 		# Update the card
-		var card = _get_card_at_index(index)
+		var card: Control = _get_card_at_index(index)
 		if card and card.has_method("setup"):
 			card.setup(material_dict, index)
 
@@ -199,69 +194,60 @@ func _on_palette_load_confirmed(path: String) -> void:
 
 
 func save_palette(filepath: String) -> bool:
-	var palette_data = {
+	# Ensure .palette extension
+	var save_path: String = filepath
+	if not save_path.ends_with(".palette"):
+		save_path += ".palette"
+
+	var palette_data: Dictionary = {
 		"version": 1,
 		"materials": []
 	}
-
 	for material_entry in materials:
-		# Normalize all texture paths to res:// before saving so the palette
-		# is portable across machines and doesn't embed absolute OS paths.
-		var data: Dictionary = material_entry["data"].duplicate(true)
-		for key in ["top_texture", "top_normal", "side_texture", "side_normal",
-				"bottom_texture", "bottom_normal"]:
-			if data.has(key):
-				data[key] = _normalize_path(data[key])
-		palette_data["materials"].append(data)
+		palette_data["materials"].append(material_entry["data"].duplicate(true))
 
-	var json_string = JSON.stringify(palette_data, "\t")
-	var file = FileAccess.open(filepath, FileAccess.WRITE)
+	var json_string: String = JSON.stringify(palette_data, "\t")
 
+	# Atomic write: temp then rename.
+	var tmp_path: String = save_path + ".tmp"
+	var file: FileAccess = FileAccess.open(tmp_path, FileAccess.WRITE)
 	if file == null:
-		push_error("Failed to open file for writing: " + filepath)
+		push_error("Failed to open temp file for writing: " + tmp_path)
 		return false
-
 	file.store_string(json_string)
 	file.close()
+
+	var dir: DirAccess = DirAccess.open(tmp_path.get_base_dir())
+	if dir == null or dir.rename(tmp_path, save_path) != OK:
+		push_error("Failed to rename temp palette to: " + save_path)
+		return false
 
 	return true
 
 
 func load_palette(filepath: String) -> bool:
-	var file = FileAccess.open(filepath, FileAccess.READ)
-	
+	var file: FileAccess = FileAccess.open(filepath, FileAccess.READ)
 	if file == null:
 		push_error("Failed to open file for reading: " + filepath)
 		return false
-	
-	var json_string = file.get_as_text()
+
+	var json_string: String = file.get_as_text()
 	file.close()
-	
-	var json = JSON.new()
-	var parse_result = json.parse(json_string)
-	
-	if parse_result != OK:
-		push_error("Failed to parse JSON: " + json.get_error_message())
+
+	var json: JSON = JSON.new()
+	if json.parse(json_string) != OK:
+		push_error("Failed to parse palette JSON: " + json.get_error_message())
 		return false
-	
-	var palette_data = json.data
-	
+
+	var palette_data: Variant = json.data
 	if not palette_data is Dictionary or not palette_data.has("materials"):
 		push_error("Invalid palette file format")
 		return false
-	
-	_clear_all_materials()
 
+	_clear_all_materials()
 	for material_data in palette_data["materials"]:
 		if material_data is Dictionary:
-			# Normalize paths on load so materials loaded from old palettes
-			# with absolute OS paths are remapped to res:// where possible.
-			var normalized: Dictionary = material_data.duplicate(true)
-			for key in ["top_texture", "top_normal", "side_texture", "side_normal",
-					"bottom_texture", "bottom_normal"]:
-				if normalized.has(key):
-					normalized[key] = _normalize_path(normalized[key])
-			_on_material_created(normalized)
+			_on_material_created(material_data)
 
 	return true
 
@@ -281,26 +267,9 @@ func _clear_all_materials() -> void:
 # MATERIAL CREATION AND MANAGEMENT
 # ============================================================================
 
-func _normalize_path(path: String) -> String:
-	"""Convert an absolute OS path to a res:// path if the file exists inside
-	the project directory. Returns the original path unchanged if it is already
-	a res:// or user:// path, or if no matching project file can be found."""
-	if path == "" or path.begins_with("res://") or path.begins_with("user://"):
-		return path
-	# Try to find the file by its filename inside res://
-	var filename := path.get_file()
-	var res_path := "res://Images/" + filename
-	if ResourceLoader.exists(res_path):
-		return res_path
-	# Broader search — walk common image directories
-	for dir_path in ["res://Images", "res://images", "res://Textures", "res://textures", "res://"]:
-		var candidate: String = dir_path + "/" + filename
-		if ResourceLoader.exists(candidate):
-			return candidate
-	# Can't remap — return empty string so the material uses its colour fallback
-	# rather than an unresolvable absolute path.
-	push_warning("material_palette: cannot remap path to res://: " + path)
-	return ""
+# _normalize_path removed: textures are now copied into AppConfig.textures_dir
+# on import (see material_maker_popup._on_file_selected), so all user texture
+# paths are already absolute paths within the app data directory.
 
 
 func _create_godot_material(material_dict: Dictionary) -> StandardMaterial3D:
@@ -311,7 +280,7 @@ func _create_godot_material(material_dict: Dictionary) -> StandardMaterial3D:
 
 func _create_godot_material_for_surface(material_dict: Dictionary, surface_idx: int) -> StandardMaterial3D:
 	# surface_idx matches MeshGenerator.SurfaceType: 0 = TOP, 1 = SIDES, 2 = BOTTOM
-	var m_material = StandardMaterial3D.new()
+	var m_material: StandardMaterial3D = StandardMaterial3D.new()
 	m_material.uv1_triplanar = true
 	m_material.uv1_world_triplanar = true
 	m_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
@@ -336,16 +305,16 @@ func _create_godot_material_for_surface(material_dict: Dictionary, surface_idx: 
 			normal_key  = "top_normal"
 
 	# Load albedo texture, falling back through top -> side -> bottom if missing.
-	var texture_path = material_dict.get(texture_key, "")
+	var texture_path: String = material_dict.get(texture_key, "")
 	if texture_path == "" or not FileAccess.file_exists(texture_path):
 		for fallback_key in ["top_texture", "side_texture", "bottom_texture"]:
-			var fp = material_dict.get(fallback_key, "")
+			var fp: String = material_dict.get(fallback_key, "")
 			if fp != "" and FileAccess.file_exists(fp):
 				texture_path = fp
 				break
 
 	if texture_path != "" and FileAccess.file_exists(texture_path):
-		var texture = load(texture_path) as Texture2D
+		var texture: Texture2D = load(texture_path) as Texture2D
 		if texture:
 			m_material.albedo_texture = texture
 
@@ -353,9 +322,9 @@ func _create_godot_material_for_surface(material_dict: Dictionary, surface_idx: 
 	# A surface with an empty normal key intentionally has no normal map;
 	# falling back to another surface's normal would apply the wrong effect
 	# (e.g. dirt_n.png appearing on a Grass top that should be flat).
-	var normal_path = material_dict.get(normal_key, "")
+	var normal_path: String = material_dict.get(normal_key, "")
 	if normal_path != "" and FileAccess.file_exists(normal_path):
-		var normal_map = load(normal_path) as Texture2D
+		var normal_map: Texture2D = load(normal_path) as Texture2D
 		if normal_map:
 			m_material.normal_enabled = true
 			m_material.normal_texture = normal_map
@@ -382,7 +351,7 @@ func _create_surface_resources(material_dict: Dictionary) -> Array[StandardMater
 
 
 func _create_material_card(material_dict: Dictionary, index: int) -> void:
-	var card = MATERIAL_CARD_SCENE.instantiate()
+	var card: Node = MATERIAL_CARD_SCENE.instantiate()
 	material_grid.add_child(card)
 	
 	card.custom_minimum_size = Vector2(96, 128)
@@ -401,13 +370,13 @@ func _on_material_card_selected(index: int) -> void:
 	
 	# Deselect previous card
 	if selected_material_index >= 0:
-		var prev_card = _get_card_at_index(selected_material_index)
+		var prev_card: Control = _get_card_at_index(selected_material_index)
 		if prev_card and prev_card.has_method("set_selected"):
 			prev_card.set_selected(false)
 	
 	# Select new card
 	selected_material_index = index
-	var new_card = _get_card_at_index(index)
+	var new_card: Control = _get_card_at_index(index)
 	if new_card and new_card.has_method("set_selected"):
 		new_card.set_selected(true)
 	
@@ -434,7 +403,7 @@ func _delete_material(index: int) -> void:
 		materials.remove_at(index)
 		
 		# Remove card from grid
-		var card = material_grid.get_child(index)
+		var card: Node = material_grid.get_child(index)
 		if card:
 			card.queue_free()
 		
@@ -454,7 +423,7 @@ func _delete_material(index: int) -> void:
 
 func _refresh_card_indices() -> void:
 	for i in range(material_grid.get_child_count()):
-		var card = material_grid.get_child(i)
+		var card: Node = material_grid.get_child(i)
 		if card and card.has_method("update_index"):
 			card.update_index(i)
 
@@ -464,7 +433,7 @@ func _refresh_card_indices() -> void:
 # ============================================================================
 
 func _add_default_materials() -> void:
-	var default_grass_data = {
+	var default_grass_data: Dictionary = {
 		"name": "Grass",
 		"top_texture": "res://Images/Grass.png",
 		"top_normal": "",
@@ -474,7 +443,7 @@ func _add_default_materials() -> void:
 		"bottom_normal": ""
 	}
 	
-	var default_dirt_data = {
+	var default_dirt_data: Dictionary = {
 		"name": "Dirt",
 		"top_texture": "res://Images/dirt.png",
 		"top_normal": "res://Images/dirt_n.png",
@@ -484,7 +453,7 @@ func _add_default_materials() -> void:
 		"bottom_normal": "res://Images/dirt_n.png"
 	}
 	
-	var default_gravel_data = {
+	var default_gravel_data: Dictionary = {
 		"name": "Gravel",
 		"top_texture": "res://Images/Gravle_3.png",
 		"top_normal": "",
@@ -494,9 +463,9 @@ func _add_default_materials() -> void:
 		"bottom_normal": ""
 	}
 	
-	var grass_resources = _create_surface_resources(default_grass_data)
-	var dirt_resources = _create_surface_resources(default_dirt_data)
-	var gravel_resources = _create_surface_resources(default_gravel_data)
+	var grass_resources: Array[StandardMaterial3D] = _create_surface_resources(default_grass_data)
+	var dirt_resources: Array[StandardMaterial3D] = _create_surface_resources(default_dirt_data)
+	var gravel_resources: Array[StandardMaterial3D] = _create_surface_resources(default_gravel_data)
 
 	materials.append({"data": default_grass_data, "resource": grass_resources[0], "surface_resources": grass_resources})
 	materials.append({"data": default_dirt_data, "resource": dirt_resources[0], "surface_resources": dirt_resources})
@@ -535,7 +504,7 @@ func get_material_for_surface(index: int, surface_idx: int) -> StandardMaterial3
 	# surface_idx: 0 = TOP, 1 = SIDES, 2 = BOTTOM (matches MeshGenerator.SurfaceType)
 	if index < 0 or index >= materials.size():
 		return null
-	var entry = materials[index]
+	var entry: Dictionary = materials[index]
 	if entry.has("surface_resources"):
 		var surface_resources: Array = entry["surface_resources"]
 		if surface_idx >= 0 and surface_idx < surface_resources.size():

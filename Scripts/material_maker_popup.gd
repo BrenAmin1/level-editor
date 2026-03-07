@@ -20,7 +20,7 @@ extends PopupPanel
 @onready var preview_mesh: MeshInstance3D
 
 # Material data
-var material_data := {
+var material_data: Dictionary = {
 	"name": "",
 	"top_texture": "",
 	"top_normal": "",
@@ -32,7 +32,7 @@ var material_data := {
 
 # File dialog for texture selection
 var file_dialog: FileDialog
-var current_texture_type := ""
+var current_texture_type: String = ""
 
 # EDIT MODE TRACKING
 var is_editing: bool = false
@@ -68,9 +68,9 @@ func _ready() -> void:
 	# Connect to popup signals
 	popup_hide.connect(_on_popup_hide)
 	about_to_popup.connect(_on_about_to_popup)
-	var level_editor = get_tree().current_scene
+	var level_editor: Node = get_tree().current_scene
 	if level_editor and level_editor.has_node("InputHandler"):
-		var input_handler = level_editor.input_handler
+		var input_handler: Node = level_editor.input_handler
 		input_handler.register_focus_control(material_name_input)
 
 func _setup_file_dialog() -> void:
@@ -103,31 +103,31 @@ func _setup_3d_preview() -> void:
 	
 	# Create camera
 	preview_camera = Camera3D.new()
-	var cam_pos = Vector3(1.5, 1.5, 1.5)
-	var look_target = Vector3(0.5, 0.5, 0.5)
+	var cam_pos: Vector3 = Vector3(1.5, 1.5, 1.5)
+	var look_target: Vector3 = Vector3(0.5, 0.5, 0.5)
 	preview_camera.look_at_from_position(cam_pos, look_target, Vector3.UP)
 	preview_viewport.add_child(preview_camera)
 	
 	# Create light
-	var light := DirectionalLight3D.new()
+	var light: DirectionalLight3D = DirectionalLight3D.new()
 	light.rotation_degrees = Vector3(-45, 45, 0)
 	light.light_energy = 1.0
 	preview_viewport.add_child(light)
 	
 	# Add environment for better lighting
-	var environment = Environment.new()
+	var environment: Environment = Environment.new()
 	environment.background_mode = Environment.BG_COLOR
 	environment.background_color = Color(0.2, 0.2, 0.2, 0.0)
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	environment.ambient_light_color = Color(0.4, 0.4, 0.4)
-	var world_env = WorldEnvironment.new()
+	var world_env: WorldEnvironment = WorldEnvironment.new()
 	world_env.environment = environment
 	preview_viewport.add_child(world_env)
 	
 	# Load cube_bulge.obj and RECLASSIFY triangles by normal direction
-	var mesh_resource := load("res://cubes/cube_bulge.obj")
+	var mesh_resource: ArrayMesh = load("res://cubes/cube_bulge.obj") as ArrayMesh
 	if mesh_resource:
-		var reclassified_mesh = _reclassify_mesh_by_normals(mesh_resource)
+		var reclassified_mesh: ArrayMesh = _reclassify_mesh_by_normals(mesh_resource)
 		
 		preview_mesh = MeshInstance3D.new()
 		preview_mesh.mesh = reclassified_mesh
@@ -148,42 +148,42 @@ func _reclassify_mesh_by_normals(source_mesh: ArrayMesh) -> ArrayMesh:
 	"""Reclassify mesh triangles by normal direction, matching the tilemap's SurfaceClassifier logic"""
 	
 	# Initialize arrays for each surface type
-	var top_verts = PackedVector3Array()
-	var top_normals = PackedVector3Array()
-	var top_uvs = PackedVector2Array()
-	var top_indices = PackedInt32Array()
+	var top_verts: PackedVector3Array = PackedVector3Array()
+	var top_normals: PackedVector3Array = PackedVector3Array()
+	var top_uvs: PackedVector2Array = PackedVector2Array()
+	var top_indices: PackedInt32Array = PackedInt32Array()
 	
-	var sides_verts = PackedVector3Array()
-	var sides_normals = PackedVector3Array()
-	var sides_uvs = PackedVector2Array()
-	var sides_indices = PackedInt32Array()
+	var sides_verts: PackedVector3Array = PackedVector3Array()
+	var sides_normals: PackedVector3Array = PackedVector3Array()
+	var sides_uvs: PackedVector2Array = PackedVector2Array()
+	var sides_indices: PackedInt32Array = PackedInt32Array()
 	
-	var bottom_verts = PackedVector3Array()
-	var bottom_normals = PackedVector3Array()
-	var bottom_uvs = PackedVector2Array()
-	var bottom_indices = PackedInt32Array()
+	var bottom_verts: PackedVector3Array = PackedVector3Array()
+	var bottom_normals: PackedVector3Array = PackedVector3Array()
+	var bottom_uvs: PackedVector2Array = PackedVector2Array()
+	var bottom_indices: PackedInt32Array = PackedInt32Array()
 	
 	# Process all surfaces from the source mesh
 	for surf_idx in range(source_mesh.get_surface_count()):
-		var arrays = source_mesh.surface_get_arrays(surf_idx)
-		var vertices = arrays[Mesh.ARRAY_VERTEX]
-		var normals = arrays[Mesh.ARRAY_NORMAL]
-		var uvs = arrays[Mesh.ARRAY_TEX_UV]
-		var indices = arrays[Mesh.ARRAY_INDEX]
+		var arrays: Array = source_mesh.surface_get_arrays(surf_idx)
+		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+		var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV] if arrays[Mesh.ARRAY_TEX_UV] != null else PackedVector2Array()
+		var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
 		
 		# Process each triangle
 		for i in range(0, indices.size(), 3):
-			var i0 = indices[i]
-			var i1 = indices[i + 1]
-			var i2 = indices[i + 2]
+			var i0: int = indices[i]
+			var i1: int = indices[i + 1]
+			var i2: int = indices[i + 2]
 			
-			var v0 = vertices[i0]
-			var v1 = vertices[i1]
-			var v2 = vertices[i2]
+			var v0: Vector3 = vertices[i0]
+			var v1: Vector3 = vertices[i1]
+			var v2: Vector3 = vertices[i2]
 			
-			var n0 = normals[i0]
-			var n1 = normals[i1]
-			var n2 = normals[i2]
+			var n0: Vector3 = normals[i0]
+			var n1: Vector3 = normals[i1]
+			var n2: Vector3 = normals[i2]
 			
 			# Safe UV handling
 			var uv0 = Vector2.ZERO
@@ -195,12 +195,12 @@ func _reclassify_mesh_by_normals(source_mesh: ArrayMesh) -> ArrayMesh:
 				uv2 = uvs[i2] if i2 < uvs.size() else Vector2.ZERO
 			
 			# Calculate average normal
-			var avg_normal = (n0 + n1 + n2).normalized()
+			var avg_normal: Vector3 = (n0 + n1 + n2).normalized()
 			
 			# Classify based on Y component
 			if avg_normal.y > 0.8:
 				# TOP surface
-				var start_idx = top_verts.size()
+				var start_idx: int = top_verts.size()
 				top_verts.append(v0)
 				top_verts.append(v1)
 				top_verts.append(v2)
@@ -215,7 +215,7 @@ func _reclassify_mesh_by_normals(source_mesh: ArrayMesh) -> ArrayMesh:
 				top_indices.append(start_idx + 2)
 			elif avg_normal.y < -0.8:
 				# BOTTOM surface
-				var start_idx = bottom_verts.size()
+				var start_idx: int = bottom_verts.size()
 				bottom_verts.append(v0)
 				bottom_verts.append(v1)
 				bottom_verts.append(v2)
@@ -230,7 +230,7 @@ func _reclassify_mesh_by_normals(source_mesh: ArrayMesh) -> ArrayMesh:
 				bottom_indices.append(start_idx + 2)
 			else:
 				# SIDES surface
-				var start_idx = sides_verts.size()
+				var start_idx: int = sides_verts.size()
 				sides_verts.append(v0)
 				sides_verts.append(v1)
 				sides_verts.append(v2)
@@ -245,11 +245,11 @@ func _reclassify_mesh_by_normals(source_mesh: ArrayMesh) -> ArrayMesh:
 				sides_indices.append(start_idx + 2)
 	
 	# Build the reclassified mesh with 3 surfaces: TOP, SIDES, BOTTOM
-	var new_mesh = ArrayMesh.new()
+	var new_mesh: ArrayMesh = ArrayMesh.new()
 	
 	# Surface 0: TOP
 	if top_verts.size() > 0:
-		var surface_array = []
+		var surface_array: Array = []
 		surface_array.resize(Mesh.ARRAY_MAX)
 		surface_array[Mesh.ARRAY_VERTEX] = top_verts
 		surface_array[Mesh.ARRAY_NORMAL] = top_normals
@@ -259,7 +259,7 @@ func _reclassify_mesh_by_normals(source_mesh: ArrayMesh) -> ArrayMesh:
 	
 	# Surface 1: SIDES
 	if sides_verts.size() > 0:
-		var surface_array = []
+		var surface_array: Array = []
 		surface_array.resize(Mesh.ARRAY_MAX)
 		surface_array[Mesh.ARRAY_VERTEX] = sides_verts
 		surface_array[Mesh.ARRAY_NORMAL] = sides_normals
@@ -269,7 +269,7 @@ func _reclassify_mesh_by_normals(source_mesh: ArrayMesh) -> ArrayMesh:
 	
 	# Surface 2: BOTTOM
 	if bottom_verts.size() > 0:
-		var surface_array = []
+		var surface_array: Array = []
 		surface_array.resize(Mesh.ARRAY_MAX)
 		surface_array[Mesh.ARRAY_VERTEX] = bottom_verts
 		surface_array[Mesh.ARRAY_NORMAL] = bottom_normals
@@ -306,39 +306,39 @@ func _update_preview_material() -> void:
 	if not preview_mesh:
 		return
 	
-	var surface_count = preview_mesh.mesh.get_surface_count()
+	var surface_count: int = preview_mesh.mesh.get_surface_count()
 	
 	if surface_count >= 3:
 		# Surface 0 = TOP, Surface 1 = SIDES, Surface 2 = BOTTOM
-		var top_material = _create_material_for_surface("top")
+		var top_material: StandardMaterial3D = _create_material_for_surface("top")
 		preview_mesh.set_surface_override_material(0, top_material)
 		
-		var side_material = _create_material_for_surface("side")
+		var side_material: StandardMaterial3D = _create_material_for_surface("side")
 		preview_mesh.set_surface_override_material(1, side_material)
 		
-		var bottom_material = _create_material_for_surface("bottom")
+		var bottom_material: StandardMaterial3D = _create_material_for_surface("bottom")
 		preview_mesh.set_surface_override_material(2, bottom_material)
 
 
 func _create_material_for_surface(surface_type: String) -> StandardMaterial3D:
 	"""Create a material for a specific surface (top, side, or bottom)"""
-	var material := StandardMaterial3D.new()
+	var material: StandardMaterial3D = StandardMaterial3D.new()
 	
 	material.uv1_triplanar = true
 	material.uv1_world_triplanar = true
 	material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	material.uv1_triplanar_sharpness = 4.0
 	
-	var texture_key = surface_type + "_texture"
-	var normal_key = surface_type + "_normal"
+	var texture_key: String = surface_type + "_texture"
+	var normal_key: String = surface_type + "_normal"
 	
 	if material_data.get(texture_key, "") != "":
-		var texture := load(material_data[texture_key])
+		var texture: Texture2D = load(material_data[texture_key]) as Texture2D
 		if texture:
 			material.albedo_texture = texture
 	
 	if material_data.get(normal_key, "") != "":
-		var normal := load(material_data[normal_key])
+		var normal: Texture2D = load(material_data[normal_key]) as Texture2D
 		if normal:
 			material.normal_enabled = true
 			material.normal_texture = normal
@@ -370,9 +370,15 @@ func _update_button_text(texture_type: String, text: String) -> void:
 
 
 func _on_file_selected(path: String) -> void:
-	material_data[current_texture_type] = path
-	
-	var filename := path.get_file()
+	# Copy the texture into the app data directory so it's portable and
+	# doesn't depend on the file staying at its original location.
+	var dest: String = AppConfig.copy_texture_to_data_dir(path)
+	if dest.is_empty():
+		push_error("Failed to import texture: " + path)
+		return
+	material_data[current_texture_type] = dest
+
+	var filename: String = dest.get_file()
 	match current_texture_type:
 		"top_texture":
 			top_texture_btn.text = filename

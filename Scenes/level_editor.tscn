@@ -10,6 +10,9 @@
 [ext_resource type="PackedScene" uid="uid://bk3jgmmr2f6hx" path="res://Scenes/block_menu.tscn" id="7_5ogug"]
 [ext_resource type="Script" uid="uid://b2t4yav0slfc5" path="res://Scripts/save_filedialog.gd" id="7_fhsmn"]
 [ext_resource type="Script" uid="uid://dtm42xqkessre" path="res://Scripts/load_filedialog.gd" id="8_5ogug"]
+[ext_resource type="PackedScene" uid="uid://cq6vvahj686jk" path="res://Scenes/escape_menu.tscn" id="8_kerlq"]
+[ext_resource type="PackedScene" uid="uid://dri25gypuvql0" path="res://Scenes/startup_picker.tscn" id="9_2r1hx"]
+[ext_resource type="PackedScene" uid="uid://cmfjxsfpxsn1f" path="res://Scenes/console_panel.tscn" id="9_g51jt"]
 
 [sub_resource type="PhysicalSkyMaterial" id="PhysicalSkyMaterial_5o76e"]
 
@@ -22,6 +25,7 @@ sky = SubResource("Sky_s1b0e")
 
 [node name="level_editor" type="Node3D" unique_id=1129799652]
 script = ExtResource("1_5o76e")
+grid_range = null
 
 [node name="Camera3D" type="Camera3D" parent="." unique_id=775226364]
 script = ExtResource("2_s1b0e")
@@ -107,37 +111,27 @@ text = "Confirm"
 [node name="MaterialPalette" parent="UI" unique_id=49067143 instance=ExtResource("6_fhsmn")]
 layout_mode = 1
 anchor_top = 0.892
-offset_top = 38.98401
+offset_top = 46.76001
 focus_mode = 1
 
 [node name="BlockMenu" parent="UI" unique_id=1343238904 instance=ExtResource("7_5ogug")]
 layout_mode = 1
 anchors_preset = -1
-anchor_left = 0.74300003
-anchor_top = 0.34300002
-anchor_bottom = 0.688
-offset_left = 0.063964844
-offset_top = -0.26402283
-offset_bottom = -0.8240051
+anchor_left = 1.0
+anchor_top = 0.51500005
+anchor_bottom = 0.51500005
+offset_left = -296.0
+offset_top = -111.72003
+offset_bottom = 111.27997
 
-[node name="Controls" type="Label" parent="UI" unique_id=1335712705]
-layout_mode = 0
-offset_right = 225.0
-offset_bottom = 361.0
-text = "WASD -> MOVE
-LMB -> PLACE
-RMB -> REMOVE
-MMB -> LOOK AROUND
-MWHEELUP -> ZOOM IN
-WHEELDOWN -> ZOOM OUT
-CTRL + MMB -> RESET VIEW
-ENTER -> WIREFRAMES
-BACKSPACE -> DEFAULT VIEW
-[ --> LAYER UP
-] --> LAYER DOWN
-. --> INCREASE STAIR
-, --> DECREASE STAIR
-1... 2... -> BLOCK TYPE"
+[node name="EscapeMenu" parent="UI" unique_id=1886034668 instance=ExtResource("8_kerlq")]
+layout_mode = 1
+
+[node name="ConsolePanel" parent="UI" unique_id=1641636620 instance=ExtResource("9_g51jt")]
+layout_mode = 1
+
+[node name="StartupPicker" parent="UI" unique_id=2015139854 instance=ExtResource("9_2r1hx")]
+layout_mode = 1
 
 [node name="Export" type="FileDialog" parent="UI" unique_id=2124544959]
 oversampling_override = 1.0
@@ -145,9 +139,8 @@ title = "Export a Level"
 initial_position = 1
 always_on_top = true
 ok_button_text = "Export"
-access = 1
-root_subfolder = "user://exports/"
-filters = PackedStringArray("*.tres", "*.gltf")
+access = 2
+filters = PackedStringArray("*.glb", "*.gltf")
 use_native_dialog = true
 script = ExtResource("6_i8l5y")
 
@@ -155,9 +148,8 @@ script = ExtResource("6_i8l5y")
 oversampling_override = 1.0
 initial_position = 1
 always_on_top = true
-access = 1
-root_subfolder = "user://saved_levels"
-filters = PackedStringArray("*.json")
+access = 2
+filters = PackedStringArray("*.level")
 use_native_dialog = true
 script = ExtResource("7_fhsmn")
 
@@ -168,9 +160,8 @@ initial_position = 1
 always_on_top = true
 ok_button_text = "Load"
 file_mode = 0
-access = 1
-root_subfolder = "user://saved_levels"
-filters = PackedStringArray("*.json", "*.tres")
+access = 2
+filters = PackedStringArray("*.level")
 use_native_dialog = true
 script = ExtResource("8_5ogug")
 

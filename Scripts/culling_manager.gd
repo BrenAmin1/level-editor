@@ -123,7 +123,7 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary[MeshGenerator.Nei
 	var NeighborDir = MeshGenerator.NeighborDir
 	
 	# Debug flag - set to true to track corner keeps
-	var DEBUG_CULLING = true
+	var DEBUG_CULLING = false
 	var DEBUG_INSIDE_TILES = false  # Turn off verbose debug
 	
 	# Check if this cube has a cube on top

@@ -1,0 +1,477 @@
+[gd_scene format=3 uid="uid://cq6vvahj686jk"]
+
+[ext_resource type="Script" uid="uid://gkhsmvxwl36k" path="res://Scripts/escape_menu.gd" id="1_script"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_overlay"]
+bg_color = Color(0, 0, 0, 0.6)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_panel"]
+bg_color = Color(0.14, 0.14, 0.14, 0.97)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.35, 0.35, 0.35, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+shadow_color = Color(0, 0, 0, 0.4)
+shadow_size = 12
+
+[sub_resource type="LabelSettings" id="LabelSettings_title"]
+font_size = 20
+font_color = Color(0.9, 0.9, 0.9, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_separator"]
+bg_color = Color(0.35, 0.35, 0.35, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_normal"]
+content_margin_left = 12.0
+content_margin_top = 8.0
+content_margin_right = 12.0
+content_margin_bottom = 8.0
+bg_color = Color(0.22, 0.22, 0.22, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.32, 0.32, 0.32, 1)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_pressed"]
+content_margin_left = 12.0
+content_margin_top = 8.0
+content_margin_right = 12.0
+content_margin_bottom = 8.0
+bg_color = Color(0.18, 0.18, 0.18, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.4, 0.4, 0.4, 1)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_hover"]
+content_margin_left = 12.0
+content_margin_top = 8.0
+content_margin_right = 12.0
+content_margin_bottom = 8.0
+bg_color = Color(0.3, 0.3, 0.3, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.5, 0.5, 0.5, 1)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_quit_normal"]
+content_margin_left = 12.0
+content_margin_top = 8.0
+content_margin_right = 12.0
+content_margin_bottom = 8.0
+bg_color = Color(0.28, 0.14, 0.14, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.45, 0.22, 0.22, 1)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_quit_hover"]
+content_margin_left = 12.0
+content_margin_top = 8.0
+content_margin_right = 12.0
+content_margin_bottom = 8.0
+bg_color = Color(0.4, 0.18, 0.18, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.6, 0.28, 0.28, 1)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_confirm_panel"]
+bg_color = Color(0.12, 0.12, 0.12, 0.98)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.45, 0.22, 0.22, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+shadow_color = Color(0, 0, 0, 0.5)
+shadow_size = 16
+
+[node name="EscapeMenu" type="Control" unique_id=1886034668]
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_script")
+
+[node name="Overlay" type="Panel" parent="." unique_id=1019807174]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 1
+theme_override_styles/panel = SubResource("StyleBoxFlat_overlay")
+
+[node name="Panel" type="Panel" parent="." unique_id=53190262]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(320, 432)
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_panel")
+
+[node name="MarginContainer" type="MarginContainer" parent="Panel" unique_id=680618596]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_top = 24
+theme_override_constants/margin_right = 24
+theme_override_constants/margin_bottom = 24
+
+[node name="VBoxContainer" type="VBoxContainer" parent="Panel/MarginContainer" unique_id=1527726003]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBoxContainer" unique_id=1335172073]
+layout_mode = 2
+text = "Menu"
+label_settings = SubResource("LabelSettings_title")
+horizontal_alignment = 1
+
+[node name="Separator" type="Panel" parent="Panel/MarginContainer/VBoxContainer" unique_id=412188716]
+custom_minimum_size = Vector2(0, 1)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_separator")
+
+[node name="Spacer1" type="Control" parent="Panel/MarginContainer/VBoxContainer" unique_id=1876694629]
+custom_minimum_size = Vector2(0, 4)
+layout_mode = 2
+
+[node name="Resume" type="Button" parent="Panel/MarginContainer/VBoxContainer" unique_id=1293417562]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn_normal")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_btn_pressed")
+theme_override_styles/hover = SubResource("StyleBoxFlat_btn_hover")
+theme_override_styles/focus = SubResource("StyleBoxFlat_btn_normal")
+text = "Resume"
+
+[node name="Save" type="Button" parent="Panel/MarginContainer/VBoxContainer" unique_id=35103728]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn_normal")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_btn_pressed")
+theme_override_styles/hover = SubResource("StyleBoxFlat_btn_hover")
+theme_override_styles/focus = SubResource("StyleBoxFlat_btn_normal")
+text = "Save Level"
+
+[node name="Load" type="Button" parent="Panel/MarginContainer/VBoxContainer" unique_id=2017587135]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn_normal")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_btn_pressed")
+theme_override_styles/hover = SubResource("StyleBoxFlat_btn_hover")
+theme_override_styles/focus = SubResource("StyleBoxFlat_btn_normal")
+text = "Load Level"
+
+[node name="Export" type="Button" parent="Panel/MarginContainer/VBoxContainer" unique_id=833850328]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn_normal")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_btn_pressed")
+theme_override_styles/hover = SubResource("StyleBoxFlat_btn_hover")
+theme_override_styles/focus = SubResource("StyleBoxFlat_btn_normal")
+text = "Export Level"
+
+[node name="Keybinds" type="Button" parent="Panel/MarginContainer/VBoxContainer" unique_id=2008065047]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn_normal")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_btn_pressed")
+theme_override_styles/hover = SubResource("StyleBoxFlat_btn_hover")
+theme_override_styles/focus = SubResource("StyleBoxFlat_btn_normal")
+text = "Keybinds"
+
+[node name="ChangeDataFolder" type="Button" parent="Panel/MarginContainer/VBoxContainer" unique_id=939801362]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn_normal")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_btn_pressed")
+theme_override_styles/hover = SubResource("StyleBoxFlat_btn_hover")
+theme_override_styles/focus = SubResource("StyleBoxFlat_btn_normal")
+text = "Change Data Folder..."
+
+[node name="Spacer2" type="Control" parent="Panel/MarginContainer/VBoxContainer" unique_id=1530591940]
+custom_minimum_size = Vector2(0, 8)
+layout_mode = 2
+
+[node name="QuitEditor" type="Button" parent="Panel/MarginContainer/VBoxContainer" unique_id=869513437]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn_quit_normal")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_btn_quit_normal")
+theme_override_styles/hover = SubResource("StyleBoxFlat_btn_quit_hover")
+theme_override_styles/focus = SubResource("StyleBoxFlat_btn_quit_normal")
+text = "Quit to Desktop"
+
+[node name="QuitConfirmDialog" type="Control" parent="." unique_id=1263830850]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="ConfirmPanel" type="Panel" parent="QuitConfirmDialog" unique_id=557791964]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(280, 160)
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_confirm_panel")
+
+[node name="MarginContainer" type="MarginContainer" parent="QuitConfirmDialog/ConfirmPanel" unique_id=465265330]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_top = 20
+theme_override_constants/margin_right = 24
+theme_override_constants/margin_bottom = 20
+
+[node name="VBox" type="VBoxContainer" parent="QuitConfirmDialog/ConfirmPanel/MarginContainer" unique_id=1240853536]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="Label" type="Label" parent="QuitConfirmDialog/ConfirmPanel/MarginContainer/VBox" unique_id=1658508367]
+layout_mode = 2
+text = "Quit to desktop?"
+horizontal_alignment = 1
+
+[node name="SubLabel" type="Label" parent="QuitConfirmDialog/ConfirmPanel/MarginContainer/VBox" unique_id=526497960]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.65, 0.65, 0.65, 1)
+theme_override_font_sizes/font_size = 12
+text = "Any unsaved changes will be lost."
+horizontal_alignment = 1
+
+[node name="HBox" type="HBoxContainer" parent="QuitConfirmDialog/ConfirmPanel/MarginContainer/VBox" unique_id=199950610]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="CancelQuit" type="Button" parent="QuitConfirmDialog/ConfirmPanel/MarginContainer/VBox/HBox" unique_id=1865017392]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn_normal")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_btn_pressed")
+theme_override_styles/hover = SubResource("StyleBoxFlat_btn_hover")
+theme_override_styles/focus = SubResource("StyleBoxFlat_btn_normal")
+text = "Cancel"
+
+[node name="ConfirmQuit" type="Button" parent="QuitConfirmDialog/ConfirmPanel/MarginContainer/VBox/HBox" unique_id=1443865314]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn_quit_normal")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_btn_quit_normal")
+theme_override_styles/hover = SubResource("StyleBoxFlat_btn_quit_hover")
+theme_override_styles/focus = SubResource("StyleBoxFlat_btn_quit_normal")
+text = "Quit"
+
+[node name="KeybindsPanel" type="Control" parent="." unique_id=935836585]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="KeybindsInner" type="Panel" parent="KeybindsPanel" unique_id=1029284580]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(400, 420)
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_confirm_panel")
+
+[node name="MarginContainer" type="MarginContainer" parent="KeybindsPanel/KeybindsInner" unique_id=351752556]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_top = 20
+theme_override_constants/margin_right = 24
+theme_override_constants/margin_bottom = 20
+
+[node name="VBox" type="VBoxContainer" parent="KeybindsPanel/KeybindsInner/MarginContainer" unique_id=304236863]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="TitleRow" type="HBoxContainer" parent="KeybindsPanel/KeybindsInner/MarginContainer/VBox" unique_id=638654829]
+layout_mode = 2
+
+[node name="Title" type="Label" parent="KeybindsPanel/KeybindsInner/MarginContainer/VBox/TitleRow" unique_id=1925796793]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 16
+text = "Controls"
+
+[node name="CloseKeybinds" type="Button" parent="KeybindsPanel/KeybindsInner/MarginContainer/VBox/TitleRow" unique_id=1053582291]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn_normal")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_btn_pressed")
+theme_override_styles/hover = SubResource("StyleBoxFlat_btn_hover")
+theme_override_styles/focus = SubResource("StyleBoxFlat_btn_normal")
+text = "✕"
+
+[node name="Separator" type="Panel" parent="KeybindsPanel/KeybindsInner/MarginContainer/VBox" unique_id=175659609]
+custom_minimum_size = Vector2(0, 1)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_separator")
+
+[node name="ScrollContainer" type="ScrollContainer" parent="KeybindsPanel/KeybindsInner/MarginContainer/VBox" unique_id=150154739]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="BindsMargin" type="MarginContainer" parent="KeybindsPanel/KeybindsInner/MarginContainer/VBox/ScrollContainer" unique_id=2133853642]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/margin_right = 12
+
+[node name="BindsList" type="VBoxContainer" parent="KeybindsPanel/KeybindsInner/MarginContainer/VBox/ScrollContainer/BindsMargin" unique_id=865007218]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 4
+
+[node name="UnsavedWarning" type="Control" parent="." unique_id=1658849644]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="UnsavedPanel" type="Panel" parent="UnsavedWarning" unique_id=1646958350]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(300, 160)
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_confirm_panel")
+
+[node name="MarginContainer" type="MarginContainer" parent="UnsavedWarning/UnsavedPanel" unique_id=44823436]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_top = 20
+theme_override_constants/margin_right = 24
+theme_override_constants/margin_bottom = 20
+
+[node name="VBox" type="VBoxContainer" parent="UnsavedWarning/UnsavedPanel/MarginContainer" unique_id=1521144820]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="Label" type="Label" parent="UnsavedWarning/UnsavedPanel/MarginContainer/VBox" unique_id=1917800856]
+layout_mode = 2
+text = "Unsaved changes"
+horizontal_alignment = 1
+
+[node name="SubLabel" type="Label" parent="UnsavedWarning/UnsavedPanel/MarginContainer/VBox" unique_id=1652569920]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.65, 0.65, 0.65, 1)
+theme_override_font_sizes/font_size = 12
+text = "You have unsaved changes. Continue anyway?"
+horizontal_alignment = 1
+autowrap_mode = 3
+
+[node name="HBox" type="HBoxContainer" parent="UnsavedWarning/UnsavedPanel/MarginContainer/VBox" unique_id=1902858599]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="CancelUnsaved" type="Button" parent="UnsavedWarning/UnsavedPanel/MarginContainer/VBox/HBox" unique_id=1883772392]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn_normal")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_btn_pressed")
+theme_override_styles/hover = SubResource("StyleBoxFlat_btn_hover")
+theme_override_styles/focus = SubResource("StyleBoxFlat_btn_normal")
+text = "Cancel"
+
+[node name="ConfirmUnsaved" type="Button" parent="UnsavedWarning/UnsavedPanel/MarginContainer/VBox/HBox" unique_id=1823280715]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn_quit_normal")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_btn_quit_normal")
+theme_override_styles/hover = SubResource("StyleBoxFlat_btn_quit_hover")
+theme_override_styles/focus = SubResource("StyleBoxFlat_btn_quit_normal")
+text = "Continue"

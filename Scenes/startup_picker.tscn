@@ -1,0 +1,241 @@
+[gd_scene format=3 uid="uid://dri25gypuvql0"]
+
+[ext_resource type="Script" uid="uid://buoshy5wpx3uy" path="res://Scripts/startup_picker.gd" id="1_script"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_bg"]
+bg_color = Color(0.1, 0.1, 0.1, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_panel"]
+bg_color = Color(0.14, 0.14, 0.14, 0.97)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.28, 0.28, 0.28, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="LabelSettings" id="LabelSettings_title"]
+font_size = 28
+font_color = Color(0.95, 0.95, 0.95, 1)
+
+[sub_resource type="LabelSettings" id="LabelSettings_subtitle"]
+font_size = 12
+font_color = Color(0.5, 0.5, 0.5, 1)
+
+[sub_resource type="LabelSettings" id="LabelSettings_section"]
+font_size = 11
+font_color = Color(0.5, 0.5, 0.5, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_separator"]
+bg_color = Color(0.28, 0.28, 0.28, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_normal"]
+content_margin_left = 12.0
+content_margin_top = 8.0
+content_margin_right = 12.0
+content_margin_bottom = 8.0
+bg_color = Color(0.22, 0.22, 0.22, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.32, 0.32, 0.32, 1)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_pressed"]
+content_margin_left = 12.0
+content_margin_top = 8.0
+content_margin_right = 12.0
+content_margin_bottom = 8.0
+bg_color = Color(0.18, 0.18, 0.18, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.4, 0.4, 0.4, 1)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_hover"]
+content_margin_left = 12.0
+content_margin_top = 8.0
+content_margin_right = 12.0
+content_margin_bottom = 8.0
+bg_color = Color(0.3, 0.3, 0.3, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.5, 0.5, 0.5, 1)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_quit_normal"]
+content_margin_left = 12.0
+content_margin_top = 8.0
+content_margin_right = 12.0
+content_margin_bottom = 8.0
+bg_color = Color(0.28, 0.14, 0.14, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.45, 0.22, 0.22, 1)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_quit_hover"]
+content_margin_left = 12.0
+content_margin_top = 8.0
+content_margin_right = 12.0
+content_margin_bottom = 8.0
+bg_color = Color(0.4, 0.18, 0.18, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.6, 0.28, 0.28, 1)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[node name="StartupPicker" type="Control" unique_id=332532150]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_script")
+
+[node name="Background" type="Panel" parent="." unique_id=1910450238]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_bg")
+
+[node name="CenterContainer" type="CenterContainer" parent="." unique_id=456909117]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Panel" type="Panel" parent="CenterContainer" unique_id=1360925385]
+custom_minimum_size = Vector2(720, 420)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_panel")
+
+[node name="MarginContainer" type="MarginContainer" parent="CenterContainer/Panel" unique_id=1424941162]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 28
+theme_override_constants/margin_top = 28
+theme_override_constants/margin_right = 28
+theme_override_constants/margin_bottom = 28
+
+[node name="HBoxContainer" type="HBoxContainer" parent="CenterContainer/Panel/MarginContainer" unique_id=193036848]
+layout_mode = 2
+theme_override_constants/separation = 24
+
+[node name="LeftColumn" type="VBoxContainer" parent="CenterContainer/Panel/MarginContainer/HBoxContainer" unique_id=1507123312]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_stretch_ratio = 1.4
+theme_override_constants/separation = 8
+
+[node name="AppName" type="Label" parent="CenterContainer/Panel/MarginContainer/HBoxContainer/LeftColumn" unique_id=1454703948]
+layout_mode = 2
+text = "Rain Level Editor"
+label_settings = SubResource("LabelSettings_title")
+
+[node name="AppSubtitle" type="Label" parent="CenterContainer/Panel/MarginContainer/HBoxContainer/LeftColumn" unique_id=828379289]
+layout_mode = 2
+text = "Press Escape to see Keybinds"
+label_settings = SubResource("LabelSettings_subtitle")
+
+[node name="Spacer" type="Control" parent="CenterContainer/Panel/MarginContainer/HBoxContainer/LeftColumn" unique_id=1223353474]
+custom_minimum_size = Vector2(0, 4)
+layout_mode = 2
+
+[node name="RecentLabel" type="Label" parent="CenterContainer/Panel/MarginContainer/HBoxContainer/LeftColumn" unique_id=1719553474]
+layout_mode = 2
+text = "RECENT FILES"
+label_settings = SubResource("LabelSettings_section")
+
+[node name="RecentList" type="VBoxContainer" parent="CenterContainer/Panel/MarginContainer/HBoxContainer/LeftColumn" unique_id=636410078]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 4
+
+[node name="NoRecentsLabel" type="Label" parent="CenterContainer/Panel/MarginContainer/HBoxContainer/LeftColumn/RecentList" unique_id=707539773]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.4, 0.4, 0.4, 1)
+theme_override_font_sizes/font_size = 13
+text = "No recent files."
+
+[node name="Separator" type="Panel" parent="CenterContainer/Panel/MarginContainer/HBoxContainer" unique_id=1216841834]
+custom_minimum_size = Vector2(1, 0)
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_styles/panel = SubResource("StyleBoxFlat_separator")
+
+[node name="RightColumn" type="VBoxContainer" parent="CenterContainer/Panel/MarginContainer/HBoxContainer" unique_id=2130810705]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_stretch_ratio = 0.8
+theme_override_constants/separation = 8
+
+[node name="NewLevel" type="Button" parent="CenterContainer/Panel/MarginContainer/HBoxContainer/RightColumn" unique_id=218963906]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn_normal")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_btn_pressed")
+theme_override_styles/hover = SubResource("StyleBoxFlat_btn_hover")
+theme_override_styles/focus = SubResource("StyleBoxFlat_btn_normal")
+text = "New Level"
+
+[node name="OpenLevel" type="Button" parent="CenterContainer/Panel/MarginContainer/HBoxContainer/RightColumn" unique_id=708795920]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn_normal")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_btn_pressed")
+theme_override_styles/hover = SubResource("StyleBoxFlat_btn_hover")
+theme_override_styles/focus = SubResource("StyleBoxFlat_btn_normal")
+text = "Open Level..."
+
+[node name="RightSpacer" type="Control" parent="CenterContainer/Panel/MarginContainer/HBoxContainer/RightColumn" unique_id=851043632]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="QuitBtn" type="Button" parent="CenterContainer/Panel/MarginContainer/HBoxContainer/RightColumn" unique_id=2143848714]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_styles/normal = SubResource("StyleBoxFlat_quit_normal")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_quit_normal")
+theme_override_styles/hover = SubResource("StyleBoxFlat_quit_hover")
+theme_override_styles/focus = SubResource("StyleBoxFlat_quit_normal")
+text = "Quit"

@@ -326,25 +326,27 @@ func _check_if_only_top_exposed(neighbors: Dictionary) -> bool:
 # Helper function to ensure thread is always cleaned up properly
 func _cleanup_worker_thread():
 	should_stop_thread = true
-	
+
 	if worker_thread != null:
-		# Only call wait_to_finish if thread is still alive
-		# (if it's not alive but we didn't call wait_to_finish yet, we still need to call it)
-		if worker_thread.is_alive():
-			worker_thread.wait_to_finish()
-		# If thread is not alive, it might have already been waited on in the main loop
-		# Set to null regardless
+		# BUG FIX: Must ALWAYS call wait_to_finish() on a started thread, even if
+		# is_alive() returns false — skipping it leaks the thread handle in Godot
+		# and can cause a hang on shutdown waiting for an unjoinable thread.
+		print("[THREAD] _cleanup_worker_thread: joining worker thread (alive=", worker_thread.is_alive(), ")")
+		worker_thread.wait_to_finish()
+		print("[THREAD] _cleanup_worker_thread: worker thread joined OK")
 		worker_thread = null
 
 
 # Worker thread function for mesh generation
 func _generate_meshes_threaded():
+	print("[THREAD] Worker thread started (id=", OS.get_thread_caller_id(), ")")
 	while not mesh_generation_queue.is_empty() and not should_stop_thread:
 		var tile_data = mesh_generation_queue.pop_front()
 		# Re-check after pop — cleanup() may set this while we are mid-loop.
 		# Without this the worker finishes the entire queue before noticing
 		# the flag, blocking wait_to_finish() for many seconds.
 		if should_stop_thread:
+			print("[THREAD] Worker thread stopping early via should_stop_thread flag")
 			break
 		# Unpack pre-captured data
 		var pos = tile_data["pos"]
@@ -381,9 +383,16 @@ func _generate_meshes_threaded():
 			generation_mutex.unlock()
 		
 		# Store completed mesh (thread-safe)
+		# BUG FIX: mesh_cache was written outside the mutex above (data race with main thread
+		# calling clear_mesh_cache() or starting a new flush). Cache writes moved inside mutex.
 		generation_mutex.lock()
 		generated_meshes[pos] = mesh
+		if not (cache_key in mesh_cache):
+			mesh_cache[cache_key] = mesh
 		generation_mutex.unlock()
+
+	print("[THREAD] Worker thread exiting (should_stop=", should_stop_thread,
+		", queue_empty=", mesh_generation_queue.is_empty(), ", id=", OS.get_thread_caller_id(), ")")
 
 
 # MESH CACHING: Create unique cache key for mesh variations
@@ -986,8 +995,12 @@ func cleanup() -> void:
 	# 3. Wait for the worker to exit. Because it checks should_stop_thread after
 	#    every pop it exits after at most one more mesh, not the full queue.
 	if worker_thread != null:
-		if worker_thread.is_alive():
-			worker_thread.wait_to_finish()
+		# BUG FIX: Must ALWAYS call wait_to_finish() regardless of is_alive().
+		# Skipping it when the thread just finished leaves an unjoined handle that
+		# Godot's thread destructor blocks on at shutdown, causing the OS-level freeze.
+		print("[THREAD] cleanup(): joining worker thread (alive=", worker_thread.is_alive(), ")")
+		worker_thread.wait_to_finish()
+		print("[THREAD] cleanup(): worker thread joined OK")
 		worker_thread = null
 
 	# 4. Drain any meshes the worker finished just before we stopped it.

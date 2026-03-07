@@ -25,9 +25,16 @@ const PREVIEW_SIZE = Vector2i(80, 80)
 # INITIALIZATION
 # ============================================================================
 
-func _ready():
+func _ready() -> void:
 	panel.position.x = panel_width - button_width
 	_update_toggle_button()
+	# Toggle button can sit outside the panel's tracked rect when closed.
+	# Use button_down/up to block placement before the click is processed,
+	# and mouse_entered/exited for hover state while the cursor lingers.
+	toggle_button.button_down.connect(func() -> void: ui_hover_changed.emit(true))
+	toggle_button.button_up.connect(func() -> void: ui_hover_changed.emit(false))
+	toggle_button.mouse_entered.connect(func() -> void: ui_hover_changed.emit(true))
+	toggle_button.mouse_exited.connect(func() -> void: ui_hover_changed.emit(false))
 
 
 func _process(_delta):

@@ -7,6 +7,7 @@ var camera_rotation : Vector2 = Vector2.ZERO  # x = pitch, y = yaw
 var mouse_sensitivity : float = 0.003
 var movement_speed : float = 5.0
 var is_loading: bool = false  # Set by level_editor during level load to block movement
+var console_open: bool = false  # Set by console_panel to block movement
 
 
 func _ready():
@@ -21,14 +22,16 @@ func _process(delta):
 func handle_movement(delta):
 	if is_loading:
 		return
+	if console_open:
+		return
 	var input = Vector3.ZERO
 	
-	if Input.is_key_pressed(KEY_W): input.z -= 1
-	if Input.is_key_pressed(KEY_S): input.z += 1
-	if Input.is_key_pressed(KEY_A): input.x -= 1
-	if Input.is_key_pressed(KEY_D): input.x += 1
-	if Input.is_key_pressed(KEY_Q): input.y -= 1
-	if Input.is_key_pressed(KEY_E): input.y += 1
+	if Input.is_action_pressed("cam_move_forward"): input.z -= 1
+	if Input.is_action_pressed("cam_move_back"):    input.z += 1
+	if Input.is_action_pressed("cam_move_left"):    input.x -= 1
+	if Input.is_action_pressed("cam_move_right"):   input.x += 1
+	if Input.is_action_pressed("cam_move_down"):    input.y -= 1
+	if Input.is_action_pressed("cam_move_up"):      input.y += 1
 	
 	# Move relative to camera direction
 	var direction = (global_transform.basis * input).normalized()
