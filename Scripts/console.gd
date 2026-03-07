@@ -37,16 +37,16 @@ func _ready() -> void:
 # LOGGING
 # ============================================================================
 
-func info(text: String) -> void:
-	_push(text, Level.INFO)
+func info(text: Variant, v2: Variant = "", v3: Variant = "", v4: Variant = "", v5: Variant = "", v6: Variant = "", v7: Variant = "", v8: Variant = "", v9: Variant = "", v10: Variant = "") -> void:
+	_push(str(text) + str(v2) + str(v3) + str(v4) + str(v5) + str(v6) + str(v7) + str(v8) + str(v9) + str(v10), Level.INFO)
 
 
-func warn(text: String) -> void:
-	_push(text, Level.WARN)
+func warn(text: Variant, v2: Variant = "", v3: Variant = "", v4: Variant = "", v5: Variant = "", v6: Variant = "", v7: Variant = "", v8: Variant = "", v9: Variant = "", v10: Variant = "") -> void:
+	_push(str(text) + str(v2) + str(v3) + str(v4) + str(v5) + str(v6) + str(v7) + str(v8) + str(v9) + str(v10), Level.WARN)
 
 
-func error(text: String) -> void:
-	_push(text, Level.ERROR)
+func error(text: Variant, v2: Variant = "", v3: Variant = "", v4: Variant = "", v5: Variant = "", v6: Variant = "", v7: Variant = "", v8: Variant = "", v9: Variant = "", v10: Variant = "") -> void:
+	_push(str(text) + str(v2) + str(v3) + str(v4) + str(v5) + str(v6) + str(v7) + str(v8) + str(v9) + str(v10), Level.ERROR)
 
 
 func system(text: String) -> void:
@@ -68,7 +68,8 @@ func _push(text: String, level: Level) -> void:
 	entries.append(entry)
 	if entries.size() > MAX_HISTORY:
 		entries.pop_front()
-	message_logged.emit(entry)
+	# Use call_deferred so thread-originated logs don't crash on signal emit
+	call_deferred("emit_signal", "message_logged", entry)
 	# Mirror to Godot output panel
 	match level:
 		Level.WARN:   push_warning("[Console] " + text)
@@ -123,6 +124,8 @@ func _register_builtins() -> void:
 	register_command("log_path",        _cmd_log_path,        "Print the path to the Godot log file")
 	register_command("data_dir",        _cmd_data_dir,        "Print the current data directory")
 	register_command("set_data_dir",    _cmd_set_data_dir,    "Set the data directory. Usage: set_data_dir <path>")
+	register_command("logging",          _cmd_logging,         "Show or set file logging state. Usage: logging [on|off]")
+	# Editor commands registered later by level_editor._ready() via register_command()
 
 
 func _cmd_help(_args: Array) -> void:
@@ -174,6 +177,23 @@ func _cmd_set_data_dir(args: Array) -> void:
 	AppConfig.data_directory = path
 	AppConfig.save_config()
 	info("Data directory set to: " + path)
+
+
+func _cmd_logging(args: Array) -> void:
+	if args.is_empty():
+		var enabled: bool = ProjectSettings.get_setting("application/run/flush_stdout_on_print", false)
+		info("File logging is currently: ", "on" if enabled else "off")
+		info("Log path: ", _get_log_path())
+		return
+	var val = args[0].to_lower()
+	if val == "on":
+		ProjectSettings.set_setting("application/run/flush_stdout_on_print", true)
+		info("File logging enabled. Log path: ", _get_log_path())
+	elif val == "off":
+		ProjectSettings.set_setting("application/run/flush_stdout_on_print", false)
+		info("File logging disabled.")
+	else:
+		error("Usage: logging [on|off]")
 
 
 func _get_log_path() -> String:

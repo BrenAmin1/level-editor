@@ -28,7 +28,7 @@ func _is_bulge_at(pos: Vector3i) -> bool:
 func find_exposed_corners(neighbors: Dictionary[MeshGenerator.NeighborDir, int]) -> Array:
 	var exposed_corners = []
 	var NeighborDir = MeshGenerator.NeighborDir
-	#print("Finding corners - DIAG_NW: ", neighbors.get(NeighborDir.DIAGONAL_NW, -1))
+	#Console.info("Finding corners - DIAG_NW: ", neighbors.get(NeighborDir.DIAGONAL_NW, -1))
 	# Use the neighbor data passed in, not live tile lookups
 	if neighbors[NeighborDir.NORTH] != -1 and neighbors[NeighborDir.WEST] != -1:
 		if neighbors.get(NeighborDir.DIAGONAL_NW, -1) == -1:
@@ -123,7 +123,7 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary[MeshGenerator.Nei
 	var NeighborDir = MeshGenerator.NeighborDir
 	
 	# Debug flag - set to true to track corner keeps
-	var DEBUG_CULLING = false
+	var DEBUG_CULLING = true
 	var DEBUG_INSIDE_TILES = false  # Turn off verbose debug
 	
 	# Check if this cube has a cube on top
@@ -151,7 +151,7 @@ func should_cull_triangle(pos: Vector3i, neighbors: Dictionary[MeshGenerator.Nei
 				face_type = "TOP"
 			elif face_normal.y < -0.7:
 				face_type = "BOTTOM"
-			print("  [CULLING] ", face_type, " face at ", pos, " (inside tile)")
+			Console.info("  [CULLING] ", face_type, " face at ", pos, " (inside tile)")
 		
 		# Cull side faces only if this face isn't at an exposed corner
 		if abs(face_normal.x) > 0.7 or abs(face_normal.z) > 0.7:
@@ -340,19 +340,19 @@ func _track_corner_keep(pos: Vector3i, corner_desc: String):
 	corner_keeps[pos_str][corner_desc] = true  # Only track unique corner types
 
 func print_corner_summary():
-	print("\n--- Corner Keep Summary ---")
-	print("Total positions processed: ", positions_processed.size())
+	Console.info("\n--- Corner Keep Summary ---")
+	Console.info("Total positions processed: ", positions_processed.size())
 	
 	if corner_keeps.is_empty():
-		print("No corners kept at any position!")
+		Console.info("No corners kept at any position!")
 	else:
-		print("\nPositions WITH corners kept:")
+		Console.info("\nPositions WITH corners kept:")
 		var positions = corner_keeps.keys()
 		positions.sort()
 		for pos_str in positions:
 			var corner_types = corner_keeps[pos_str].keys()  # Get unique corner types
 			corner_types.sort()
-			print("  Pos:", pos_str, " → ", corner_types.size(), " unique corner(s): ", corner_types)
+			Console.info("  Pos:", pos_str, " → ", corner_types.size(), " unique corner(s): ", corner_types)
 	
 	# Show positions that were processed but have NO corners
 	var all_positions = positions_processed.keys()
@@ -363,11 +363,11 @@ func print_corner_summary():
 			positions_without_corners.append(pos_str)
 	
 	if not positions_without_corners.is_empty():
-		print("\nPositions WITHOUT any corners kept:")
+		Console.info("\nPositions WITHOUT any corners kept:")
 		for pos_str in positions_without_corners:
-			print("  Pos:", pos_str, " → 0 corners")
+			Console.info("  Pos:", pos_str, " → 0 corners")
 	
-	print("--- End Summary ---\n")
+	Console.info("--- End Summary ---\n")
 
 func _is_face_at_corner(face_center: Vector3, face_normal: Vector3) -> bool:
 	"""

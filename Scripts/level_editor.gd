@@ -88,6 +88,7 @@ func _ready() -> void:
 	_setup_file_dialogs()
 	_show_startup_picker()
 	console_panel.setup(camera)
+	_register_console_commands()
 	
 	# Initialize TileMap3D
 	tilemap = TileMap3D.new(grid_size)
@@ -106,11 +107,11 @@ func _ready() -> void:
 	tilemap.set_custom_material(1, 2, DIRT)
 	
 	var surfaces = tilemap.get_surface_count(3)
-	print("Loaded ", surfaces, " surfaces")
+	Console.info("Loaded ", surfaces, " surfaces")
 	for i in range(surfaces):
 		var arrays = tilemap.custom_meshes[3].surface_get_arrays(i)
 		var indices = arrays[Mesh.ARRAY_INDEX]
-		print("  Surface ", i, ": ", indices.size() / 3, " triangles")
+		Console.info("  Surface ", i, ": ", indices.size() / 3, " triangles")
 	
 	# Initialize components
 	y_level_manager = YLevelManager.new()
@@ -151,20 +152,20 @@ func _ready() -> void:
 	_setup_block_menu()
 	_setup_escape_menu()
 	
-	print("Mode: EDIT (Press TAB to toggle)")
-	print("\nSave/Load Controls:")
-	print("  Ctrl+S - Quick save (saves to current file, or quicksave.json if none)")
-	print("  Ctrl+Shift+S - Save as... (opens dialog, becomes new quick save target)")
-	print("  Ctrl+L - Load level (opens dialog, becomes new quick save target)")
-	print("  Ctrl+E - Export mesh (opens dialog with format options)")
-	print("\nEdit Controls:")
-	print("  Ctrl+Z - Undo")
-	print("  Ctrl+Y / Ctrl+Shift+Z - Redo")
-	print("\nSelect Mode Controls (TAB to enter):")
-	print("  Ctrl+C - Copy selection")
-	print("  Ctrl+V - Paste at cursor")
-	print("\nPaint Controls:")
-	print("  P - Toggle paint mode (change materials without replacing tiles)")
+	Console.info("Mode: EDIT (Press TAB to toggle)")
+	Console.info("\nSave/Load Controls:")
+	Console.info("  Ctrl, S - Quick save (saves to current file, or quicksave.json if none)")
+	Console.info("  Ctrl, Shift, S - Save as... (opens dialog, becomes new quick save target)")
+	Console.info("  Ctrl, L - Load level (opens dialog, becomes new quick save target)")
+	Console.info("  Ctrl, E - Export mesh (opens dialog with format options)")
+	Console.info("\nEdit Controls:")
+	Console.info("  Ctrl, Z - Undo")
+	Console.info("  Ctrl, Y / Ctrl, Shift, Z - Redo")
+	Console.info("\nSelect Mode Controls (TAB to enter):")
+	Console.info("  Ctrl, C - Copy selection")
+	Console.info("  Ctrl, V - Paste at cursor")
+	Console.info("\nPaint Controls:")
+	Console.info("  P - Toggle paint mode (change materials without replacing tiles)")
 
 
 func _show_startup_picker() -> void:
@@ -197,6 +198,113 @@ func _setup_startup_picker() -> void:
 		call_deferred("_do_load_read", path)
 	)
 	startup_picker.quit_pressed.connect(_shutdown)
+
+
+func _register_console_commands() -> void:
+	"""Register editor-specific console commands that need level_editor references."""
+	Console.register_command("fps",
+		func(_args: Array) -> void:
+			var overlay := get_tree().get_first_node_in_group("fps_overlay")
+			if overlay:
+				overlay.visible = not overlay.visible
+				Console.info("FPS counter ", "on" if overlay.visible else "off")
+			else:
+				# Create a simple FPS label and add it to UI
+				var lbl := Label.new()
+				lbl.add_to_group("fps_overlay")
+				lbl.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+				lbl.position = Vector2(-120, 8)
+				lbl.add_theme_font_size_override("font_size", 14)
+				lbl.add_theme_color_override("font_color", Color(0.2, 1.0, 0.4, 1.0))
+				var timer := Timer.new()
+				timer.wait_time = 0.25
+				timer.autostart = true
+				timer.timeout.connect(func() -> void: lbl.text = "FPS: %d" % Engine.get_frames_per_second())
+				lbl.add_child(timer)
+				$UI.add_child(lbl)
+				Console.info("FPS counter on"),
+		"Toggle FPS counter overlay")
+
+	Console.register_command("tile_count",
+		func(_args: Array) -> void:
+			if tilemap:
+				Console.info("Tiles in level: ", tilemap.tiles.size())
+			else:
+				Console.error("No tilemap loaded"),
+		"Print number of tiles in the current level")
+
+	Console.register_command("clear_level",
+		func(args: Array) -> void:
+			if args.is_empty() or args[0] != "confirm":
+				Console.warn("This will delete all tiles. Type \'clear_level confirm\' to proceed.")
+				return
+			if tilemap:
+				tilemap.clear_all_tiles()
+				has_unsaved_changes = true
+				Console.info("Level cleared.")
+			else:
+				Console.error("No tilemap loaded"),
+		"Clear all tiles. Usage: clear_level confirm")
+
+	Console.register_command("reload_materials",
+		func(_args: Array) -> void:
+			if material_palette:
+				material_palette.reload_materials()
+				Console.info("Materials reloaded.")
+			else:
+				Console.error("No material palette found"),
+		"Reload material palette from disk")
+
+	Console.register_command("save",
+		func(_args: Array) -> void:
+			quick_save_level()
+			Console.info("Saved to: ", current_save_file if current_save_file != "" else "quicksave.level"),
+		"Quick save the current level")
+
+	Console.register_command("load",
+		func(args: Array) -> void:
+			if args.is_empty():
+				Console.error("Usage: load <path>")
+				return
+			var path := " ".join(args)
+			if not FileAccess.file_exists(path):
+				Console.error("File not found: ", path)
+				return
+			_begin_loading()
+			call_deferred("_do_load_read", path),
+		"Load a level by path. Usage: load <path>")
+
+	Console.register_command("max_fps",
+		func(args: Array) -> void:
+			if args.is_empty():
+				Console.info("Current max FPS: ", Engine.max_fps, " (0 = unlimited)")
+				return
+			if not args[0].is_valid_int():
+				Console.error("Usage: max_fps <number>  (0 = unlimited)")
+				return
+			Engine.max_fps = int(args[0])
+			Console.info("Max FPS set to: ", Engine.max_fps, " (0 = unlimited)" if Engine.max_fps == 0 else ""),
+		"Get or set max FPS. Usage: max_fps <number>  (0 = unlimited)")
+
+	Console.register_command("vsync",
+		func(args: Array) -> void:
+			if args.is_empty():
+				var current := DisplayServer.window_get_vsync_mode()
+				Console.info("VSync: ", "on" if current != DisplayServer.VSYNC_DISABLED else "off")
+				return
+			var mode = args[0].to_lower()
+			if mode == "on":
+				DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED)
+				Console.info("VSync enabled")
+			elif mode == "off":
+				DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+				Console.info("VSync disabled")
+			elif mode == "adaptive":
+				DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ADAPTIVE)
+				Console.info("VSync set to adaptive")
+			else:
+				Console.error("Usage: vsync on|off|adaptive"),
+		"Get or set VSync. Usage: vsync on|off|adaptive")
 
 
 func _setup_block_menu() -> void:
@@ -285,7 +393,7 @@ func _on_material_selected(material_index: int):
 	if current_painting_material:
 		var material_data = material_palette.get_material_data_at_index(material_index)
 		var material_name = material_data.get("name", "Unknown")
-		print("Material selected for painting: ", material_name, " (index: ", material_index, ")")
+		Console.info("Material selected for painting: ", material_name, " (index: ", material_index, ")")
 		
 		# Pass material index to input handler
 		input_handler.set_painting_material(material_index)
@@ -293,7 +401,7 @@ func _on_material_selected(material_index: int):
 		# Update block menu previews to reflect the new material
 		_refresh_block_menu_previews()
 	else:
-		print("Warning: Material at index ", material_index, " is null")
+		Console.info("Warning: Material at index ", material_index, " is null")
 
 # ============================================================================
 # MAIN LOOP
@@ -312,6 +420,8 @@ func _process(_delta):
 	var console_visible: bool = console_panel and console_panel.visible
 	if camera:
 		camera.console_open = console_visible
+	if input_handler:
+		input_handler.console_open = console_visible
 	if camera and cursor_visualizer and not is_popup_open and not is_loading and not is_exporting and not console_visible:
 		_update_cursor()
 		input_handler.handle_continuous_input(_delta)
@@ -382,21 +492,21 @@ func _setup_escape_menu() -> void:
 
 func _shutdown() -> void:
 	"""Graceful shutdown — joins threads then quits."""
-	print("[SHUTDOWN] _shutdown() called")
+	Console.info("[SHUTDOWN] _shutdown() called")
 	if _export_thread and _export_thread.is_alive():
-		print("[SHUTDOWN] Waiting for export thread to finish...")
+		Console.info("[SHUTDOWN] Waiting for export thread to finish...")
 		_export_thread.wait_to_finish()
-		print("[SHUTDOWN] Export thread joined OK")
+		Console.info("[SHUTDOWN] Export thread joined OK")
 	if tilemap:
-		print("[SHUTDOWN] Calling tilemap.cleanup()...")
+		Console.info("[SHUTDOWN] Calling tilemap.cleanup()...")
 		tilemap.cleanup()
-		print("[SHUTDOWN] tilemap.cleanup() returned — calling get_tree().quit()")
+		Console.info("[SHUTDOWN] tilemap.cleanup() returned — calling get_tree().quit()")
 	get_tree().quit()
 
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST:
-		print("[SHUTDOWN] WM_CLOSE_REQUEST received")
+		Console.info("[SHUTDOWN] WM_CLOSE_REQUEST received")
 		if has_unsaved_changes:
 			escape_menu.open()
 			_on_popup_state_changed(true)
@@ -412,7 +522,14 @@ func _input(event):
 	# Block all input when popup is open (except closing the popup itself)
 	if is_popup_open:
 		return
-	
+
+	# Console open — only allow escape to close it, nothing else
+	if console_panel and console_panel.visible:
+		if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+			get_viewport().set_input_as_handled()
+			console_panel.hide_console()
+		return
+
 	# Open escape menu — closing is handled inside escape_menu._input
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
 		if not escape_menu.visible:
@@ -432,17 +549,17 @@ func _input(event):
 			current_tile_type = result["tile_type"]
 		if result.has("y_level"):
 			current_y_level = result["y_level"]
-	
+
 	# Update selection manager state
 	selection_manager.update_state(current_y_level, current_tile_type)
-	
+
 	# Handle mouse wheel for FOV
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			input_handler.handle_mouse_wheel(1.0)
 		elif event.button_index == MOUSE_BUTTON_WHEEL_UP:
 			input_handler.handle_mouse_wheel(-1.0)
-	
+
 	# Reset FOV
 	if Input.is_action_just_pressed("reset_fov"):
 		camera.reset_fov()
@@ -512,11 +629,11 @@ func _update_cursor():
 func _toggle_mode():
 	if current_mode == EditorMode.EDIT:
 		current_mode = EditorMode.SELECT
-		print("Mode: SELECT (Drag to select, F to fill, Delete/X to clear, R to rotate)")
+		Console.info("Mode: SELECT (Drag to select, F to fill, Delete/X to clear, R to rotate)")
 	else:
 		current_mode = EditorMode.EDIT
 		selection_manager.clear_selection()
-		print("Mode: EDIT")
+		Console.info("Mode: EDIT")
 
 
 func _on_window_focus_entered():
@@ -597,12 +714,12 @@ func quick_save_level():
 		
 		if LevelSaveLoad.save_level(tilemap, y_level_manager, filepath, material_palette):
 			has_unsaved_changes = false
-			print("\n=== QUICK SAVE ===")
+			Console.info("\n=== QUICK SAVE ===")
 			var real_path = ProjectSettings.globalize_path(filepath)
-			print("Saved to: ", real_path)
-			print("==================\n")
+			Console.info("Saved to: ", real_path)
+			Console.info("==================\n")
 	else:
-		print("No file loaded - opening Save As dialog...")
+		Console.info("No file loaded - opening Save As dialog...")
 		show_save_dialog()
 
 
@@ -611,15 +728,15 @@ func save_level_with_name(level_name: String) -> void:
 	if LevelSaveLoad.save_level(tilemap, y_level_manager, filepath, material_palette):
 		current_save_file = filepath
 		has_unsaved_changes = false
-		print("\n=== LEVEL SAVED ===")
-		print("Saved to: ", filepath)
-		print("===================\n")
+		Console.info("\n=== LEVEL SAVED ===")
+		Console.info("Saved to: ", filepath)
+		Console.info("===================\n")
 
 
 func load_last_level():
 	var levels = LevelSaveLoad.list_saved_levels()
 	if levels.is_empty():
-		print("No saved levels found")
+		Console.info("No saved levels found")
 		return
 	
 	levels.sort()
@@ -628,9 +745,9 @@ func load_last_level():
 	
 	_begin_loading()
 	if LevelSaveLoad.load_level(tilemap, y_level_manager, filepath, material_palette, _make_load_progress_callback()):
-		print("\n=== LEVEL LOADED ===")
-		print("Loaded from: ", filepath)
-		print("====================\n")
+		Console.info("\n=== LEVEL LOADED ===")
+		Console.info("Loaded from: ", filepath)
+		Console.info("====================\n")
 		y_level_manager.change_y_level(current_y_level)
 	else:
 		_end_loading()
@@ -644,13 +761,13 @@ func load_level_by_name(filename: String):
 
 func list_saved_levels():
 	var levels = LevelSaveLoad.list_saved_levels()
-	print("\n=== SAVED LEVELS ===")
+	Console.info("\n=== SAVED LEVELS ===")
 	if levels.is_empty():
-		print("No saved levels found")
+		Console.info("No saved levels found")
 	else:
 		for level in levels:
-			print("  - ", level)
-	print("====================\n")
+			Console.info("  - ", level)
+	Console.info("====================\n")
 
 # ============================================================================
 # FILE DIALOG HANDLERS
@@ -663,12 +780,12 @@ func list_saved_levels():
 func _on_export_confirmed(is_chunked: bool, path: String):
 	"""Handle export confirmation — kicks off background thread."""
 	if _export_thread and _export_thread.is_alive():
-		print("Export already in progress, please wait.")
+		Console.info("Export already in progress, please wait.")
 		return
 	
-	print("\n=== EXPORTING LEVEL ===")
-	print("Format: ", "Chunked" if is_chunked else "Single")
-	print("Path: ", path)
+	Console.info("\n=== EXPORTING LEVEL ===")
+	Console.info("Format: ", "Chunked" if is_chunked else "Single")
+	Console.info("Path: ", path)
 
 	_show_export_overlay("Exporting… please wait")
 	is_exporting = true
@@ -714,12 +831,12 @@ func _finish_export_single(mesh: ArrayMesh, filepath: String) -> void:
 	var ok := tilemap.glb_exporter.save_single(mesh, filepath)
 	if ok:
 		var real_path := ProjectSettings.globalize_path(filepath)
-		print("✓ GLB exported: ", real_path)
+		Console.info("✓ GLB exported: ", real_path)
 		_show_export_overlay("✓ Export complete!\n" + real_path, true)
 	else:
-		push_error("GLB export failed — see above for details.")
+		Console.error("GLB export failed — see above for details.")
 		_hide_export_overlay()
-	print("======================\n")
+	Console.info("======================\n")
 
 
 func _finish_export_chunked(chunk_data: Dictionary) -> void:
@@ -728,15 +845,15 @@ func _finish_export_chunked(chunk_data: Dictionary) -> void:
 	input_handler.is_loading = false
 	camera.set_process(true)
 	if chunk_data.is_empty():
-		push_error("Chunked export: mesh build returned no data")
+		Console.error("Chunked export: mesh build returned no data")
 		_hide_export_overlay()
 		return
 	_show_export_overlay("Saving chunks…")
 	tilemap.glb_exporter.save_chunks(chunk_data)
 	var real_path := ProjectSettings.globalize_path(chunk_data["export_dir"])
-	print("✓ Chunked GLB export complete: ", real_path)
+	Console.info("✓ Chunked GLB export complete: ", real_path)
 	_show_export_overlay("✓ Export complete!\n" + real_path, true)
-	print("======================\n")
+	Console.info("======================\n")
 
 
 func _update_export_progress(done: int, total: int) -> void:
@@ -856,10 +973,10 @@ func _on_save_confirmed(path: String):
 		current_save_file = path
 		has_unsaved_changes = false
 		AppConfig.add_recent_file(ProjectSettings.globalize_path(path))
-		print("\n=== LEVEL SAVED ===")
+		Console.info("\n=== LEVEL SAVED ===")
 		var real_path = ProjectSettings.globalize_path(path)
-		print("Saved to: ", real_path)
-		print("===================\n")
+		Console.info("Saved to: ", real_path)
+		Console.info("===================\n")
 
 
 func _on_load_confirmed(path: String):
@@ -880,14 +997,14 @@ func _do_load_read(path: String):
 	var file = FileAccess.open(path, FileAccess.READ)
 	if file == null:
 		_end_loading()
-		push_error("Failed to open file: " + path)
+		Console.error("Failed to open file: ", path)
 		return
 	var json_string = file.get_as_text()
 	file.close()
 	var json = JSON.new()
 	if json.parse(json_string) != OK:
 		_end_loading()
-		push_error("Failed to parse JSON: " + json.get_error_message())
+		Console.error("Failed to parse JSON: ", json.get_error_message())
 		return
 	call_deferred("_do_load_apply", path, json.data)
 
@@ -896,17 +1013,17 @@ func _do_load_apply(path: String, save_data: Dictionary):
 	if LevelSaveLoad.load_level_from_data(tilemap, y_level_manager, path, save_data, material_palette, _make_load_progress_callback()):
 		current_save_file = path
 		AppConfig.add_recent_file(ProjectSettings.globalize_path(path))
-		print("\n=== LEVEL LOADED ===")
+		Console.info("\n=== LEVEL LOADED ===")
 		var real_path = ProjectSettings.globalize_path(path)
-		print("Loaded from: ", real_path)
-		print("====================\n")
+		Console.info("Loaded from: ", real_path)
+		Console.info("====================\n")
 		if undo_redo:
 			undo_redo.clear()
 		y_level_manager.change_y_level(current_y_level)
 	else:
 		_end_loading()
-		push_error("Failed to load level from: " + path)
-		print("ERROR: Load failed!")
+		Console.error("Failed to load level from: ", path)
+		Console.info("ERROR: Load failed!")
 
 
 # ============================================================================
@@ -947,4 +1064,4 @@ func debug_corner_culling():
 	if tilemap:
 		tilemap.print_corner_debug()
 	else:
-		print("TileMap not initialized")
+		Console.info("TileMap not initialized")

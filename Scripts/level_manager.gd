@@ -8,7 +8,7 @@ const SAVE_VERSION = 1
 # ============================================================================
 
 static func save_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filepath: String, material_palette = null) -> bool:
-	var save_data: Dictionary = {
+	var save_data = {
 		"version": SAVE_VERSION,
 		"grid_size": tilemap.grid_size,
 		"tiles": _serialize_tiles(tilemap.tiles),
@@ -26,33 +26,33 @@ static func save_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 	if material_palette and material_palette.has_method("get_material_data_at_index"):
 		save_data["materials_palette"] = _serialize_materials_palette(material_palette)
 	
-	var json_string: String = JSON.stringify(save_data, "\t")
+	var json_string = JSON.stringify(save_data, "\t")
 
 	# Write to a temp file first, then rename over the target atomically.
 	# This ensures a force-kill mid-save never leaves a corrupt/truncated file —
 	# the old file survives intact until the new one is fully written.
-	var tmp_path: String = filepath + ".tmp"
-	var file: FileAccess = FileAccess.open(tmp_path, FileAccess.WRITE)
+	var tmp_path := filepath + ".tmp"
+	var file = FileAccess.open(tmp_path, FileAccess.WRITE)
 
 	if file == null:
-		push_error("Failed to open temp file for writing: " + tmp_path)
+		Console.error("Failed to open temp file for writing: " + tmp_path)
 		return false
 
 	file.store_string(json_string)
 	file.close()
 
 	# Atomic rename: old file replaced only after new data is fully on disk.
-	var dir: DirAccess = DirAccess.open(tmp_path.get_base_dir())
+	var dir := DirAccess.open(tmp_path.get_base_dir())
 	if dir == null or dir.rename(tmp_path, filepath) != OK:
-		push_error("Failed to rename temp save file to: " + filepath)
+		Console.error("Failed to rename temp save file to: " + filepath)
 		return false
 	
-	print("Level saved successfully to: ", filepath)
-	print("  - Tiles saved: ", tilemap.tiles.size())
-	print("  - Tile materials saved: ", tilemap.tile_materials.size())
-	print("  - Stair step counts saved: ", tilemap.tile_step_counts.size())
-	print("  - Tile rotations saved: ", tilemap.tile_rotations.size())
-	print("  - Y-levels with offsets: ", y_level_manager.y_level_offsets.size())
+	Console.info("Level saved successfully to: ", filepath)
+	Console.info("  - Tiles saved: ", tilemap.tiles.size())
+	Console.info("  - Tile materials saved: ", tilemap.tile_materials.size())
+	Console.info("  - Stair step counts saved: ", tilemap.tile_step_counts.size())
+	Console.info("  - Tile rotations saved: ", tilemap.tile_rotations.size())
+	Console.info("  - Y-levels with offsets: ", y_level_manager.y_level_offsets.size())
 	
 	return true
 
@@ -65,25 +65,25 @@ static func load_level_from_data(tilemap: TileMap3D, y_level_manager: YLevelMana
 	"""Load a level from pre-parsed save data. Called by level_editor after
 	JSON parsing has already been done on a deferred frame."""
 	if not _validate_save_data(save_data):
-		push_error("Invalid save data format")
+		Console.error("Invalid save data format")
 		return false
 	return _load_level_from_save_data(tilemap, y_level_manager, filepath, save_data, material_palette, progress_callback)
 
 
 static func load_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filepath: String, material_palette = null, progress_callback: Callable = Callable()) -> bool:
 	"""Load a level from a filepath. Reads and parses JSON then delegates."""
-	var file: FileAccess = FileAccess.open(filepath, FileAccess.READ)
+	var file = FileAccess.open(filepath, FileAccess.READ)
 	if file == null:
-		push_error("Failed to open file for reading: " + filepath)
+		Console.error("Failed to open file for reading: " + filepath)
 		return false
-	var json_string: String = file.get_as_text()
+	var json_string = file.get_as_text()
 	file.close()
-	var json: JSON = JSON.new()
+	var json = JSON.new()
 	if json.parse(json_string) != OK:
-		push_error("Failed to parse JSON: " + json.get_error_message())
+		Console.error("Failed to parse JSON: " + json.get_error_message())
 		return false
 	if not _validate_save_data(json.data):
-		push_error("Invalid save data format")
+		Console.error("Invalid save data format")
 		return false
 	return _load_level_from_save_data(tilemap, y_level_manager, filepath, json.data, material_palette, progress_callback)
 
@@ -94,7 +94,7 @@ static func _load_level_from_save_data(tilemap: TileMap3D, y_level_manager: YLev
 	
 	# Load grid size (optional - warn if different)
 	if save_data.has("grid_size") and save_data["grid_size"] != tilemap.grid_size:
-		push_warning("Saved grid_size (" + str(save_data["grid_size"]) + 
+		Console.warn("Saved grid_size (" + str(save_data["grid_size"]) + 
 					 ") differs from current (" + str(tilemap.grid_size) + ")")
 	
 	# Load Y-level offsets first
@@ -106,7 +106,7 @@ static func _load_level_from_save_data(tilemap: TileMap3D, y_level_manager: YLev
 	
 	# Load tiles with batch mode for performance
 	tilemap.set_batch_mode(true)
-	var tiles_loaded: int = _deserialize_tiles(save_data["tiles"], tilemap)
+	var tiles_loaded = _deserialize_tiles(save_data["tiles"], tilemap)
 	
 	# Load tile materials if present
 	if save_data.has("tile_materials"):
@@ -121,7 +121,7 @@ static func _load_level_from_save_data(tilemap: TileMap3D, y_level_manager: YLev
 		_deserialize_rotations(save_data["tile_rotations"], tilemap)
 
 	# Re-evaluate corner tiles after all tiles are loaded
-	var corners_fixed: int = _reevaluate_corner_tiles(tilemap)
+	var corners_fixed = _reevaluate_corner_tiles(tilemap)
 
 	# Register a one-shot callback that fires after the async flush fully
 	# completes. It handles three things:
@@ -145,15 +145,15 @@ static func _load_level_from_save_data(tilemap: TileMap3D, y_level_manager: YLev
 		# Step 1: re-apply palette materials to ALL surfaces (TOP, SIDES, BOTTOM) of
 		# every painted tile. Name-based lookup is safe regardless of surface index.
 		if not tilemap.tile_materials.is_empty() and tilemap.material_palette_ref:
-			print("  Re-applying materials to ", tilemap.tile_materials.size(), " tiles...")
+			Console.info("  Re-applying materials to ", tilemap.tile_materials.size(), " tiles...")
 			for pos in tilemap.tile_materials:
 				var material_index: int = tilemap.tile_materials[pos]
 				if pos in tilemap.tile_meshes:
 					var top_mat   = tilemap.material_palette_ref.get_material_for_surface(material_index, 0)
-					var sides_mat: Material = tilemap.material_palette_ref.get_material_for_surface(material_index, 1)
+					var sides_mat = tilemap.material_palette_ref.get_material_for_surface(material_index, 1)
 					var bot_mat   = tilemap.material_palette_ref.get_material_for_surface(material_index, 2)
 					TileMap3D.apply_palette_materials_to_mesh(tilemap.tile_meshes[pos], [top_mat, sides_mat, bot_mat])
-			print("  ✓ Materials re-applied")
+			Console.info("  ✓ Materials re-applied")
 
 		# Step 2: rebuild top plane with initial meshes
 		tilemap.rebuild_top_plane_mesh()
@@ -169,7 +169,7 @@ static func _load_level_from_save_data(tilemap: TileMap3D, y_level_manager: YLev
 		#   - Rotated tiles — need tile_rotations which is fully loaded now
 		var second_pass: Dictionary[Vector3i, bool] = {}
 		for pos in tilemap.tiles:
-			var needs_second_pass: bool = false
+			var needs_second_pass = false
 			if (pos + Vector3i(0, 1, 0)) in tilemap.tiles:
 				needs_second_pass = true  # Simple/flat-box tile
 			if pos in tilemap.tile_rotations:
@@ -182,14 +182,14 @@ static func _load_level_from_save_data(tilemap: TileMap3D, y_level_manager: YLev
 						second_pass[n] = true
 
 		if not second_pass.is_empty():
-			print("  Queuing targeted re-cull pass (", second_pass.size(), " tiles, async)...")
+			Console.info("  Queuing targeted re-cull pass (", second_pass.size(), " tiles, async)...")
 			var second_flush_callback: Callable = Callable()
 			if progress_callback.is_valid():
 				second_flush_callback = func(done: int, total: int) -> void:
 					progress_callback.call(total + done, total * 2)
 			tilemap.tile_manager.flush_progress_callback = second_flush_callback
 			tilemap.tile_manager.flush_completed_callback = func():
-				print("  ✓ Targeted re-cull pass done")
+				Console.info("  ✓ Targeted re-cull pass done")
 				# Re-apply materials to ALL painted tiles — the flush expanded
 				# to include neighbors beyond second_pass, so we must cover all.
 				if not tilemap.tile_materials.is_empty() and tilemap.material_palette_ref:
@@ -197,7 +197,7 @@ static func _load_level_from_save_data(tilemap: TileMap3D, y_level_manager: YLev
 						if pos in tilemap.tile_meshes:
 							var material_index: int = tilemap.tile_materials[pos]
 							var top_mat   = tilemap.material_palette_ref.get_material_for_surface(material_index, 0)
-							var sides_mat: Material = tilemap.material_palette_ref.get_material_for_surface(material_index, 1)
+							var sides_mat = tilemap.material_palette_ref.get_material_for_surface(material_index, 1)
 							var bot_mat   = tilemap.material_palette_ref.get_material_for_surface(material_index, 2)
 							TileMap3D.apply_palette_materials_to_mesh(tilemap.tile_meshes[pos], [top_mat, sides_mat, bot_mat])
 				tilemap.rebuild_top_plane_mesh()
@@ -214,20 +214,20 @@ static func _load_level_from_save_data(tilemap: TileMap3D, y_level_manager: YLev
 	# immediately here before the worker thread has read it.
 	tilemap.tile_manager.disable_caching_this_flush = true
 	tilemap.tile_manager.clear_mesh_cache()
-	print("  Caching disabled for this flush to ensure correct corner detection")
+	Console.info("  Caching disabled for this flush to ensure correct corner detection")
 	
 	# Now end batch mode, which will trigger flush with correct neighbor data
 	tilemap.set_batch_mode(false)
 	
-	print("Level loaded successfully from: ", filepath)
-	print("  - Tiles loaded: ", tiles_loaded)
-	print("  - Corners corrected: ", corners_fixed)
-	print("  - Tile materials loaded: ", tilemap.tile_materials.size())
-	print("  - Stair step counts loaded: ", tilemap.tile_step_counts.size())
-	print("  - Tile rotations loaded: ", tilemap.tile_rotations.size())
-	print("  - Y-levels with offsets: ", y_level_manager.y_level_offsets.size())
+	Console.info("Level loaded successfully from: ", filepath)
+	Console.info("  - Tiles loaded: ", tiles_loaded)
+	Console.info("  - Corners corrected: ", corners_fixed)
+	Console.info("  - Tile materials loaded: ", tilemap.tile_materials.size())
+	Console.info("  - Stair step counts loaded: ", tilemap.tile_step_counts.size())
+	Console.info("  - Tile rotations loaded: ", tilemap.tile_rotations.size())
+	Console.info("  - Y-levels with offsets: ", y_level_manager.y_level_offsets.size())
 	if save_data.has("metadata") and save_data["metadata"].has("saved_at"):
-		print("  - Originally saved: ", save_data["metadata"]["saved_at"])
+		Console.info("  - Originally saved: ", save_data["metadata"]["saved_at"])
 	
 	return true
 
@@ -237,9 +237,9 @@ static func _load_level_from_save_data(tilemap: TileMap3D, y_level_manager: YLev
 
 static func _serialize_vec3i_dict(dict: Dictionary, value_key: String) -> Array:
 	# Serialize any Vector3i-keyed dictionary to [{x,y,z,value_key: value}, ...].
-	var arr: Array = []
+	var arr = []
 	for pos in dict.keys():
-		var entry: Dictionary = {"x": pos.x, "y": pos.y, "z": pos.z}
+		var entry = {"x": pos.x, "y": pos.y, "z": pos.z}
 		entry[value_key] = dict[pos]
 		arr.append(entry)
 	return arr
@@ -262,10 +262,10 @@ static func _serialize_rotations(tile_rotations: Dictionary) -> Array:
 
 
 static func _serialize_offsets(offsets: Dictionary) -> Dictionary:
-	var offset_data: Dictionary = {}
+	var offset_data = {}
 	
 	for y_level in offsets.keys():
-		var offset: Vector2 = offsets[y_level]
+		var offset = offsets[y_level]
 		offset_data[str(y_level)] = {
 			"x": offset.x,
 			"z": offset.y
@@ -276,13 +276,13 @@ static func _serialize_offsets(offsets: Dictionary) -> Dictionary:
 
 static func _serialize_materials_palette(palette) -> Array:
 	"""Serialize materials palette"""
-	var materials_array: Array = []
+	var materials_array = []
 	
 	# Get count by checking materials array
 	if palette.has_method("get_material_data_at_index"):
-		var idx: int = 0
+		var idx = 0
 		while true:
-			var material_data: Dictionary = palette.get_material_data_at_index(idx)
+			var material_data = palette.get_material_data_at_index(idx)
 			if material_data.is_empty():
 				break
 			materials_array.append(material_data)
@@ -308,7 +308,7 @@ static func _deserialize_vec3i_dict(arr: Array, value_key: String) -> Dictionary
 
 
 static func _deserialize_tiles(tile_array: Array, tilemap: TileMap3D) -> int:
-	var tile_dict: Dictionary = _deserialize_vec3i_dict(tile_array, "type")
+	var tile_dict = _deserialize_vec3i_dict(tile_array, "type")
 	for pos in tile_dict:
 		tilemap.place_tile(pos, tile_dict[pos])
 	return tile_dict.size()
@@ -316,27 +316,27 @@ static func _deserialize_tiles(tile_array: Array, tilemap: TileMap3D) -> int:
 
 static func _deserialize_offsets(offset_data: Dictionary, y_level_manager: YLevelManager):
 	for y_level_str in offset_data.keys():
-		var y_level: int = int(y_level_str)
-		var offset: Dictionary = offset_data[y_level_str]
+		var y_level = int(y_level_str)
+		var offset = offset_data[y_level_str]
 		
 		if offset.has("x") and offset.has("z"):
 			y_level_manager.set_offset(y_level, offset["x"], offset["z"])
 
 
 static func _deserialize_tile_materials(material_array: Array, tilemap: TileMap3D):
-	var d: Dictionary = _deserialize_vec3i_dict(material_array, "material_index")
+	var d = _deserialize_vec3i_dict(material_array, "material_index")
 	for pos in d:
 		tilemap.tile_materials[pos] = d[pos]
 
 
 static func _deserialize_step_counts(step_counts_array: Array, tilemap: TileMap3D):
-	var d: Dictionary = _deserialize_vec3i_dict(step_counts_array, "steps")
+	var d = _deserialize_vec3i_dict(step_counts_array, "steps")
 	for pos in d:
 		tilemap.tile_step_counts[pos] = d[pos]
 
 
 static func _deserialize_rotations(rotations_array: Array, tilemap: TileMap3D):
-	var d: Dictionary = _deserialize_vec3i_dict(rotations_array, "rotation")
+	var d = _deserialize_vec3i_dict(rotations_array, "rotation")
 	for pos in d:
 		tilemap.tile_rotations[pos] = float(d[pos])
 
@@ -346,10 +346,10 @@ static func _deserialize_materials_palette(materials_array: Array, palette):
 	# FIXED: Clear all materials first (including defaults) to maintain correct indices
 	if palette.has_method("_clear_all_materials"):
 		palette._clear_all_materials()
-		print("  Cleared existing materials from palette")
+		Console.info("  Cleared existing materials from palette")
 	
 	# Load materials from save file
-	var loaded_count: int = 0
+	var loaded_count = 0
 	for material_data in materials_array:
 		if material_data is Dictionary and material_data.has("name"):
 			# Call the material creation method
@@ -357,7 +357,7 @@ static func _deserialize_materials_palette(materials_array: Array, palette):
 				palette._on_material_created(material_data)
 				loaded_count += 1
 	
-	print("  Loaded ", loaded_count, " materials into palette")
+	Console.info("  Loaded ", loaded_count, " materials into palette")
 
 
 static func _reevaluate_corner_tiles(tilemap: TileMap3D) -> int:
@@ -366,15 +366,15 @@ static func _reevaluate_corner_tiles(tilemap: TileMap3D) -> int:
 	This ensures proper corner detection even when auto-detection is disabled.
 	Returns the number of tiles that were corrected.
 	"""
-	var diagonal_selector: DiagonalTileSelector = DiagonalTileSelector.new()
-	var corrections: int = 0
-	var affected_tiles: Dictionary = {}  # Track all tiles that need mesh updates
+	var diagonal_selector = DiagonalTileSelector.new()
+	var corrections = 0
+	var affected_tiles = {}  # Track all tiles that need mesh updates
 	
 	# First pass: identify which tiles should be corners
-	var tiles_to_correct: Array = []
+	var tiles_to_correct = []
 	
 	for pos in tilemap.tiles.keys():
-		var current_tile_type: int = tilemap.tiles[pos]
+		var current_tile_type = tilemap.tiles[pos]
 		var config = diagonal_selector.get_tile_configuration(pos, tilemap.tiles)
 		
 		# If this should be an inner corner but isn't
@@ -398,7 +398,7 @@ static func _reevaluate_corner_tiles(tilemap: TileMap3D) -> int:
 	
 	# Second pass: apply corrections
 	for correction in tiles_to_correct:
-		var pos: Vector3i = correction["pos"]
+		var pos = correction["pos"]
 		tilemap.tiles[pos] = correction["new_type"]
 		
 		# Store rotation if it's a corner
@@ -419,7 +419,7 @@ static func _reevaluate_corner_tiles(tilemap: TileMap3D) -> int:
 			Vector3i(1, 0, 1), Vector3i(1, 0, -1),
 			Vector3i(-1, 0, 1), Vector3i(-1, 0, -1)
 		]:
-			var neighbor_pos: Vector3i = pos + offset
+			var neighbor_pos = pos + offset
 			if neighbor_pos in tilemap.tiles:
 				affected_tiles[neighbor_pos] = true
 		
@@ -430,8 +430,8 @@ static func _reevaluate_corner_tiles(tilemap: TileMap3D) -> int:
 		tilemap.tile_manager.mark_dirty(pos)
 	
 	if corrections > 0:
-		print("  Re-evaluated ", tilemap.tiles.size(), " tiles, corrected ", corrections, " corner tiles")
-		print("  Marked ", affected_tiles.size(), " tiles (including neighbors) for mesh regeneration")
+		Console.info("  Re-evaluated ", tilemap.tiles.size(), " tiles, corrected ", corrections, " corner tiles")
+		Console.info("  Marked ", affected_tiles.size(), " tiles (including neighbors) for mesh regeneration")
 	
 	return corrections
 
@@ -463,7 +463,7 @@ static func _validate_save_data(data) -> bool:
 static func _clear_level(tilemap: TileMap3D, y_level_manager: YLevelManager):
 	tilemap._bulk_clearing = true
 	tilemap.tile_manager.batch_mode = true  # suppress immediate neighbor rebuilds
-	var tiles_to_remove: Array = tilemap.tiles.keys()
+	var tiles_to_remove = tilemap.tiles.keys()
 	for pos in tiles_to_remove:
 		tilemap.remove_tile(pos)
 	tilemap.tile_manager.batch_mode = false
@@ -471,7 +471,7 @@ static func _clear_level(tilemap: TileMap3D, y_level_manager: YLevelManager):
 	tilemap._bulk_clearing = false
 	tilemap.tile_materials.clear()
 	tilemap.rebuild_top_plane_mesh()
-	var levels_to_clear: Array = y_level_manager.y_level_offsets.keys()
+	var levels_to_clear = y_level_manager.y_level_offsets.keys()
 	for level in levels_to_clear:
 		y_level_manager.clear_offset(level)
 
@@ -481,25 +481,30 @@ static func _clear_level(tilemap: TileMap3D, y_level_manager: YLevelManager):
 # ============================================================================
 
 static func get_save_filepath(base_name: String = "level") -> String:
-	var timestamp: String = Time.get_datetime_string_from_system().replace(":", "-")
-	return AppConfig.saves_dir + base_name + "_" + timestamp + ".level"
+	var timestamp = Time.get_datetime_string_from_system().replace(":", "-")
+	return "user://saved_levels/" + base_name + "_" + timestamp + ".json"
 
 
-static func ensure_save_directory() -> void:
-	# Directory creation is now handled by AppConfig._ensure_directories().
-	# This function is kept for call-site compatibility.
-	pass
+static func ensure_save_directory():
+	var dir = DirAccess.open("user://")
+	if not dir.dir_exists("saved_levels"):
+		dir.make_dir("saved_levels")
 
 
 static func list_saved_levels() -> Array:
-	var levels: Array = []
-	var dir: DirAccess = DirAccess.open(AppConfig.saves_dir)
+	ensure_save_directory()
+	var levels = []
+	var dir = DirAccess.open("user://saved_levels/")
+	
 	if dir:
 		dir.list_dir_begin()
-		var file_name: String = dir.get_next()
+		var file_name = dir.get_next()
+		
 		while file_name != "":
-			if not dir.current_is_dir() and file_name.ends_with(".level"):
+			if not dir.current_is_dir() and file_name.ends_with(".json"):
 				levels.append(file_name)
 			file_name = dir.get_next()
+		
 		dir.list_dir_end()
+	
 	return levels

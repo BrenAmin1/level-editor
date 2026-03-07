@@ -24,7 +24,7 @@ func setup(meshes_ref: Dictionary, materials_ref: Dictionary, grid_sz: float, ed
 func load_obj_for_tile_type(tile_type: int, obj_path: String) -> bool:
 	var file = FileAccess.open(obj_path, FileAccess.READ)
 	if not file:
-		push_error("Failed to open OBJ file: " + obj_path)
+		Console.error("Failed to open OBJ file: ", obj_path)
 		return false
 	
 	var temp_vertices = []
@@ -88,7 +88,7 @@ func load_obj_for_tile_type(tile_type: int, obj_path: String) -> bool:
 	var mesh = ArrayMesh.new()
 	var materials_array = []
 	
-	print("Loading mesh with ", material_groups.size(), " material groups: ", material_groups.keys())
+	Console.info("Loading mesh with ", material_groups.size(), " material groups: ", material_groups.keys())
 	
 	for mat_name in material_groups:
 		var faces = material_groups[mat_name]
@@ -137,12 +137,12 @@ func load_obj_for_tile_type(tile_type: int, obj_path: String) -> bool:
 		mesh.surface_set_material(mesh.get_surface_count() - 1, material)
 		materials_array.append(material)
 		
-		print("  Surface ", mesh.get_surface_count() - 1, ": ", mat_name, " (", faces.size(), " faces)")
+		Console.info("  Surface ", mesh.get_surface_count() - 1, ": ", mat_name, " (", faces.size(), " faces)")
 	
 	custom_meshes[tile_type] = mesh
 	custom_materials[tile_type] = materials_array  # Store array of materials
 	
-	print("✓ Loaded mesh for tile type ", tile_type, " with ", mesh.get_surface_count(), " surfaces")
+	Console.info("✓ Loaded mesh for tile type ", tile_type, " with ", mesh.get_surface_count(), " surfaces")
 	
 	# Fix Blender's inverted normals and winding order (handles multiple surfaces)
 	flip_mesh_normals(tile_type)

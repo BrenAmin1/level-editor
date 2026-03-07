@@ -67,12 +67,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			_navigate_history(1)
 		elif event.keycode == KEY_ESCAPE:
 			get_viewport().set_input_as_handled()
-			_hide()
+			hide_console()
 
 
 func _toggle() -> void:
 	if visible:
-		_hide()
+		hide_console()
 	else:
 		_show()
 
@@ -92,7 +92,7 @@ func _focus_input() -> void:
 	input_field.grab_focus()
 
 
-func _hide() -> void:
+func hide_console() -> void:
 	visible = false
 	input_field.clear()
 	if _camera:
@@ -137,13 +137,13 @@ func _append_entry(entry: Dictionary) -> void:
 
 
 func _scroll_to_bottom() -> void:
-	# Defer so layout is complete before scrolling
+	# Double-defer so layout fully completes before scrolling
 	call_deferred("_do_scroll")
 
 
 func _do_scroll() -> void:
-	@warning_ignore("narrowing_conversion")
-	scroll_container.scroll_vertical = scroll_container.get_v_scroll_bar().max_value
+	await get_tree().process_frame
+	scroll_container.scroll_vertical = int(scroll_container.get_v_scroll_bar().max_value)
 
 
 func _navigate_history(direction: int) -> void:

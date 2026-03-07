@@ -43,6 +43,7 @@ corner_radius_bottom_right = 3
 corner_radius_bottom_left = 3
 
 [node name="ConsolePanel" type="Control" unique_id=1641636620]
+visible = false
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -99,4 +100,4 @@ size_flags_horizontal = 3
 theme_override_font_sizes/font_size = 13
 theme_override_styles/normal = SubResource("StyleBoxFlat_input")
 theme_override_styles/focus = SubResource("StyleBoxFlat_input_focus")
-placeholder_text = "Type a command... (help for list)"
+placeholder_text = "Type a command... (help for list, escape to back out)"

@@ -49,12 +49,12 @@ func build_export_mesh(top_plane_snapshot: Array, enclosed_snapshot: Dictionary 
 	"""Build the combined single-mesh export. Worker-thread safe.
 	top_plane_snapshot must be captured on the main thread before calling."""
 	mesh_optimizer.progress_callback = progress_callback
-	var top_positions: Dictionary = _snapshot_to_positions(top_plane_snapshot)
+	var top_positions := _snapshot_to_positions(top_plane_snapshot)
 	mesh_optimizer.set_top_plane_cull_positions(top_positions)
 	mesh_optimizer.set_enclosed_snapshot(enclosed_snapshot)
 	mesh_optimizer.set_neighbors_snapshot(neighbors_snapshot)
 
-	var mesh: ArrayMesh = mesh_optimizer.generate_optimized_level_mesh_multi_material()
+	var mesh := mesh_optimizer.generate_optimized_level_mesh_multi_material()
 	mesh_optimizer.progress_callback = Callable()
 	_bake_top_plane(mesh, top_plane_snapshot)
 	return mesh
@@ -66,43 +66,43 @@ func build_chunk_meshes(save_name: String, top_plane_snapshot: Array,
 	Returns a Dictionary ready for save_chunks(), or empty on failure."""
 	var tiles: Dictionary[Vector3i, int] = tile_map.tiles
 	if tiles.is_empty():
-		push_error("GlbExporter: no tiles to export")
+		Console.error("GlbExporter: no tiles to export")
 		return {}
 
-	var top_positions: Dictionary = _snapshot_to_positions(top_plane_snapshot)
+	var top_positions := _snapshot_to_positions(top_plane_snapshot)
 
-	var export_dir: String = AppConfig.exports_dir + "exported_level_" + save_name + "/"
-	print("\n=== GLB CHUNKED EXPORT — BUILDING MESHES ===")
-	print("Save name: ", save_name, "  Chunk size: ", chunk_size)
-	print("Export directory: ", export_dir)
-	print("Total tiles: ", tiles.size())
+	var export_dir := "user://exports/exported_level_" + save_name + "/"
+	Console.info("\n=== GLB CHUNKED EXPORT — BUILDING MESHES ===")
+	Console.info("Save name: ", save_name, "  Chunk size: ", chunk_size)
+	Console.info("Export directory: ", export_dir)
+	Console.info("Total tiles: ", tiles.size())
 
 	var bounds      := _calculate_bounds(tiles)
 	var chunk_defs  := _divide_into_chunks(bounds, chunk_size)
-	print("Total chunks defined: ", chunk_defs.size())
+	Console.info("Total chunks defined: ", chunk_defs.size())
 
 	var total_tiles  := tiles.size()
 	var tiles_done   := 0
 	var built_chunks: Array = []
 
 	for chunk in chunk_defs:
-		var chunk_tiles: Dictionary = _tiles_in_chunk(tiles, chunk)
+		var chunk_tiles := _tiles_in_chunk(tiles, chunk)
 		if chunk_tiles.is_empty():
 			continue
 
 		var coord: Vector3i = chunk["coord"]
 		var chunk_name      := "chunk_%d_%d_%d" % [coord.x, coord.y, coord.z]
-		print("  Building [%d,%d,%d]: %d tiles" % [coord.x, coord.y, coord.z, chunk_tiles.size()])
+		Console.info("  Building [%d,%d,%d]: %d tiles" % [coord.x, coord.y, coord.z, chunk_tiles.size()])
 
 		# Pass progress callback scaled to overall tile count so the bar
 		# advances continuously across all chunks.
-		var chunk_offset: int = tiles_done
+		var chunk_offset := tiles_done
 		var chunk_total  := total_tiles
 		mesh_optimizer.progress_callback = func(done: int, _total: int) -> void:
 			if progress_callback.is_valid():
 				progress_callback.call(chunk_offset + done, chunk_total)
 
-		var chunk_mesh: ArrayMesh = _build_chunk_mesh(chunk_tiles, tiles,
+		var chunk_mesh := _build_chunk_mesh(chunk_tiles, tiles,
 				top_positions, top_plane_snapshot, enclosed_snapshot, neighbors_snapshot)
 		mesh_optimizer.progress_callback = Callable()
 
@@ -114,7 +114,7 @@ func build_chunk_meshes(save_name: String, top_plane_snapshot: Array,
 			"mesh":     chunk_mesh,
 		})
 
-	var metadata: Dictionary = {
+	var metadata := {
 		"save_name":    save_name,
 		"chunk_size":   { "x": chunk_size.x, "y": chunk_size.y, "z": chunk_size.z },
 		"bounds_min":   { "x": bounds["min"].x, "y": bounds["min"].y, "z": bounds["min"].z },
@@ -124,7 +124,7 @@ func build_chunk_meshes(save_name: String, top_plane_snapshot: Array,
 		"export_date":  Time.get_datetime_string_from_system(),
 	}
 
-	print("=== CHUNK MESH BUILD COMPLETE ===\n")
+	Console.info("=== CHUNK MESH BUILD COMPLETE ===\n")
 	return {
 		"export_dir": export_dir,
 		"chunks":     built_chunks,
@@ -147,32 +147,32 @@ func save_single(mesh: ArrayMesh, filepath: String) -> bool:
 func save_chunks(chunk_data: Dictionary) -> void:
 	"""Write all chunk GLB files and the metadata manifest. Main thread only."""
 	if chunk_data.is_empty():
-		push_error("GlbExporter.save_chunks: empty chunk data")
+		Console.error("GlbExporter.save_chunks: empty chunk data")
 		return
 
 	var export_dir: String = chunk_data["export_dir"]
-	# AppConfig._ensure_directories() already created AppConfig.exports_dir on startup.
+	DirAccess.make_dir_recursive_absolute("user://exports/")
 	DirAccess.make_dir_recursive_absolute(export_dir)
 
-	print("\n=== GLB CHUNKED EXPORT — SAVING FILES ===")
+	Console.info("\n=== GLB CHUNKED EXPORT — SAVING FILES ===")
 
 	for chunk in chunk_data["chunks"]:
 		var chunk_mesh: ArrayMesh = chunk["mesh"]
 		_snap_mesh_vertices(chunk_mesh)
-		var ok: bool = _write_glb(chunk_mesh, chunk["name"], chunk["filepath"])
+		var ok := _write_glb(chunk_mesh, chunk["name"], chunk["filepath"])
 		if ok:
-			print("  ✓ ", chunk["filepath"])
+			Console.info("  ✓ ", chunk["filepath"])
 
-	var manifest_path: String = export_dir + "metadata.json"
-	var f: FileAccess = FileAccess.open(manifest_path, FileAccess.WRITE)
+	var manifest_path := export_dir + "metadata.json"
+	var f := FileAccess.open(manifest_path, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(chunk_data["metadata"], "\t"))
 		f.close()
-		print("✓ Manifest saved: ", manifest_path)
+		Console.info("✓ Manifest saved: ", manifest_path)
 	else:
-		push_error("GlbExporter: failed to write manifest at " + manifest_path)
+		Console.error("GlbExporter: failed to write manifest at " + manifest_path)
 
-	print("=== CHUNKED EXPORT COMPLETE ===\n")
+	Console.info("=== CHUNKED EXPORT COMPLETE ===\n")
 
 
 # ============================================================================
@@ -194,7 +194,7 @@ func _build_chunk_mesh(chunk_tiles: Dictionary[Vector3i, int], full_tiles: Dicti
 	mesh_optimizer.set_enclosed_snapshot(enclosed_snapshot)
 	mesh_optimizer.set_neighbors_snapshot(neighbors_snapshot)
 
-	var chunk_mesh: ArrayMesh = mesh_optimizer.generate_optimized_level_mesh_multi_material()
+	var chunk_mesh := mesh_optimizer.generate_optimized_level_mesh_multi_material()
 
 	# Bake top-plane while chunk_tiles is still the emit set so we only bake
 	# quads that belong to this chunk. tile_map.tiles remains the full set for
@@ -241,7 +241,7 @@ func _bake_top_plane_for_tiles(mesh: ArrayMesh, emit_tiles: Dictionary[Vector3i,
 		# Resolve material: snapshot > palette > custom.
 		var mat: Material = pos_to_mat.get(pos, null)
 		if mat == null and tile_map.material_palette_ref:
-			var pal_idx: int = int(tile_map.tile_materials.get(pos, -1))
+			var pal_idx := int(tile_map.tile_materials.get(pos, -1))
 			if pal_idx >= 0:
 				mat = tile_map.material_palette_ref.get_material_for_surface(pal_idx, 0)
 		if mat == null:
@@ -256,21 +256,21 @@ func _bake_top_plane_for_tiles(mesh: ArrayMesh, emit_tiles: Dictionary[Vector3i,
 		var ci    := TOP_CORNER_INSET
 		var qy    := wp.y + s + TOP_Y_OFFSET
 
-		var x_nw: float = wp.x +     (0.0 if has_w else ci)
-		var z_nw: float = wp.z +     (0.0 if has_n else ci)
-		var x_ne: float = wp.x + s - (0.0 if has_e else ci)
-		var z_ne: float = wp.z +     (0.0 if has_n else ci)
-		var x_se: float = wp.x + s - (0.0 if has_e else ci)
-		var z_se: float = wp.z + s - (0.0 if has_s else ci)
-		var x_sw: float = wp.x +     (0.0 if has_w else ci)
-		var z_sw: float = wp.z + s - (0.0 if has_s else ci)
+		var x_nw := wp.x +     (0.0 if has_w else ci)
+		var z_nw := wp.z +     (0.0 if has_n else ci)
+		var x_ne := wp.x + s - (0.0 if has_e else ci)
+		var z_ne := wp.z +     (0.0 if has_n else ci)
+		var x_se := wp.x + s - (0.0 if has_e else ci)
+		var z_se := wp.z + s - (0.0 if has_s else ci)
+		var x_sw := wp.x +     (0.0 if has_w else ci)
+		var z_sw := wp.z + s - (0.0 if has_s else ci)
 
 		var v0 := Vector3(x_nw, qy, z_nw)
 		var v1 := Vector3(x_ne, qy, z_ne)
 		var v2 := Vector3(x_se, qy, z_se)
 		var v3 := Vector3(x_sw, qy, z_sw)
 
-		var mat_key: String = str(mat.get_instance_id()) if mat else "null"
+		var mat_key := str(mat.get_instance_id()) if mat else "null"
 		if mat_key not in groups:
 			groups[mat_key] = {
 				"material": mat,
@@ -294,10 +294,10 @@ func _bake_top_plane_for_tiles(mesh: ArrayMesh, emit_tiles: Dictionary[Vector3i,
 		g["voffset"] = bi + 4
 
 	for mat_key in groups:
-		var g: Dictionary = groups[mat_key]
+		var g = groups[mat_key]
 		if g["verts"].size() == 0:
 			continue
-		var sa: Array = []
+		var sa := []
 		sa.resize(Mesh.ARRAY_MAX)
 		sa[Mesh.ARRAY_VERTEX]  = g["verts"]
 		sa[Mesh.ARRAY_NORMAL]  = g["normals"]
@@ -318,12 +318,12 @@ func _snap_mesh_vertices(mesh: ArrayMesh) -> void:
 	Safe for triplanar materials since UVs are computed in the shader from
 	world position — no baked UV data is affected."""
 	const SNAP: float = 0.0001
-	var surf_count: int = mesh.get_surface_count()
+	var surf_count := mesh.get_surface_count()
 
 	# Collect all surfaces and their materials before touching the mesh.
 	var surfaces: Array = []
 	for surf_idx in range(surf_count):
-		var arrays: Array = mesh.surface_get_arrays(surf_idx)
+		var arrays := mesh.surface_get_arrays(surf_idx)
 		var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 		for i in range(verts.size()):
 			verts[i] = Vector3(
@@ -352,31 +352,31 @@ func _snap_mesh_vertices(mesh: ArrayMesh) -> void:
 
 func _write_glb(mesh: ArrayMesh, instance_name: String, filepath: String) -> bool:
 	"""Wrap mesh in a minimal scene and write it as a GLB. Main thread only."""
-	var mi: MeshInstance3D = MeshInstance3D.new()
+	var mi := MeshInstance3D.new()
 	mi.name = instance_name
 	mi.mesh = mesh
 
-	var root: Node3D = Node3D.new()
+	var root := Node3D.new()
 	root.name = "Scene"
 	root.add_child(mi)
 	mi.owner = root
 
 	var doc   := GLTFDocument.new()
-	var state: GLTFState = GLTFState.new()
+	var state := GLTFState.new()
 	var err   := doc.append_from_scene(root, state)
 	root.free()
 
 	if err != OK:
-		push_error("GlbExporter: append_from_scene failed (error %d) for %s" % [err, filepath])
+		Console.error("GlbExporter: append_from_scene failed (error %d) for %s" % [err, filepath])
 		return false
 
-	var dir: String = filepath.get_base_dir()
+	var dir := filepath.get_base_dir()
 	if dir != "" and dir != "res://" and dir != "user://":
 		DirAccess.make_dir_recursive_absolute(dir)
 
-	var write_err: Error = doc.write_to_filesystem(state, filepath)
+	var write_err := doc.write_to_filesystem(state, filepath)
 	if write_err != OK:
-		push_error("GlbExporter: write_to_filesystem failed (error %d) for %s" % [write_err, filepath])
+		Console.error("GlbExporter: write_to_filesystem failed (error %d) for %s" % [write_err, filepath])
 		return false
 
 	return true
@@ -387,8 +387,8 @@ func _write_glb(mesh: ArrayMesh, instance_name: String, filepath: String) -> boo
 # ============================================================================
 
 func _calculate_bounds(tiles: Dictionary[Vector3i, int]) -> Dictionary:
-	var mn: Vector3i = Vector3i( 999999,  999999,  999999)
-	var mx: Vector3i = Vector3i(-999999, -999999, -999999)
+	var mn := Vector3i( 999999,  999999,  999999)
+	var mx := Vector3i(-999999, -999999, -999999)
 	for pos in tiles:
 		mn.x = mini(mn.x, pos.x);  mx.x = maxi(mx.x, pos.x)
 		mn.y = mini(mn.y, pos.y);  mx.y = maxi(mx.y, pos.y)
@@ -399,12 +399,12 @@ func _calculate_bounds(tiles: Dictionary[Vector3i, int]) -> Dictionary:
 func _divide_into_chunks(bounds: Dictionary, chunk_size: Vector3i) -> Array:
 	var mn: Vector3i = bounds["min"]
 	var mx: Vector3i = bounds["max"]
-	var min_chunk: Vector3i = Vector3i(
+	var min_chunk := Vector3i(
 		floori(float(mn.x) / chunk_size.x),
 		floori(float(mn.y) / chunk_size.y),
 		floori(float(mn.z) / chunk_size.z)
 	)
-	var max_chunk: Vector3i = Vector3i(
+	var max_chunk := Vector3i(
 		floori(float(mx.x) / chunk_size.x),
 		floori(float(mx.y) / chunk_size.y),
 		floori(float(mx.z) / chunk_size.z)

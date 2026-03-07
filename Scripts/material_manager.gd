@@ -23,12 +23,12 @@ func setup(tilemap: TileMap3D, meshes_ref: Dictionary, materials_ref: Dictionary
 # Set material for a specific surface of a custom mesh
 func set_custom_material(tile_type: int, surface_index: int, material: StandardMaterial3D) -> bool:
 	if tile_type not in custom_meshes:
-		push_error("No custom mesh for tile type: " + str(tile_type))
+		Console.error("No custom mesh for tile type: " + str(tile_type))
 		return false
 	
 	var mesh = custom_meshes[tile_type]
 	if surface_index < 0 or surface_index >= mesh.get_surface_count():
-		push_error("Surface index " + str(surface_index) + " out of range. Mesh has " + str(mesh.get_surface_count()) + " surfaces")
+		Console.error("Surface index " + str(surface_index) + " out of range. Mesh has " + str(mesh.get_surface_count()) + " surfaces")
 		return false
 	
 	# Update materials array
@@ -49,7 +49,7 @@ func set_custom_material(tile_type: int, surface_index: int, material: StandardM
 		if tiles[pos] == tile_type:
 			tile_map.update_tile_mesh(pos)
 	
-	print("✓ Material updated for tile type ", tile_type, " surface ", surface_index)
+	Console.info("✓ Material updated for tile type ", tile_type, " surface ", surface_index)
 	return true
 
 

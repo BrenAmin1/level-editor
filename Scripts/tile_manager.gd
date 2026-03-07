@@ -79,7 +79,7 @@ func flush_batch_updates():
 
 	# Prevent overlapping flush operations
 	if is_flushing:
-		print("Flush already in progress, skipping...")
+		Console.info("Flush already in progress, skipping...")
 		return
 
 	is_flushing = true
@@ -91,8 +91,8 @@ func flush_batch_updates():
 			worker_thread.wait_to_finish()
 		worker_thread = null
 
-	print("\n=== BATCH FLUSH START ===")
-	print("Dirty tiles: ", dirty_tiles.size())
+	Console.info("\n=== BATCH FLUSH START ===")
+	Console.info("Dirty tiles: ", dirty_tiles.size())
 
 	# Collect all tiles that need updates (dirty + their neighbors)
 	var tiles_to_update: Dictionary[Vector3i, bool] = {}
@@ -120,7 +120,7 @@ func flush_batch_updates():
 					tiles_to_update[affected_pos] = true
 
 	_flush_positions_size = tiles_to_update.size()
-	print("Total tiles to update (including neighbors): ", _flush_positions_size)
+	Console.info("Total tiles to update (including neighbors): ", _flush_positions_size)
 
 	_flush_batch_size = 50
 	if _flush_positions_size > 5000:
@@ -145,12 +145,12 @@ func flush_batch_updates():
 	worker_thread = Thread.new()
 	var thread_error = worker_thread.start(_generate_meshes_threaded)
 	if thread_error != OK:
-		push_error("Failed to start worker thread: ", thread_error)
+		Console.error("Failed to start worker thread: ", thread_error)
 		worker_thread = null
 		is_flushing = false
 		return
 
-	print("Worker thread started, tick() will apply meshes each frame")
+	Console.info("Worker thread started, tick() will apply meshes each frame")
 
 
 # Per-frame state for the tick-driven flush
@@ -205,7 +205,7 @@ func tick():
 	if _flush_positions_size > 100 and (_flush_applied_count - _flush_last_progress_print >= 500 or _flush_applied_count == _flush_positions_size):
 		var elapsed = Time.get_ticks_msec() - _flush_start_time
 		var rate = float(_flush_applied_count) / (elapsed / 1000.0) if elapsed > 0 else 0.0
-		print("  Progress: ", _flush_applied_count, "/", _flush_positions_size, " (", int(rate), " tiles/sec)")
+		Console.info("  Progress: ", _flush_applied_count, "/", _flush_positions_size, " (", int(rate), " tiles/sec)")
 		_flush_last_progress_print = _flush_applied_count
 
 	# Finalise when thread is done and no meshes remain, or all applied
@@ -224,15 +224,15 @@ func _finalise_flush(completed_successfully: bool):
 	if completed_successfully:
 		var total_requests = cache_hits + cache_misses
 		var hit_rate = (float(cache_hits) / total_requests * 100.0) if total_requests > 0 else 0.0
-		print("Cache: ", cache_hits, " hits / ", cache_misses, " misses (", "%.1f" % hit_rate, "% hit rate)")
+		Console.info("Cache: ", cache_hits, " hits / ", cache_misses, " misses (", "%.1f" % hit_rate, "% hit rate)")
 		var elapsed = Time.get_ticks_msec() - _flush_start_time
-		print("✓ Flush complete in ", elapsed / 1000.0, " seconds")
+		Console.info("✓ Flush complete in ", elapsed / 1000.0, " seconds")
 	else:
-		print("⚠ Flush interrupted")
+		Console.info("⚠ Flush interrupted")
 
 	dirty_tiles.clear()
 	flush_progress_callback = Callable()
-	print("=== BATCH FLUSH END ===\n")
+	Console.info("=== BATCH FLUSH END ===\n")
 	is_flushing = false
 
 	# Fire the one-shot callback if set. The callback is responsible for rebuilding
@@ -331,22 +331,22 @@ func _cleanup_worker_thread():
 		# BUG FIX: Must ALWAYS call wait_to_finish() on a started thread, even if
 		# is_alive() returns false — skipping it leaks the thread handle in Godot
 		# and can cause a hang on shutdown waiting for an unjoinable thread.
-		print("[THREAD] _cleanup_worker_thread: joining worker thread (alive=", worker_thread.is_alive(), ")")
+		Console.info("[THREAD] _cleanup_worker_thread: joining worker thread (alive=", worker_thread.is_alive(), ")")
 		worker_thread.wait_to_finish()
-		print("[THREAD] _cleanup_worker_thread: worker thread joined OK")
+		Console.info("[THREAD] _cleanup_worker_thread: worker thread joined OK")
 		worker_thread = null
 
 
 # Worker thread function for mesh generation
 func _generate_meshes_threaded():
-	print("[THREAD] Worker thread started (id=", OS.get_thread_caller_id(), ")")
+	Console.info("[THREAD] Worker thread started (id=", OS.get_thread_caller_id(), ")")
 	while not mesh_generation_queue.is_empty() and not should_stop_thread:
 		var tile_data = mesh_generation_queue.pop_front()
 		# Re-check after pop — cleanup() may set this while we are mid-loop.
 		# Without this the worker finishes the entire queue before noticing
 		# the flag, blocking wait_to_finish() for many seconds.
 		if should_stop_thread:
-			print("[THREAD] Worker thread stopping early via should_stop_thread flag")
+			Console.info("[THREAD] Worker thread stopping early via should_stop_thread flag")
 			break
 		# Unpack pre-captured data
 		var pos = tile_data["pos"]
@@ -391,7 +391,7 @@ func _generate_meshes_threaded():
 			mesh_cache[cache_key] = mesh
 		generation_mutex.unlock()
 
-	print("[THREAD] Worker thread exiting (should_stop=", should_stop_thread,
+	Console.info("[THREAD] Worker thread exiting (should_stop=", should_stop_thread,
 		", queue_empty=", mesh_generation_queue.is_empty(), ", id=", OS.get_thread_caller_id(), ")")
 
 
@@ -549,7 +549,7 @@ func mark_dirty(pos: Vector3i):
 # Clear cache (useful for memory management or when custom meshes change)
 func clear_mesh_cache():
 	mesh_cache.clear()
-	print("Mesh cache cleared")
+	Console.info("Mesh cache cleared")
 
 # ============================================================================
 # COORDINATE CONVERSION
@@ -975,7 +975,7 @@ func print_corner_debug():
 	if mesh_generator and mesh_generator.culling_manager:
 		mesh_generator.culling_manager.print_corner_summary()
 	else:
-		print("Corner debug not available - culling_manager not initialized")
+		Console.info("Corner debug not available - culling_manager not initialized")
 
 # ============================================================================
 # CLEANUP
@@ -998,9 +998,9 @@ func cleanup() -> void:
 		# BUG FIX: Must ALWAYS call wait_to_finish() regardless of is_alive().
 		# Skipping it when the thread just finished leaves an unjoined handle that
 		# Godot's thread destructor blocks on at shutdown, causing the OS-level freeze.
-		print("[THREAD] cleanup(): joining worker thread (alive=", worker_thread.is_alive(), ")")
+		Console.info("[THREAD] cleanup(): joining worker thread (alive=", worker_thread.is_alive(), ")")
 		worker_thread.wait_to_finish()
-		print("[THREAD] cleanup(): worker thread joined OK")
+		Console.info("[THREAD] cleanup(): worker thread joined OK")
 		worker_thread = null
 
 	# 4. Drain any meshes the worker finished just before we stopped it.
