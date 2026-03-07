@@ -70,23 +70,35 @@ func _is_mouse_over_ui() -> bool:
 # ============================================================================
 
 func _setup_palette_dialogs():
+	if not AppConfig.is_first_launch:
+		_ensure_palette_directory()
+	
 	save_palette_dialog = FileDialog.new()
 	add_child(save_palette_dialog)
 	save_palette_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
 	save_palette_dialog.access = FileDialog.ACCESS_FILESYSTEM
-	save_palette_dialog.root_subfolder = AppConfig.palettes_dir
 	save_palette_dialog.filters = PackedStringArray(["*.palette ; Material Palette"])
 	save_palette_dialog.file_selected.connect(_on_palette_save_confirmed)
+	save_palette_dialog.current_dir = AppConfig.palettes_dir
 	save_palette_dialog.use_native_dialog = true
 	
 	load_palette_dialog = FileDialog.new()
 	add_child(load_palette_dialog)
 	load_palette_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
 	load_palette_dialog.access = FileDialog.ACCESS_FILESYSTEM
-	load_palette_dialog.root_subfolder = AppConfig.palettes_dir
 	load_palette_dialog.filters = PackedStringArray(["*.palette ; Material Palette"])
 	load_palette_dialog.file_selected.connect(_on_palette_load_confirmed)
+	load_palette_dialog.current_dir = AppConfig.palettes_dir
 	load_palette_dialog.use_native_dialog = true
+
+
+func _ensure_palette_directory():
+	if not DirAccess.dir_exists_absolute(AppConfig.palettes_dir):
+		var err = DirAccess.make_dir_recursive_absolute(AppConfig.palettes_dir)
+		if err == OK:
+			Console.info("Created palettes directory: ", AppConfig.palettes_dir)
+		else:
+			Console.error("Failed to create palettes directory: ", err)
 
 
 # ============================================================================
@@ -167,7 +179,8 @@ func _on_popup_closed() -> void:
 # ============================================================================
 
 func _on_palette_save_confirmed(path: String) -> void:
-	if save_palette(path):
+	var save_path := path if path.ends_with(".palette") else path + ".palette"
+	if save_palette(save_path):
 		Console.info("\n=== PALETTE SAVED ===")
 		Console.info("Saved to: ", path)
 		Console.info("Materials: ", materials.size())
@@ -297,6 +310,13 @@ func _create_godot_material(material_dict: Dictionary) -> StandardMaterial3D:
 	return _create_godot_material_for_surface(material_dict, 0)
 
 
+func _path_exists(path: String) -> bool:
+	"""Check if a path exists — works for both res:// (PCK) and absolute filesystem paths."""
+	if path.begins_with("res://"):
+		return ResourceLoader.exists(path)
+	return FileAccess.file_exists(path)
+
+
 func _create_godot_material_for_surface(material_dict: Dictionary, surface_idx: int) -> StandardMaterial3D:
 	# surface_idx matches MeshGenerator.SurfaceType: 0 = TOP, 1 = SIDES, 2 = BOTTOM
 	var m_material = StandardMaterial3D.new()
@@ -325,14 +345,14 @@ func _create_godot_material_for_surface(material_dict: Dictionary, surface_idx: 
 
 	# Load albedo texture, falling back through top -> side -> bottom if missing.
 	var texture_path = material_dict.get(texture_key, "")
-	if texture_path == "" or not FileAccess.file_exists(texture_path):
+	if texture_path == "" or not _path_exists(texture_path):
 		for fallback_key in ["top_texture", "side_texture", "bottom_texture"]:
 			var fp = material_dict.get(fallback_key, "")
-			if fp != "" and FileAccess.file_exists(fp):
+			if fp != "" and _path_exists(fp):
 				texture_path = fp
 				break
 
-	if texture_path != "" and FileAccess.file_exists(texture_path):
+	if texture_path != "" and _path_exists(texture_path):
 		var texture = load(texture_path) as Texture2D
 		if texture:
 			m_material.albedo_texture = texture
@@ -342,7 +362,7 @@ func _create_godot_material_for_surface(material_dict: Dictionary, surface_idx: 
 	# falling back to another surface's normal would apply the wrong effect
 	# (e.g. dirt_n.png appearing on a Grass top that should be flat).
 	var normal_path = material_dict.get(normal_key, "")
-	if normal_path != "" and FileAccess.file_exists(normal_path):
+	if normal_path != "" and _path_exists(normal_path):
 		var normal_map = load(normal_path) as Texture2D
 		if normal_map:
 			m_material.normal_enabled = true

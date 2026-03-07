@@ -79,7 +79,8 @@ func _ready() -> void:
 		# Defer so the scene tree is ready before any dialog is shown.
 		call_deferred("_on_first_launch")
 
-	_ensure_directories()
+	if not is_first_launch:
+		_ensure_directories()
 	_apply_keybindings()
 
 

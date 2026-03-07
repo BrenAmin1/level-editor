@@ -71,7 +71,7 @@ func build_chunk_meshes(save_name: String, top_plane_snapshot: Array,
 
 	var top_positions := _snapshot_to_positions(top_plane_snapshot)
 
-	var export_dir := "user://exports/exported_level_" + save_name + "/"
+	var export_dir := AppConfig.exports_dir + "exported_level_" + save_name + "/"
 	Console.info("\n=== GLB CHUNKED EXPORT — BUILDING MESHES ===")
 	Console.info("Save name: ", save_name, "  Chunk size: ", chunk_size)
 	Console.info("Export directory: ", export_dir)
@@ -151,7 +151,7 @@ func save_chunks(chunk_data: Dictionary) -> void:
 		return
 
 	var export_dir: String = chunk_data["export_dir"]
-	DirAccess.make_dir_recursive_absolute("user://exports/")
+	DirAccess.make_dir_recursive_absolute(AppConfig.exports_dir)
 	DirAccess.make_dir_recursive_absolute(export_dir)
 
 	Console.info("\n=== GLB CHUNKED EXPORT — SAVING FILES ===")
@@ -170,7 +170,7 @@ func save_chunks(chunk_data: Dictionary) -> void:
 		f.close()
 		Console.info("✓ Manifest saved: ", manifest_path)
 	else:
-		Console.error("GlbExporter: failed to write manifest at " + manifest_path)
+		Console.error("GlbExporter: failed to write manifest at ", manifest_path)
 
 	Console.info("=== CHUNKED EXPORT COMPLETE ===\n")
 

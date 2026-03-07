@@ -35,7 +35,7 @@ static func save_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 	var file = FileAccess.open(tmp_path, FileAccess.WRITE)
 
 	if file == null:
-		Console.error("Failed to open temp file for writing: " + tmp_path)
+		push_error("Failed to open temp file for writing: " + tmp_path)
 		return false
 
 	file.store_string(json_string)
@@ -44,15 +44,15 @@ static func save_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 	# Atomic rename: old file replaced only after new data is fully on disk.
 	var dir := DirAccess.open(tmp_path.get_base_dir())
 	if dir == null or dir.rename(tmp_path, filepath) != OK:
-		Console.error("Failed to rename temp save file to: " + filepath)
+		push_error("Failed to rename temp save file to: " + filepath)
 		return false
 	
-	Console.info("Level saved successfully to: ", filepath)
-	Console.info("  - Tiles saved: ", tilemap.tiles.size())
-	Console.info("  - Tile materials saved: ", tilemap.tile_materials.size())
-	Console.info("  - Stair step counts saved: ", tilemap.tile_step_counts.size())
-	Console.info("  - Tile rotations saved: ", tilemap.tile_rotations.size())
-	Console.info("  - Y-levels with offsets: ", y_level_manager.y_level_offsets.size())
+	print("Level saved successfully to: ", filepath)
+	print("  - Tiles saved: ", tilemap.tiles.size())
+	print("  - Tile materials saved: ", tilemap.tile_materials.size())
+	print("  - Stair step counts saved: ", tilemap.tile_step_counts.size())
+	print("  - Tile rotations saved: ", tilemap.tile_rotations.size())
+	print("  - Y-levels with offsets: ", y_level_manager.y_level_offsets.size())
 	
 	return true
 
@@ -65,7 +65,7 @@ static func load_level_from_data(tilemap: TileMap3D, y_level_manager: YLevelMana
 	"""Load a level from pre-parsed save data. Called by level_editor after
 	JSON parsing has already been done on a deferred frame."""
 	if not _validate_save_data(save_data):
-		Console.error("Invalid save data format")
+		push_error("Invalid save data format")
 		return false
 	return _load_level_from_save_data(tilemap, y_level_manager, filepath, save_data, material_palette, progress_callback)
 
@@ -74,16 +74,16 @@ static func load_level(tilemap: TileMap3D, y_level_manager: YLevelManager, filep
 	"""Load a level from a filepath. Reads and parses JSON then delegates."""
 	var file = FileAccess.open(filepath, FileAccess.READ)
 	if file == null:
-		Console.error("Failed to open file for reading: " + filepath)
+		push_error("Failed to open file for reading: " + filepath)
 		return false
 	var json_string = file.get_as_text()
 	file.close()
 	var json = JSON.new()
 	if json.parse(json_string) != OK:
-		Console.error("Failed to parse JSON: " + json.get_error_message())
+		push_error("Failed to parse JSON: " + json.get_error_message())
 		return false
 	if not _validate_save_data(json.data):
-		Console.error("Invalid save data format")
+		push_error("Invalid save data format")
 		return false
 	return _load_level_from_save_data(tilemap, y_level_manager, filepath, json.data, material_palette, progress_callback)
 
@@ -94,7 +94,7 @@ static func _load_level_from_save_data(tilemap: TileMap3D, y_level_manager: YLev
 	
 	# Load grid size (optional - warn if different)
 	if save_data.has("grid_size") and save_data["grid_size"] != tilemap.grid_size:
-		Console.warn("Saved grid_size (" + str(save_data["grid_size"]) + 
+		push_warning("Saved grid_size (" + str(save_data["grid_size"]) + 
 					 ") differs from current (" + str(tilemap.grid_size) + ")")
 	
 	# Load Y-level offsets first
@@ -145,7 +145,7 @@ static func _load_level_from_save_data(tilemap: TileMap3D, y_level_manager: YLev
 		# Step 1: re-apply palette materials to ALL surfaces (TOP, SIDES, BOTTOM) of
 		# every painted tile. Name-based lookup is safe regardless of surface index.
 		if not tilemap.tile_materials.is_empty() and tilemap.material_palette_ref:
-			Console.info("  Re-applying materials to ", tilemap.tile_materials.size(), " tiles...")
+			print("  Re-applying materials to ", tilemap.tile_materials.size(), " tiles...")
 			for pos in tilemap.tile_materials:
 				var material_index: int = tilemap.tile_materials[pos]
 				if pos in tilemap.tile_meshes:
@@ -153,7 +153,7 @@ static func _load_level_from_save_data(tilemap: TileMap3D, y_level_manager: YLev
 					var sides_mat = tilemap.material_palette_ref.get_material_for_surface(material_index, 1)
 					var bot_mat   = tilemap.material_palette_ref.get_material_for_surface(material_index, 2)
 					TileMap3D.apply_palette_materials_to_mesh(tilemap.tile_meshes[pos], [top_mat, sides_mat, bot_mat])
-			Console.info("  ✓ Materials re-applied")
+			print("  ✓ Materials re-applied")
 
 		# Step 2: rebuild top plane with initial meshes
 		tilemap.rebuild_top_plane_mesh()
@@ -182,14 +182,14 @@ static func _load_level_from_save_data(tilemap: TileMap3D, y_level_manager: YLev
 						second_pass[n] = true
 
 		if not second_pass.is_empty():
-			Console.info("  Queuing targeted re-cull pass (", second_pass.size(), " tiles, async)...")
+			print("  Queuing targeted re-cull pass (", second_pass.size(), " tiles, async)...")
 			var second_flush_callback: Callable = Callable()
 			if progress_callback.is_valid():
 				second_flush_callback = func(done: int, total: int) -> void:
 					progress_callback.call(total + done, total * 2)
 			tilemap.tile_manager.flush_progress_callback = second_flush_callback
 			tilemap.tile_manager.flush_completed_callback = func():
-				Console.info("  ✓ Targeted re-cull pass done")
+				print("  ✓ Targeted re-cull pass done")
 				# Re-apply materials to ALL painted tiles — the flush expanded
 				# to include neighbors beyond second_pass, so we must cover all.
 				if not tilemap.tile_materials.is_empty() and tilemap.material_palette_ref:
@@ -214,20 +214,20 @@ static func _load_level_from_save_data(tilemap: TileMap3D, y_level_manager: YLev
 	# immediately here before the worker thread has read it.
 	tilemap.tile_manager.disable_caching_this_flush = true
 	tilemap.tile_manager.clear_mesh_cache()
-	Console.info("  Caching disabled for this flush to ensure correct corner detection")
+	print("  Caching disabled for this flush to ensure correct corner detection")
 	
 	# Now end batch mode, which will trigger flush with correct neighbor data
 	tilemap.set_batch_mode(false)
 	
-	Console.info("Level loaded successfully from: ", filepath)
-	Console.info("  - Tiles loaded: ", tiles_loaded)
-	Console.info("  - Corners corrected: ", corners_fixed)
-	Console.info("  - Tile materials loaded: ", tilemap.tile_materials.size())
-	Console.info("  - Stair step counts loaded: ", tilemap.tile_step_counts.size())
-	Console.info("  - Tile rotations loaded: ", tilemap.tile_rotations.size())
-	Console.info("  - Y-levels with offsets: ", y_level_manager.y_level_offsets.size())
+	print("Level loaded successfully from: ", filepath)
+	print("  - Tiles loaded: ", tiles_loaded)
+	print("  - Corners corrected: ", corners_fixed)
+	print("  - Tile materials loaded: ", tilemap.tile_materials.size())
+	print("  - Stair step counts loaded: ", tilemap.tile_step_counts.size())
+	print("  - Tile rotations loaded: ", tilemap.tile_rotations.size())
+	print("  - Y-levels with offsets: ", y_level_manager.y_level_offsets.size())
 	if save_data.has("metadata") and save_data["metadata"].has("saved_at"):
-		Console.info("  - Originally saved: ", save_data["metadata"]["saved_at"])
+		print("  - Originally saved: ", save_data["metadata"]["saved_at"])
 	
 	return true
 
@@ -346,7 +346,7 @@ static func _deserialize_materials_palette(materials_array: Array, palette):
 	# FIXED: Clear all materials first (including defaults) to maintain correct indices
 	if palette.has_method("_clear_all_materials"):
 		palette._clear_all_materials()
-		Console.info("  Cleared existing materials from palette")
+		print("  Cleared existing materials from palette")
 	
 	# Load materials from save file
 	var loaded_count = 0
@@ -357,7 +357,7 @@ static func _deserialize_materials_palette(materials_array: Array, palette):
 				palette._on_material_created(material_data)
 				loaded_count += 1
 	
-	Console.info("  Loaded ", loaded_count, " materials into palette")
+	print("  Loaded ", loaded_count, " materials into palette")
 
 
 static func _reevaluate_corner_tiles(tilemap: TileMap3D) -> int:
@@ -430,8 +430,8 @@ static func _reevaluate_corner_tiles(tilemap: TileMap3D) -> int:
 		tilemap.tile_manager.mark_dirty(pos)
 	
 	if corrections > 0:
-		Console.info("  Re-evaluated ", tilemap.tiles.size(), " tiles, corrected ", corrections, " corner tiles")
-		Console.info("  Marked ", affected_tiles.size(), " tiles (including neighbors) for mesh regeneration")
+		print("  Re-evaluated ", tilemap.tiles.size(), " tiles, corrected ", corrections, " corner tiles")
+		print("  Marked ", affected_tiles.size(), " tiles (including neighbors) for mesh regeneration")
 	
 	return corrections
 
@@ -482,26 +482,25 @@ static func _clear_level(tilemap: TileMap3D, y_level_manager: YLevelManager):
 
 static func get_save_filepath(base_name: String = "level") -> String:
 	var timestamp = Time.get_datetime_string_from_system().replace(":", "-")
-	return "user://saved_levels/" + base_name + "_" + timestamp + ".json"
+	return AppConfig.saves_dir + base_name + "_" + timestamp + ".level"
 
 
 static func ensure_save_directory():
-	var dir = DirAccess.open("user://")
-	if not dir.dir_exists("saved_levels"):
-		dir.make_dir("saved_levels")
+	if not DirAccess.dir_exists_absolute(AppConfig.saves_dir):
+		DirAccess.make_dir_recursive_absolute(AppConfig.saves_dir)
 
 
 static func list_saved_levels() -> Array:
 	ensure_save_directory()
 	var levels = []
-	var dir = DirAccess.open("user://saved_levels/")
+	var dir = DirAccess.open(AppConfig.saves_dir)
 	
 	if dir:
 		dir.list_dir_begin()
 		var file_name = dir.get_next()
 		
 		while file_name != "":
-			if not dir.current_is_dir() and file_name.ends_with(".json"):
+			if not dir.current_is_dir() and file_name.ends_with(".level"):
 				levels.append(file_name)
 			file_name = dir.get_next()
 		

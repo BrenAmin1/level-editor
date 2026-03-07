@@ -74,8 +74,9 @@ func _ready() -> void:
 	if AppConfig.is_first_launch:
 		AppConfig.first_launch_detected.connect(_on_first_launch)
 
-	# Ensure save directory exists (no-op, AppConfig handles this)
-	LevelSaveLoad.ensure_save_directory()
+	# Directories are created by AppConfig.set_data_directory() on confirm — skip on first launch
+	if not AppConfig.is_first_launch:
+		LevelSaveLoad.ensure_save_directory()
 	
 	# Connect FileDialog signals
 	export_dialog.export_confirmed.connect(_on_export_confirmed)
@@ -182,6 +183,9 @@ func _show_startup_picker() -> void:
 
 
 func _setup_startup_picker() -> void:
+	# Guard against double-connection (e.g. called after first launch dialog confirms)
+	if startup_picker.quit_pressed.is_connected(_shutdown):
+		return
 	startup_picker.new_level_pressed.connect(func() -> void:
 		startup_picker.visible = false
 		_on_popup_state_changed(false)
@@ -292,7 +296,7 @@ func _register_console_commands() -> void:
 				var current := DisplayServer.window_get_vsync_mode()
 				Console.info("VSync: ", "on" if current != DisplayServer.VSYNC_DISABLED else "off")
 				return
-			var mode = args[0].to_lower()
+			var mode: String = args[0].to_lower()
 			if mode == "on":
 				DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED)
 				Console.info("VSync enabled")
@@ -435,6 +439,7 @@ func _on_first_launch() -> void:
 	_on_popup_state_changed(true)
 	dialog.setup_confirmed.connect(func() -> void:
 		_on_popup_state_changed(false)
+		_setup_file_dialogs()
 		startup_picker.visible = true
 		_on_popup_state_changed(true)
 		_setup_startup_picker()
@@ -741,7 +746,7 @@ func load_last_level():
 	
 	levels.sort()
 	var last_level = levels[-1]
-	var filepath = "user://saved_levels/" + last_level
+	var filepath = AppConfig.saves_dir + last_level
 	
 	_begin_loading()
 	if LevelSaveLoad.load_level(tilemap, y_level_manager, filepath, material_palette, _make_load_progress_callback()):
@@ -754,7 +759,7 @@ func load_last_level():
 
 
 func load_level_by_name(filename: String):
-	var filepath = "user://saved_levels/" + filename
+	var filepath = AppConfig.saves_dir + filename
 	_begin_loading()
 	call_deferred("_do_load_read", filepath)
 
@@ -969,8 +974,9 @@ func _update_load_progress(done: int, total: int) -> void:
 
 func _on_save_confirmed(path: String):
 	"""Handle save confirmation from save dialog"""
-	if LevelSaveLoad.save_level(tilemap, y_level_manager, path, material_palette):
-		current_save_file = path
+	var save_path := path if path.ends_with(".level") else path + ".level"
+	if LevelSaveLoad.save_level(tilemap, y_level_manager, save_path, material_palette):
+		current_save_file = save_path
 		has_unsaved_changes = false
 		AppConfig.add_recent_file(ProjectSettings.globalize_path(path))
 		Console.info("\n=== LEVEL SAVED ===")
@@ -1032,14 +1038,16 @@ func _do_load_apply(path: String, save_data: Dictionary):
 
 func _setup_file_dialogs() -> void:
 	"""Configure file dialog paths and filters from AppConfig."""
-	export_dialog.root_subfolder = AppConfig.exports_dir
 	export_dialog.filters = PackedStringArray(["*.glb ; GLB Files", "*.gltf ; GLTF Files"])
+	save_dialog.filters   = PackedStringArray(["*.level ; Level Files"])
+	load_dialog.filters   = PackedStringArray(["*.level ; Level Files"])
 
-	save_dialog.root_subfolder = AppConfig.saves_dir
-	save_dialog.filters = PackedStringArray(["*.level ; Level Files"])
-
-	load_dialog.root_subfolder = AppConfig.saves_dir
-	load_dialog.filters = PackedStringArray(["*.level ; Level Files"])
+	# Only set root_subfolder if the directory actually exists
+	if DirAccess.dir_exists_absolute(AppConfig.exports_dir):
+		export_dialog.root_subfolder = AppConfig.exports_dir
+	if DirAccess.dir_exists_absolute(AppConfig.saves_dir):
+		save_dialog.root_subfolder = AppConfig.saves_dir
+		load_dialog.root_subfolder = AppConfig.saves_dir
 
 
 func show_export_dialog() -> void:

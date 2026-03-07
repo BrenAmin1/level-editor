@@ -52,6 +52,9 @@ func _setup_folder_dialog() -> void:
 
 
 func _on_browse_pressed() -> void:
+	# Re-set current_dir just before opening — native dialogs may ignore it,
+	# but Godot's built-in dialog respects it.
+	_folder_dialog.current_dir = OS.get_system_dir(OS.SYSTEM_DIR_DOCUMENTS)
 	_folder_dialog.popup_centered(Vector2i(800, 600))
 
 

@@ -22,9 +22,15 @@ func setup(meshes_ref: Dictionary, materials_ref: Dictionary, grid_sz: float, ed
 
 # Load an OBJ file and associate it with a tile type (supports multiple materials via usemtl groups)
 func load_obj_for_tile_type(tile_type: int, obj_path: String) -> bool:
-	var file = FileAccess.open(obj_path, FileAccess.READ)
+	# In exported builds, Godot imports .obj files as Mesh resources so FileAccess
+	# cannot read their raw text. We store a plain-text sidecar at .obj.txt which
+	# Godot ignores (no importer for .txt) and include it in the export preset.
+	var txt_path := obj_path + ".txt"
+	var read_path := txt_path if FileAccess.file_exists(txt_path) else obj_path
+	Console.info("Loading OBJ text from: ", read_path)
+	var file = FileAccess.open(read_path, FileAccess.READ)
 	if not file:
-		Console.error("Failed to open OBJ file: ", obj_path)
+		Console.error("Failed to open OBJ file: ", read_path, " (error: ", FileAccess.get_open_error(), ")")
 		return false
 	
 	var temp_vertices = []
