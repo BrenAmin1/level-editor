@@ -369,7 +369,9 @@ func _weld_surface_arrays(
 		in_tangents: PackedFloat32Array = PackedFloat32Array(),
 		in_colors:   PackedColorArray   = PackedColorArray()
 ) -> Array:
-	"""Merge duplicate positional vertices within WELD_EPSILON.
+	"""Merge duplicate vertices within WELD_EPSILON, but ONLY when both position
+	AND normal match. Vertices at the same position with different normals are kept
+	separate so hard edges (e.g. 90-degree block corners) stay sharp in the export.
 	Returns [verts, normals, uvs, indices, tangents, colors]."""
 	var out_verts    := PackedVector3Array()
 	var out_normals  := PackedVector3Array()
@@ -380,22 +382,29 @@ func _weld_surface_arrays(
 	var has_tangents := in_tangents.size() == in_verts.size() * 4
 	var has_colors   := in_colors.size()   == in_verts.size()
 
-	# Map snap_key -> canonical output index (also used as per-old-vertex remap).
-	var key_to_idx: Dictionary[Vector3i, int] = {}
-	# Per-old-vertex remap: old_vertex_index -> canonical output index.
+	# Key includes both snapped position AND snapped normal direction so that
+	# two vertices at the same position but facing different directions are
+	# never merged — this preserves hard edges between faces meeting at angles.
+	const NORMAL_SNAP: float = 0.01  # tight enough to keep hard edges
+	var key_to_idx: Dictionary = {}  # String key -> int output index
 	var vertex_remap := PackedInt32Array()
 	vertex_remap.resize(in_verts.size())
 
 	for old_idx in range(in_verts.size()):
-		var key := _snap_key(in_verts[old_idx])
+		var pos_key  := _snap_key(in_verts[old_idx])
+		var n        := in_normals[old_idx] if old_idx < in_normals.size() else Vector3.UP
+		var norm_key := Vector3i(roundi(n.x / NORMAL_SNAP), roundi(n.y / NORMAL_SNAP), roundi(n.z / NORMAL_SNAP))
+		var key      := "%d,%d,%d|%d,%d,%d" % [pos_key.x, pos_key.y, pos_key.z,
+												norm_key.x, norm_key.y, norm_key.z]
+
 		if key in key_to_idx:
 			vertex_remap[old_idx] = key_to_idx[key]
 		else:
 			var new_idx := out_verts.size()
-			key_to_idx[key]     = new_idx
+			key_to_idx[key]       = new_idx
 			vertex_remap[old_idx] = new_idx
 			out_verts.append(in_verts[old_idx])
-			out_normals.append(in_normals[old_idx] if old_idx < in_normals.size() else Vector3.UP)
+			out_normals.append(n)
 			out_uvs.append(in_uvs[old_idx] if old_idx < in_uvs.size() else Vector2.ZERO)
 			if has_tangents:
 				var t := old_idx * 4

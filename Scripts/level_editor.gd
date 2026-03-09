@@ -1026,10 +1026,81 @@ func _do_load_apply(path: String, save_data: Dictionary):
 		if undo_redo:
 			undo_redo.clear()
 		y_level_manager.change_y_level(current_y_level)
+		# Warm up shaders for all palette materials so the GPU driver compiles
+		# their pipelines now, before any tile meshes appear on screen.
+		# This prevents first-load stutter/crashes caused by on-demand pipeline
+		# compilation mid-flush (the ubershader system needs to see the materials
+		# at least once before the real geometry arrives).
+		_warmup_palette_materials()
 	else:
 		_end_loading()
 		Console.error("Failed to load level from: ", path)
 		Console.info("ERROR: Load failed!")
+
+
+func _warmup_palette_materials() -> void:
+	"""Render each palette material on a tiny off-screen mesh for one frame so
+	Godot's ubershader system pre-compiles all pipeline variants before the
+	tile flush brings real geometry on screen. The warmup nodes are removed
+	automatically after two frames."""
+	if not material_palette or not material_palette.has_method("get_material_for_surface"):
+		return
+
+	# Place the warmup mesh far below the world where it will never be visible.
+	const WARMUP_POS := Vector3(0.0, -99999.0, 0.0)
+
+	var warmup_root := Node3D.new()
+	warmup_root.position = WARMUP_POS
+	add_child(warmup_root)
+
+	# One tiny mesh shared by all MeshInstance3D nodes — a single triangle is enough.
+	var warmup_mesh := ArrayMesh.new()
+	var sa := []
+	sa.resize(Mesh.ARRAY_MAX)
+	sa[Mesh.ARRAY_VERTEX]  = PackedVector3Array([Vector3(0,0,0), Vector3(0.001,0,0), Vector3(0,0.001,0)])
+	sa[Mesh.ARRAY_NORMAL]  = PackedVector3Array([Vector3.UP, Vector3.UP, Vector3.UP])
+	sa[Mesh.ARRAY_TEX_UV]  = PackedVector2Array([Vector2.ZERO, Vector2.ZERO, Vector2.ZERO])
+	sa[Mesh.ARRAY_INDEX]   = PackedInt32Array([0, 1, 2])
+	warmup_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, sa)
+
+	var mat_count: int = 0
+	# Collect all unique materials across every palette entry and all 3 surfaces.
+	var seen: Dictionary = {}
+	for i in range(256):  # palette indices are unbounded — stop at first null run
+		var got_any := false
+		for surf in range(3):
+			var mat: StandardMaterial3D = material_palette.get_material_for_surface(i, surf)
+			if mat == null:
+				continue
+			got_any = true
+			var mat_id := mat.get_instance_id()
+			if mat_id in seen:
+				continue
+			seen[mat_id] = true
+			var mi := MeshInstance3D.new()
+			mi.mesh = warmup_mesh
+			mi.material_override = mat
+			warmup_root.add_child(mi)
+			mat_count += 1
+		# Once we hit an index with no materials on any surface, the palette ends.
+		if not got_any and i > 0:
+			break
+
+	if mat_count == 0:
+		warmup_root.queue_free()
+		return
+
+	Console.info("Warming up ", mat_count, " palette material(s)…")
+
+	# Use a Timer child on warmup_root to clean itself up. This avoids
+	# process_frame signal/lambda lifetime issues entirely — when the timer
+	# fires it simply frees its own parent node.
+	var timer := Timer.new()
+	timer.wait_time = 0.05  # ~3 frames at 60fps, enough for the driver to see the materials
+	timer.one_shot = true
+	timer.autostart = true
+	warmup_root.add_child(timer)
+	timer.timeout.connect(warmup_root.queue_free)
 
 
 # ============================================================================
