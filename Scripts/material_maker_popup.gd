@@ -333,17 +333,31 @@ func _create_material_for_surface(surface_type: String) -> StandardMaterial3D:
 	var normal_key: String = surface_type + "_normal"
 	
 	if material_data.get(texture_key, "") != "":
-		var texture: Texture2D = load(material_data[texture_key]) as Texture2D
+		var texture := _load_texture_from_path(material_data[texture_key])
 		if texture:
 			material.albedo_texture = texture
-	
+
 	if material_data.get(normal_key, "") != "":
-		var normal: Texture2D = load(material_data[normal_key]) as Texture2D
+		var normal := _load_texture_from_path(material_data[normal_key])
 		if normal:
 			material.normal_enabled = true
 			material.normal_texture = normal
-	
+
 	return material
+
+
+static func _load_texture_from_path(path: String) -> Texture2D:
+	"""Load a texture from an absolute OS filesystem path or a res:// path."""
+	if path.is_empty():
+		return null
+	if path.begins_with("res://"):
+		return load(path) as Texture2D
+	var image := Image.new()
+	var err := image.load(path)
+	if err != OK:
+		push_error("Failed to load image from path: " + path)
+		return null
+	return ImageTexture.create_from_image(image)
 
 
 

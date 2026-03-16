@@ -91,6 +91,7 @@ static func generate_stairs_mesh(
 	
 	if direction != 0.0:
 		_rotate_vertices(vertices, normals, direction, grid_size)
+		_rotate_uvs(uvs, normals, direction)
 	
 	var arrays = []
 	arrays.resize(Mesh.ARRAY_MAX)
@@ -157,3 +158,38 @@ static func _rotate_vertices(
 	
 	for i in range(normals.size()):
 		normals[i] = rotation * normals[i]
+
+
+
+# After rotating vertices, the UV coordinates on vertical faces (risers/sides)
+# no longer match their visual orientation. We fix this by rotating UVs on
+# vertical faces by -angle_degrees to compensate for the mesh rotation.
+# Top faces (treads, normal.y ~ 1) are skipped — their UVs already follow
+# the rotated XZ geometry correctly.
+static func _rotate_uvs(
+	uvs: PackedVector2Array,
+	normals: PackedVector3Array,
+	angle_degrees: float
+) -> void:
+	var quad_count = uvs.size() / 4
+	for q in range(quad_count):
+		var base = q * 4
+		var n = normals[base]  # All 4 verts in a quad share the same normal
+
+		# Skip horizontal faces (treads) — their UVs are already correct
+		if abs(n.y) > 0.5:
+			continue
+
+		# Rotate each UV around center (0.5, 0.5) by -angle_degrees to
+		# counteract the mesh rotation applied in _rotate_vertices.
+		var uv_angle = deg_to_rad(-angle_degrees)
+		var cos_a = cos(uv_angle)
+		var sin_a = sin(uv_angle)
+		var center = Vector2(0.5, 0.5)
+
+		for i in range(4):
+			var uv = uvs[base + i] - center
+			uvs[base + i] = Vector2(
+				uv.x * cos_a - uv.y * sin_a,
+				uv.x * sin_a + uv.y * cos_a
+			) + center

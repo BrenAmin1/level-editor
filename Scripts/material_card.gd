@@ -30,36 +30,50 @@ func setup(mat_data: Dictionary, index: int) -> void:
 func _update_preview() -> void:
 	if not preview_texture:
 		return
-	
+
 	# Try to load the top texture as preview
 	var texture_path = material_data.get("top_texture", "")
-	if texture_path != "" and FileAccess.file_exists(texture_path):
-		var texture = load(texture_path)
+	if texture_path != "" and (texture_path.begins_with("res://") or FileAccess.file_exists(texture_path)):
+		var texture := _load_texture_from_path(texture_path)
 		if texture:
 			preview_texture.texture = texture
 			return
-	
+
 	# If no top texture, try side texture
 	texture_path = material_data.get("side_texture", "")
-	if texture_path != "" and FileAccess.file_exists(texture_path):
-		var texture = load(texture_path)
+	if texture_path != "" and (texture_path.begins_with("res://") or FileAccess.file_exists(texture_path)):
+		var texture := _load_texture_from_path(texture_path)
 		if texture:
 			preview_texture.texture = texture
 			return
-	
+
 	# If no textures at all, create a colored placeholder based on material name
 	var material_name = material_data.get("name", "").to_lower()
 	if material_name.contains("grass"):
-		_create_colored_placeholder(Color(0.3, 0.6, 0.2))  # Green
+		_create_colored_placeholder(Color(0.3, 0.6, 0.2))
 	elif material_name.contains("dirt") or material_name.contains("earth"):
-		_create_colored_placeholder(Color(0.5, 0.35, 0.2))  # Brown
+		_create_colored_placeholder(Color(0.5, 0.35, 0.2))
 	elif material_name.contains("stone") or material_name.contains("rock"):
-		_create_colored_placeholder(Color(0.5, 0.5, 0.5))  # Gray
+		_create_colored_placeholder(Color(0.5, 0.5, 0.5))
 	elif material_name.contains("water"):
-		_create_colored_placeholder(Color(0.2, 0.4, 0.7))  # Blue
+		_create_colored_placeholder(Color(0.2, 0.4, 0.7))
 	elif material_name.contains("sand"):
-		_create_colored_placeholder(Color(0.8, 0.7, 0.5))  # Tan
+		_create_colored_placeholder(Color(0.8, 0.7, 0.5))
 	# Otherwise use the existing placeholder texture from the scene
+
+
+static func _load_texture_from_path(path: String) -> Texture2D:
+	"""Load a texture from an absolute OS filesystem path or a res:// path."""
+	if path.is_empty():
+		return null
+	if path.begins_with("res://"):
+		return load(path) as Texture2D
+	var image := Image.new()
+	var err := image.load(path)
+	if err != OK:
+		push_error("Failed to load image from path: " + path)
+		return null
+	return ImageTexture.create_from_image(image)
 
 
 func _create_colored_placeholder(color: Color) -> void:

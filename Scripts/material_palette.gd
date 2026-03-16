@@ -317,11 +317,26 @@ func _path_exists(path: String) -> bool:
 	return FileAccess.file_exists(path)
 
 
+func _load_texture_from_path(path: String) -> Texture2D:
+	"""Load a texture from an absolute OS filesystem path or a res:// path."""
+	if path.is_empty():
+		return null
+	if path.begins_with("res://"):
+		return load(path) as Texture2D
+	var image := Image.new()
+	var err := image.load(path)
+	if err != OK:
+		push_error("Failed to load image from path: " + path)
+		return null
+	return ImageTexture.create_from_image(image)
+
+
 func _create_godot_material_for_surface(material_dict: Dictionary, surface_idx: int) -> StandardMaterial3D:
 	# surface_idx matches MeshGenerator.SurfaceType: 0 = TOP, 1 = SIDES, 2 = BOTTOM
 	var m_material = StandardMaterial3D.new()
 	m_material.uv1_triplanar = true
 	m_material.uv1_world_triplanar = true
+	m_material.uv1_triplanar_sharpness = 4.0
 	m_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 
 	# Set resource_name so GLTFDocument exports a meaningful material name
@@ -353,7 +368,7 @@ func _create_godot_material_for_surface(material_dict: Dictionary, surface_idx: 
 				break
 
 	if texture_path != "" and _path_exists(texture_path):
-		var texture = load(texture_path) as Texture2D
+		var texture := _load_texture_from_path(texture_path)
 		if texture:
 			m_material.albedo_texture = texture
 
@@ -363,7 +378,7 @@ func _create_godot_material_for_surface(material_dict: Dictionary, surface_idx: 
 	# (e.g. dirt_n.png appearing on a Grass top that should be flat).
 	var normal_path = material_dict.get(normal_key, "")
 	if normal_path != "" and _path_exists(normal_path):
-		var normal_map = load(normal_path) as Texture2D
+		var normal_map := _load_texture_from_path(normal_path)
 		if normal_map:
 			m_material.normal_enabled = true
 			m_material.normal_texture = normal_map
