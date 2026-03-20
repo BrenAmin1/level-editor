@@ -31,6 +31,9 @@ var processing_material_index: int = -1  # Material index for paint operations
 var material_palette_ref = null  # Reference to material palette
 var processing_placement_material_index: int = -1  # Material for placement operations
 
+# Paint mode — changes selection box color to amber
+var paint_mode: bool = false
+
 # Clipboard for copy/paste
 var clipboard: Array = []  # Array of { offset: Vector3i, type: int, rotation: float, material: int }
 
@@ -71,6 +74,16 @@ func set_undo_redo(ur: UndoRedoManager) -> void:
 func set_material_palette_reference(palette):
 	"""Set reference to material palette"""
 	material_palette_ref = palette
+
+
+func set_paint_mode(enabled: bool) -> void:
+	"""Switch selection box color between normal blue and paint amber."""
+	paint_mode = enabled
+	if not selection_visualizer:
+		return
+	var mat := selection_visualizer.material_override as StandardMaterial3D
+	if mat:
+		mat.albedo_color = Color(0.9, 0.55, 0.1, 0.3) if enabled else Color(0.2, 0.6, 1.0, 0.3)
 
 
 func mass_paint_tiles(material_index: int):

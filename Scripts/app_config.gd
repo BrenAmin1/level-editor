@@ -33,7 +33,7 @@ signal first_launch_detected
 
 const CONFIG_PATH: String        = "user://config.json"
 const APP_FOLDER_NAME: String    = "Rain Level Editor"
-const DEFAULT_SUBFOLDERS: Array[String] = ["saved_levels", "exports", "textures", "palettes"]
+const DEFAULT_SUBFOLDERS: Array[String] = ["saved_levels", "exports", "textures", "palettes", "temp"]
 
 # ============================================================================
 # RUNTIME STATE
@@ -60,11 +60,13 @@ var saves_dir:    String: get = _get_saves_dir
 var exports_dir:  String: get = _get_exports_dir
 var textures_dir: String: get = _get_textures_dir
 var palettes_dir: String: get = _get_palettes_dir
+var temp_dir:     String: get = _get_temp_dir
 
 func _get_saves_dir()    -> String: return data_directory.path_join("saved_levels") + "/"
 func _get_exports_dir()  -> String: return data_directory.path_join("exports") + "/"
 func _get_textures_dir() -> String: return data_directory.path_join("textures") + "/"
 func _get_palettes_dir() -> String: return data_directory.path_join("palettes") + "/"
+func _get_temp_dir()     -> String: return data_directory.path_join("temp") + "/"
 
 # ============================================================================
 # LIFECYCLE
@@ -169,37 +171,25 @@ func save_config() -> void:
 	config_saved.emit()
 
 
-func unique_texture_path(original_path: String) -> String:
-	"""
-	Return a destination path inside textures_dir that doesn't collide with
-	an existing file. Appends _2, _3, … before the extension if needed.
-
-	Example:
-	  original: "C:/Downloads/grass.png"
-	  returns:  ".../textures/grass.png"        if not taken
-				".../textures/grass_2.png"       if grass.png already exists
-	"""
-	var filename: String = original_path.get_file()
-	var base: String     = filename.get_basename()
-	var ext: String      = "." + filename.get_extension()
-	var dest: String     = textures_dir + filename
-
-	var counter: int = 2
-	while FileAccess.file_exists(dest):
-		dest = textures_dir + base + "_" + str(counter) + ext
-		counter += 1
-
-	return dest
-
-
 func copy_texture_to_data_dir(source_path: String) -> String:
 	"""
 	Copy an image file from source_path into the app textures directory.
+	- If the file is already inside the textures directory, return it as-is.
+	- If a file with the same name already exists there, reuse it (no duplicate).
+	- Otherwise copy it in.
 	Returns the destination path on success, or "" on failure.
-	Uses unique_texture_path() to avoid collisions.
 	"""
-	var dest: String = unique_texture_path(source_path)
-	var err: Error  = DirAccess.copy_absolute(source_path, dest)
+	# Already in the textures folder — nothing to do.
+	if source_path.begins_with(textures_dir):
+		return source_path
+
+	var dest: String = textures_dir + source_path.get_file()
+
+	# Same filename already copied — reuse it.
+	if FileAccess.file_exists(dest):
+		return dest
+
+	var err: Error = DirAccess.copy_absolute(source_path, dest)
 	if err != OK:
 		push_error("AppConfig: failed to copy texture '%s' to '%s' (error %d)" \
 				% [source_path, dest, err])

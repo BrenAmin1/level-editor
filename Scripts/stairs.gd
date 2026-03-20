@@ -171,6 +171,7 @@ static func _rotate_uvs(
 	normals: PackedVector3Array,
 	angle_degrees: float
 ) -> void:
+	@warning_ignore("integer_division")
 	var quad_count = uvs.size() / 4
 	for q in range(quad_count):
 		var base = q * 4

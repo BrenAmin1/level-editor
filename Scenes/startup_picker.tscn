@@ -112,6 +112,52 @@ corner_radius_top_right = 3
 corner_radius_bottom_right = 3
 corner_radius_bottom_left = 3
 
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_recovery_panel"]
+bg_color = Color(0.12, 0.12, 0.12, 0.98)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.5, 0.38, 0.12, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+shadow_color = Color(0, 0, 0, 0.5)
+shadow_size = 16
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_recovery_btn_normal"]
+content_margin_left = 12.0
+content_margin_top = 8.0
+content_margin_right = 12.0
+content_margin_bottom = 8.0
+bg_color = Color(0.28, 0.2, 0.08, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.5, 0.38, 0.12, 1)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_recovery_btn_hover"]
+content_margin_left = 12.0
+content_margin_top = 8.0
+content_margin_right = 12.0
+content_margin_bottom = 8.0
+bg_color = Color(0.38, 0.28, 0.1, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.65, 0.5, 0.18, 1)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
 [node name="StartupPicker" type="Control" unique_id=332532150]
 layout_mode = 3
 anchors_preset = 15
@@ -239,3 +285,91 @@ theme_override_styles/pressed = SubResource("StyleBoxFlat_quit_normal")
 theme_override_styles/hover = SubResource("StyleBoxFlat_quit_hover")
 theme_override_styles/focus = SubResource("StyleBoxFlat_quit_normal")
 text = "Quit"
+
+[node name="RecoveryOverlay" type="Control" parent="." unique_id=1100000001]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Dimmer" type="Panel" parent="RecoveryOverlay" unique_id=1100000002]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 1
+theme_override_styles/panel = SubResource("StyleBoxFlat_bg")
+
+[node name="CenterContainer" type="CenterContainer" parent="RecoveryOverlay" unique_id=1100000003]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="RecoveryPanel" type="Panel" parent="RecoveryOverlay/CenterContainer" unique_id=1100000004]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(360, 0)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_recovery_panel")
+
+[node name="MarginContainer" type="MarginContainer" parent="RecoveryOverlay/CenterContainer/RecoveryPanel" unique_id=1100000005]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_top = 24
+theme_override_constants/margin_right = 24
+theme_override_constants/margin_bottom = 24
+
+[node name="VBox" type="VBoxContainer" parent="RecoveryOverlay/CenterContainer/RecoveryPanel/MarginContainer" unique_id=1100000006]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="Title" type="Label" parent="RecoveryOverlay/CenterContainer/RecoveryPanel/MarginContainer/VBox" unique_id=1100000007]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "Unsaved work found"
+horizontal_alignment = 1
+
+[node name="SubLabel" type="Label" parent="RecoveryOverlay/CenterContainer/RecoveryPanel/MarginContainer/VBox" unique_id=1100000008]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.65, 0.65, 0.65, 1)
+theme_override_font_sizes/font_size = 12
+text = "The editor closed with unsaved changes.\nWould you like to recover them?"
+horizontal_alignment = 1
+autowrap_mode = 3
+
+[node name="HBox" type="HBoxContainer" parent="RecoveryOverlay/CenterContainer/RecoveryPanel/MarginContainer/VBox" unique_id=1100000009]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="DiscardBtn" type="Button" parent="RecoveryOverlay/CenterContainer/RecoveryPanel/MarginContainer/VBox/HBox" unique_id=1100000010]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn_normal")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_btn_pressed")
+theme_override_styles/hover = SubResource("StyleBoxFlat_btn_hover")
+theme_override_styles/focus = SubResource("StyleBoxFlat_btn_normal")
+text = "Discard"
+
+[node name="RecoverBtn" type="Button" parent="RecoveryOverlay/CenterContainer/RecoveryPanel/MarginContainer/VBox/HBox" unique_id=1100000011]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_styles/normal = SubResource("StyleBoxFlat_recovery_btn_normal")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_recovery_btn_normal")
+theme_override_styles/hover = SubResource("StyleBoxFlat_recovery_btn_hover")
+theme_override_styles/focus = SubResource("StyleBoxFlat_recovery_btn_normal")
+text = "Recover"

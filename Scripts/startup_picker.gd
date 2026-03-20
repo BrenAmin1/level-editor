@@ -10,18 +10,25 @@ extends Control
 #   startup_picker.open_pressed.connect(show_load_dialog)
 #   startup_picker.file_selected.connect(_on_startup_file_selected)
 #   startup_picker.quit_pressed.connect(get_tree().quit)
+#   startup_picker.recovery_confirmed.connect(_on_recovery_confirmed)
+#   startup_picker.recovery_discarded.connect(_on_recovery_discarded)
 # ============================================================================
 
 signal new_level_pressed
 signal open_pressed
 signal file_selected(path: String)
 signal quit_pressed
+signal recovery_confirmed
+signal recovery_discarded
 
 @onready var recent_list: VBoxContainer  = %RecentList
 @onready var no_recents_label: Label     = %NoRecentsLabel
 @onready var new_level_btn: Button       = %NewLevel
 @onready var open_level_btn: Button      = %OpenLevel
 @onready var quit_btn: Button            = %QuitBtn
+@onready var recovery_overlay: Control   = $RecoveryOverlay
+@onready var recover_btn: Button         = %RecoverBtn
+@onready var discard_btn: Button         = %DiscardBtn
 
 # StyleBoxes for recent file buttons — set in _ready from theme
 var _recent_normal: StyleBoxFlat
@@ -32,6 +39,8 @@ func _ready() -> void:
 	new_level_btn.pressed.connect(func() -> void: new_level_pressed.emit())
 	open_level_btn.pressed.connect(func() -> void: open_pressed.emit())
 	quit_btn.pressed.connect(func() -> void: quit_pressed.emit())
+	recover_btn.pressed.connect(_on_recover_pressed)
+	discard_btn.pressed.connect(_on_discard_pressed)
 
 	# Grab styleboxes from the first sub-resource set (reuse from scene)
 	_recent_normal = new_level_btn.get_theme_stylebox("normal").duplicate()
@@ -70,3 +79,23 @@ func _populate_recent_files() -> void:
 		var captured_path: String = path
 		btn.pressed.connect(func() -> void: file_selected.emit(captured_path))
 		recent_list.add_child(btn)
+
+
+# ============================================================================
+# RECOVERY PROMPT
+# ============================================================================
+
+func show_recovery_prompt() -> void:
+	"""Show the crash-recovery overlay on top of the normal picker."""
+	recovery_overlay.visible = true
+	recover_btn.grab_focus()
+
+
+func _on_recover_pressed() -> void:
+	recovery_overlay.visible = false
+	recovery_confirmed.emit()
+
+
+func _on_discard_pressed() -> void:
+	recovery_overlay.visible = false
+	recovery_discarded.emit()

@@ -1,5 +1,7 @@
 class_name InputHandler extends RefCounted
 
+signal paint_mode_changed(enabled: bool)
+
 # Component handles all input processing for the level editor
 var editor: Node3D  # Reference to main level_editor
 var camera: CameraController
@@ -132,10 +134,11 @@ func set_material_palette_reference(palette):
 func toggle_paint_mode():
 	"""Toggle paint mode on/off"""
 	paint_mode = not paint_mode
+	paint_mode_changed.emit(paint_mode)
 	if paint_mode:
-		print("Paint Mode: ON (change materials without replacing tiles)")
+		Console.info("Paint Mode: ON")
 	else:
-		print("Paint Mode: OFF (normal tile placement)")
+		Console.info("Paint Mode: OFF")
 
 # ============================================================================
 # INPUT PROCESSING

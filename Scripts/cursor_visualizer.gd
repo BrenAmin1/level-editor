@@ -10,6 +10,7 @@ var grid_size: float = 1.0
 var current_tile_type: int = 0
 var current_rotation: float = 0.0
 var current_step_count: int = 4
+var paint_mode: bool = false
 
 # Cache to avoid rebuilding the preview mesh every frame
 var _last_tile_type: int = -1
@@ -17,6 +18,15 @@ var _last_rotation: float = -1.0
 var _last_step_count: int = -1
 
 const TILE_TYPE_STAIRS = 5
+
+# Normal mode colors
+const COLOR_EMPTY:    Color = Color(0.0, 1.0, 0.0, 0.5)   # green  — tile absent
+const COLOR_OCCUPIED: Color = Color(1.0, 0.0, 0.0, 0.5)   # red    — tile present
+
+# Paint mode colors
+const COLOR_PAINT_EMPTY:    Color = Color(0.55, 0.0, 0.85, 0.35)  # purple dim — no tile to paint
+const COLOR_PAINT_OCCUPIED: Color = Color(0.65, 0.1, 1.0,  0.55)  # purple bright — paintable tile
+
 
 func _ready():
 	create_cursor_preview()
@@ -31,7 +41,7 @@ func create_cursor_preview():
 	
 	var material: StandardMaterial3D = StandardMaterial3D.new()
 	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.albedo_color = Color(1.0, 1.0, 0.0, 0.3)
+	material.albedo_color = COLOR_EMPTY
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_ALWAYS
 	cursor_preview.material_override = material
@@ -90,7 +100,6 @@ func update_cursor_with_offset(camera: Camera3D, current_y_level: int, tile_exis
 	var from: Vector3 = camera.project_ray_origin(mouse_pos)
 	var to: Vector3 = from + camera.project_ray_normal(mouse_pos) * 1000
 	
-	# Create a plane at the current Y level
 	var y_world: float = current_y_level * grid_size
 	var placement_plane: Plane = Plane(Vector3.UP, y_world)
 	var intersection = placement_plane.intersects_ray(from, to - from)
@@ -104,29 +113,23 @@ func update_cursor_with_offset(camera: Camera3D, current_y_level: int, tile_exis
 			floori(adjusted_intersection.z / grid_size)
 		)
 		
-		# Rebuild preview mesh if tile type / rotation / step count changed
 		_refresh_cursor_mesh()
-		
-		# Update outline for hovered cell
 		update_cursor_outline(grid_pos, offset)
 		
-		# Show preview at this position
 		cursor_preview.visible = true
 		cursor_preview.position = grid_to_world(grid_pos, offset)
 		
-		# Change color based on whether tile exists
 		var material: StandardMaterial3D = cursor_preview.material_override as StandardMaterial3D
 		if material:
-			if tile_exists:
-				material.albedo_color = Color(1.0, 0.0, 0.0, 0.5)
+			if paint_mode:
+				material.albedo_color = COLOR_PAINT_OCCUPIED if tile_exists else COLOR_PAINT_EMPTY
 			else:
-				material.albedo_color = Color(0.0, 1.0, 0.0, 0.5)
+				material.albedo_color = COLOR_OCCUPIED if tile_exists else COLOR_EMPTY
 	else:
 		cursor_preview.visible = false
 		cursor_outline.visible = false
 
 func _refresh_cursor_mesh() -> void:
-	# Only rebuild when something actually changed
 	if (current_tile_type == _last_tile_type
 			and current_rotation == _last_rotation
 			and current_step_count == _last_step_count):

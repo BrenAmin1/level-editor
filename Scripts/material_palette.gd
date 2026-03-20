@@ -335,7 +335,7 @@ func _create_godot_material_for_surface(material_dict: Dictionary, surface_idx: 
 	# surface_idx matches MeshGenerator.SurfaceType: 0 = TOP, 1 = SIDES, 2 = BOTTOM
 	var m_material = StandardMaterial3D.new()
 	m_material.uv1_triplanar = true
-	m_material.uv1_world_triplanar = true
+	m_material.uv1_world_triplanar = false
 	m_material.uv1_triplanar_sharpness = 4.0
 	m_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 
